@@ -12,7 +12,7 @@ przez zwykłe API HTTP, z jednym poleceniem `sf-kit`, które robi to za ciebie.
 ## 0. Zacznij tutaj
 
 ```bash
-git clone <adres-repozytorium> sf-agent-kit
+git clone git@github.com:dpakula/sf-agent-kit.git
 cd sf-agent-kit
 ./sf-kit --help
 ```
@@ -25,6 +25,24 @@ Chcesz mieć `sf-kit` pod ręką z dowolnego katalogu:
 
 ```bash
 ln -s "$PWD/sf-kit" ~/.local/bin/sf-kit     # o ile ~/.local/bin jest w twoim PATH
+```
+
+### Aktualizacja do najnowszej wersji
+
+```bash
+cd sf-agent-kit
+git pull
+```
+
+Twoja konfiguracja i klucz leżą **poza** katalogiem Kitu (`~/.config/sf-kit/`), więc `git pull`
+ich nie dotyka — nie musisz nic ustawiać od nowa.
+
+Wydania są oznaczane tagami, licząc od **`v0.1.0`**. Listę zmian znajdziesz na stronie repozytorium
+w zakładce **Releases**; jeśli chcesz stanąć na konkretnym wydaniu zamiast na najnowszym kodzie:
+
+```bash
+git fetch --tags
+git checkout v0.1.0
 ```
 
 Dalej: §2 (klucz) → §7 (polecenia) → `sf-kit init`. Reszta dokumentu tłumaczy, co się dzieje
@@ -93,36 +111,35 @@ Uprawnienia efektywne = *prawa właściciela* ∩ *lista na kluczu*. Dopisanie c
 **nie doda ci uprawnienia**, którego nie masz na członkostwie — doda pozycję, która nic nie
 zmieni. Działa to tylko w jedną stronę: żeby ograniczyć klucz poniżej własnych praw.
 
-Praktyczny wniosek dla administratora: **`plans:write` nadaj na członkostwie agenta**
-w tej Organizacji. Jeśli dodatkowo zawężasz klucz listą — `plans:write` musi być **w obu
-miejscach naraz**, inaczej przecięcie je wytnie.
+Praktyczny wniosek dla administratora: **uprawnienia agenta nadaj na jego członkostwie**
+w tej Organizacji. Jeśli dodatkowo zawężasz klucz listą — każde potrzebne uprawnienie musi być
+**w obu miejscach naraz**, inaczej przecięcie je wytnie.
 
 ### Uprawnienia, o które musisz poprosić
 
-To jest zbadane i zmierzone, nie zgadywane (14.09.2026, wersja SF z tego dnia):
+To jest zbadane i zmierzone, nie zgadywane (14.09.2026).
 
-| co robisz | endpoint | jakie uprawnienie |
+**Podstawowy odczyt daje sam działający klucz** — żeby zobaczyć swoje zadania i przeczytać ich
+treść, nie potrzebujesz niczego ponad to. Dodatkowych uprawnień wymagają dopiero czynności,
+które coś zmieniają:
+
+| co robisz | endpoint | dodatkowe uprawnienie |
 |---|---|---|
-| czytasz listę zadań | `GET /api/v1/tasks` | **żadne szczególne** — wystarczy działający klucz |
-| czytasz szczegóły zadania | `GET /api/v1/tasks/{id}` | żadne szczególne |
+| czytasz listę zadań | `GET /api/v1/tasks` | – |
+| czytasz szczegóły zadania | `GET /api/v1/tasks/{id}` | – |
+| komentujesz zadanie | `POST /api/v1/tasks/{id}/comments` | – |
 | piszesz wpis na sprawie | `POST /api/v1/tickets/{id}/entries` | `tickets:comment` |
-| komentujesz zadanie | `POST /api/v1/tasks/{id}/comments` | żadne szczególne |
-| **bierzesz zadanie i kończysz je** | `PATCH /api/v1/tasks/{id}` | **`plans:write`** — nadane **na członkostwie** |
+| **bierzesz zadanie i kończysz je** | `PATCH /api/v1/tasks/{id}` | `tasks:own` |
 
-**Bez `plans:write` nie zmienisz statusu zadania.** Dostaniesz `403 Manager access required`.
-Czyli: zobaczysz zadanie, wykonasz je, napiszesz wpis — ale nie oznaczysz jako zrobionego,
-a ono zostanie w kolejce, jakby nikt go nie tknął.
+`tasks:own` znaczy dokładnie to, co mówi: wolno ci zmienić **status zadania, którego jesteś
+wykonawcą**. Nie cudzego, nie nieprzypisanego, i tylko status — nie tytuł ani termin. Tworzenie
+i kasowanie zadań to osobna sprawa i tego uprawnienia **nie dostaniesz ani nie potrzebujesz**.
 
 > **Poproś administratora o:** klucz **osobisty (`scope=user`)** oraz o nadanie ci na
-> **członkostwie** w tej Organizacji uprawnień `tickets:read`, `tickets:comment`
-> i `plans:write`.
+> **członkostwie** w tej Organizacji uprawnień `tickets:read`, `tickets:comment` i `tasks:own`.
 
-**Uczciwe ostrzeżenie, które administrator powinien przeczytać przed nadaniem:**
-`plans:write` jest dziś szersze, niż nazwa sugeruje. Poza zmianą statusu twojego zadania
-pozwala też **tworzyć nowe zadania, kasować cudze i wykonywać operacje zbiorcze**.
-Nie ma dziś węższego uprawnienia w rodzaju „zmień status zadania, które jest twoje".
-Jeśli to za dużo zaufania jak na twoją rolę — powiedz o tym; to jest znana sprawa do zawężenia
-i nie chcemy, żeby ktoś nadał ci je w ciemno.
+Nowe konto agenta zakładane z panelu dostaje ten zestaw **automatycznie** — jeśli twój klucz
+jest świeży, najprawdopodobniej masz już wszystko i nie musisz o nic prosić.
 
 ### Jak zapisać klucz
 
@@ -148,8 +165,10 @@ sf-kit whoami
 
 1. **Nie podawaj go modelowi.** Jeśli jesteś agentem AI: klucz należy do programu, który cię
    uruchamia, nie do ciebie. Model, który zna klucz, może go powtórzyć w dowolnej odpowiedzi.
-2. **Nie zapisuj go w repozytorium.** Kit ma hak, który zatrzyma commit, gdy w plikach pojawi
-   się `sk_live_` — ale hak działa tylko tam, gdzie go zainstalowano.
+2. **Nie zapisuj go w repozytorium.** Kit potrafi cię przed tym obronić: po uruchomieniu
+   `./sf-kit init` **sprawdza pliki przy każdym `git commit` i zatrzymuje zapis, jeśli znajdzie
+   w nich klucz** (ciąg zaczynający się od `sk_live_`). Działa to **tylko w tym katalogu** —
+   w innych twoich projektach nic nie pilnuje, więc tam uważaj sam.
 3. **Nie wklejaj go do logów ani zgłoszeń.** Jeśli klucz gdziekolwiek wyciekł: powiedz
    administratorowi **od razu**. Wyciek plus milczenie jest gorszy niż sam wyciek.
 
@@ -168,7 +187,7 @@ To jest cały twój cykl. `sf-kit worker` robi go za ciebie, ale warto wiedzieć
   5. Zamknij zadanie     PATCH /api/v1/tasks/{id}   {"status": "completed"}
 ```
 
-**Krok 1 ma haczyk, o którym musisz wiedzieć:** SalesForge nie ma dziś filtru „pokaż zadania
+**Krok 1 wymaga wyjaśnienia:** SalesForge nie ma dziś filtru „pokaż zadania
 agenta o slugu X". Filtr `assignee` przyjmuje wewnętrzny numer konta, którego ty nie znasz.
 Dlatego Kit pobiera zadania agentów i **odsiewa je po swojej stronie** po polu
 `assigned_agent_slug`. Działa; jest to obejście i tak jest opisane.
@@ -253,7 +272,7 @@ Uwaga: pole nazywa się `content`, nie `body`. Pomyłka daje `422`.
 |---|---|---|
 | **200 / 201** | udało się | nic |
 | **401** | klucz nieznany, wygasł albo go nie wysłałeś | sprawdź `sf-kit whoami`. Jeśli nie działa — klucz jest zły albo odwołany. **Nie próbuj w pętli**, poproś o nowy |
-| **403** | klucz jest dobry, ale nie wolno ci tej rzeczy | brakuje uprawnienia **na twoim członkostwie** (nie na kluczu — §2). Przy `PATCH /tasks` to prawie zawsze `plans:write`. Zapisz, czego próbowałeś, i poproś administratora — **nie obchodź tego innym endpointem** |
+| **403** | klucz jest dobry, ale nie wolno ci tej rzeczy | brakuje uprawnienia **na twoim członkostwie** (nie na kluczu — §2). Przy `PATCH /tasks` to albo brak `tasks:own`, albo zadanie **nie jest twoje** — odpowiedź mówi które. Zapisz, czego próbowałeś, i poproś administratora — **nie obchodź tego innym endpointem** |
 | **404** | nie ma takiego obiektu **albo nie masz do niego dostępu** | te dwie rzeczy wyglądają tak samo celowo. Sprawdź identyfikator; jeśli jest dobry, to znaczy, że ten obiekt nie jest twój |
 | **409** | konflikt — ktoś zmienił obiekt przed tobą | pobierz zadanie od nowa i spróbuj jeszcze raz. Nie nadpisuj na siłę |
 | **422** | wysłałeś coś w złym kształcie | odpowiedź mówi, którego pola brakuje. Najczęstsza pomyłka: `body` zamiast `content` |
@@ -313,15 +332,21 @@ adres SF, identyfikator Organizacji, twój slug agenta, katalog roboczy, limit c
   pętla (odbiór → wykonanie → wpis → zamknięcie) działa, **zanim** dołożymy do tego model.
   Jest niebezpieczny i dlatego nigdy nie jest domyślny; trzeba go wybrać jawnie.
 
-### Instalacja haka na wyciek klucza
+### Ochrona przed zapisaniem klucza w repozytorium
+
+`sf-kit init` włącza ją sam. Gdybyś chciał włączyć ją ręcznie albo sprawdzić, czy działa:
 
 ```bash
-./hooks/install.sh              # zainstaluj hak pre-commit w tym repozytorium
-bash hooks/pre-commit --autotest   # sprawdź, że hak faktycznie łapie
+./hooks/install.sh                  # włącz sprawdzanie przy commitach w tym katalogu
+bash hooks/pre-commit --autotest    # sprawdź, że naprawdę łapie klucz
 ```
 
-Hak zatrzymuje commit, w którym pojawia się klucz. Autotest jest tam nie bez powodu: przy
-pisaniu tego haka pomyliłem się dwa razy i **za każdym razem wyglądał na działający**.
+Od tej chwili każde `git commit` w tym katalogu przegląda zmieniane pliki i **przerywa zapis**,
+jeśli znajdzie w nich klucz. Zobaczysz wtedy listę plików i zdanie, co zrobić.
+
+Sprawdzenie z drugiej linijki jest tam nie bez powodu: pisząc tę ochronę, pomyliłem się dwa razy
+i **za każdym razem wyglądała na działającą, nie działając**. Skoro raz mnie zmyliła, powinna dać
+się sprawdzić jednym poleceniem — także tobie.
 
 ### Testy
 
@@ -339,6 +364,10 @@ Uczciwa lista, żebyś nie szukał:
 
 - **Nie ma endpointu „kim jestem"** dla klucza API. `sf-kit whoami` sprawdza klucz, próbując
   odczytu — powie ci, czy działa, ale nie poda twojej nazwy konta.
+- **Nie wiesz, kiedy twój klucz wygasa.** SalesForge nie podaje daty ważności posiadaczowi
+  klucza, a klucze agentów mają dostać **30-dniową ważność**. Dopóki tego nie widać, dowiesz
+  się o wygaśnięciu przez `401` w środku pracy — zapytaj administratora o datę i ustaw sobie
+  przypomnienie. `sf-kit whoami` mówi o tym wprost, zamiast pokazywać puste pole.
 - **Nie ma filtru po slugu agenta** — patrz §3, Kit odsiewa po swojej stronie.
 - **Nie ma powiadomienia o nowym zadaniu.** Worker odpytuje co minutę. Zadanie dodane
   o 12:00 zobaczysz najpóźniej 12:01.

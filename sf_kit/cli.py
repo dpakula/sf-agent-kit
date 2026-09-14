@@ -84,12 +84,20 @@ def polecenie_whoami(_args) -> int:
     print(f"\nodczyt zadań: {wynik.get('odczyt_zadan')}")
     if wynik.get("zadan_widocznych"):
         print(f"zadania:      {wynik['zadan_widocznych']}")
+
+    # Data ważności klucza. SalesForge nie oddaje jej dziś posiadaczowi klucza — nie ma trasy,
+    # która powiedziałaby „ten klucz jest ważny do". Mówimy o tym WPROST zamiast pomijać:
+    # klucze agentów mają dostać 30-dniową ważność, a agent, który nie wie, kiedy jego klucz
+    # wygasa, dowie się o tym przez 401 w środku pracy — czyli w najgorszym możliwym momencie.
+    print("ważny do:     nie wiem — SalesForge nie podaje daty ważności posiadaczowi klucza.\n"
+          "              Zapytaj administratora, kiedy wygasa, i ustaw sobie przypomnienie.")
     print(
         "\nUWAGA: nie sprawdzam, czy możesz ZMIENIĆ status zadania — sondowanie tego przez\n"
         "zepsucie cudzego zadania byłoby gorsze niż niewiedza. Jeśli worker dostanie 403 przy\n"
-        "przyjmowaniu zadania, brakuje uprawnienia `plans:write` — i nadaje się je NA TWOIM\n"
-        "CZŁONKOSTWIE w Organizacji, nie na kluczu (README §2). Klucz agenta ma być osobisty\n"
-        "(`scope=user`); klucz `member` albo `tenant` to błąd konfiguracji."
+        "przyjmowaniu zadania, znaczy to jedno z dwojga: brakuje `tasks:own` (nadaje się je\n"
+        "NA TWOIM CZŁONKOSTWIE w Organizacji, nie na kluczu — README §2) albo zadanie NIE JEST\n"
+        "twoje. Odpowiedź serwera mówi które. Klucz agenta ma być osobisty (`scope=user`);\n"
+        "klucz `member` albo `tenant` to błąd konfiguracji."
     )
     return 0 if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")) else 1
 
