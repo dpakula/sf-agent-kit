@@ -252,6 +252,33 @@ def przebieg(klient: Klient, konf: Konfiguracja) -> int:
     return 1
 
 
+#: Ile najwyżej czekamy między próbami, gdy SalesForge nie odpowiada. Kwadrans: dłuższe
+#: milczenie i tak wymaga człowieka, a krótsze nie odciąża serwera, który właśnie ma awarię.
+MAX_ODSTEP_AWARII_S = 900
+
+
+def odstep_po_awarii(odstep_bazowy: int, nieudanych: int) -> int:
+    """Ile czekać po `nieudanych` nieudanych próbach pobrania kolejki.
+
+    PO CO WYCOFYWANIE
+    ═════════════════
+    Bez niego worker pyta co minutę niezależnie od tego, czy serwer ma chwilową czkawkę, czy
+    leży od trzech godzin. Przy kilku agentach na jednej instalacji daje to stały ostrzał
+    maszyny, która właśnie ma awarię — czyli dokładnie wtedy, gdy najmniej go potrzebuje.
+    README mówił o zwiększaniu odstępu (30 s, 60 s, 120 s) jako o instrukcji dla człowieka
+    wołającego API ręcznie; worker sam tego nie robił.
+
+    Podwajanie od odstępu bazowego, z sufitem. `nieudanych=0` (czyli po udanej próbie) wraca
+    do odstępu bazowego natychmiast — awaria, która minęła, nie ma prawa spowalniać pracy
+    przez następne pół godziny.
+    """
+    if nieudanych <= 0:
+        return odstep_bazowy
+    # Wykładniczo, ale bez wchodzenia w astronomiczne liczby przy długiej awarii: sufit
+    # obcina to zanim `2 ** nieudanych` zacznie cokolwiek znaczyć.
+    return min(odstep_bazowy * (2 ** min(nieudanych, 10)), MAX_ODSTEP_AWARII_S)
+
+
 def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
     """Pętla workera. `raz=True` robi jeden przebieg i kończy."""
     _log(f"worker startuje: agent „{konf.slug}”, wykonawca `{konf.runtime}`, "
@@ -259,6 +286,20 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
     if raz:
         return 0 if przebieg(klient, konf) >= 0 else 1
 
+    nieudanych = 0
     while True:
-        przebieg(klient, konf)
-        time.sleep(konf.odstep_s)
+        wynik = przebieg(klient, konf)
+        if wynik < 0:
+            nieudanych += 1
+            odstep = odstep_po_awarii(konf.odstep_s, nieudanych)
+            # Mówimy o tym w dzienniku, bo worker, który nagle pyta co kwadrans zamiast co
+            # minutę, wygląda z zewnątrz na zepsuty. Tu widać, że to decyzja, nie usterka.
+            _log(f"   nie mogę pobrać kolejki ({nieudanych}. raz z rzędu) — "
+                 f"następna próba za {odstep} s")
+        else:
+            if nieudanych:
+                _log(f"   połączenie wróciło po {nieudanych} nieudanych próbach — "
+                     f"odstęp z powrotem {konf.odstep_s} s")
+            nieudanych = 0
+            odstep = konf.odstep_s
+        time.sleep(odstep)

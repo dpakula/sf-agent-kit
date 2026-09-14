@@ -27,17 +27,116 @@ from pathlib import Path
 
 #: Nazwa usługi w pęku kluczy macOS. Stała, bo `security` szuka dokładnie po niej.
 USLUGA = "sf-agent-kit"
-KONTO = "api-key"
+
+#: Konto w pęku kluczy i nazwa pliku konfiguracji SPRZED podziału na agentów (v0.2 i starsze).
+#: Zostaje na zawsze jako ścieżka odczytu: ludzie, którzy już mają Kit skonfigurowany, nie mają
+#: obowiązku niczego przenosić, żeby aktualizacja nie zepsuła im pracy.
+KONTO_JEDNEGO_AGENTA = "api-key"
+
+#: Zmienna wskazująca katalog konfiguracji WPROST. Dla tych, którzy trzymają agentów poza
+#: katalogiem domowym (kontener, wspólna maszyna) — i dla testów.
+ZMIENNA_DOMU = "SF_KIT_HOME"
 
 #: Prefiks kluczy SalesForge. Po nim rozpoznajemy pomyłkę („wkleiłeś nie to") i po nim
 #: szuka hak gita.
 PREFIKS_KLUCZA = "sk_live_"
 
+#: Agent wybrany na czas tego uruchomienia (flagą `--agent`). Ustawia go CLI, zanim cokolwiek
+#: sięgnie po konfigurację.
+_wybrany: str | None = None
 
-def sciezka_konfiguracji() -> Path:
-    """Katalog konfiguracji. `XDG_CONFIG_HOME` uszanowany, bo tak działa reszta narzędzi."""
+
+class WieluAgentow(RuntimeError):
+    """Na tej maszynie jest kilku agentów i nie wiadomo, o którego chodzi."""
+
+
+def ustaw_agenta(slug: str | None) -> None:
+    """Wskaż agenta na czas tego uruchomienia. `None` = wróć do wykrywania."""
+    global _wybrany
+    _wybrany = (slug or "").strip() or None
+
+
+def wybrany_agent() -> str | None:
+    return _wybrany
+
+
+def katalog_bazowy() -> Path:
+    """Korzeń konfiguracji Kitu — nad katalogami poszczególnych agentów."""
     baza = os.environ.get("XDG_CONFIG_HOME")
     return Path(baza) / "sf-kit" if baza else Path.home() / ".config" / "sf-kit"
+
+
+def agenci() -> list[str]:
+    """Slugi agentów skonfigurowanych na tej maszynie, alfabetycznie.
+
+    Agent = podkatalog z plikiem `config.json`. Katalog bez konfiguracji nie jest agentem,
+    tylko śmieciem po nieudanym `init` — i nie ma prawa uczestniczyć w wyborze.
+    """
+    korzen = katalog_bazowy()
+    if not korzen.is_dir():
+        return []
+    return sorted(k.name for k in korzen.iterdir()
+                  if k.is_dir() and (k / "config.json").is_file())
+
+
+def czy_uklad_jednego_agenta() -> bool:
+    """Czy na tej maszynie leży konfiguracja sprzed podziału na agentów (v0.2)."""
+    return (katalog_bazowy() / "config.json").is_file()
+
+
+def sciezka_konfiguracji() -> Path:
+    """Katalog konfiguracji TEGO agenta.
+
+    KOLEJNOŚĆ ROZSTRZYGANIA — od najbardziej jawnego do najbardziej domyślnego:
+      1. `SF_KIT_HOME` — powiedziane wprost, więc nie zgadujemy niczego dalej;
+      2. `--agent <slug>` — wybór na to uruchomienie;
+      3. dokładnie JEDEN skonfigurowany agent — bierzemy jego, bez flagi;
+      4. układ sprzed podziału (`~/.config/sf-kit/config.json`) — czyli ktoś, kto skonfigurował
+         Kit przed tą wersją i nie ma powodu niczego przenosić;
+      5. brak czegokolwiek — katalog bazowy, żeby `init` miał gdzie zacząć.
+
+    Punkt 3 jest tu po to, żeby **nie karać pojedynczego użytkownika za to, że ktoś inny ma
+    kilku agentów**: dopóki agent jest jeden, wszystko działa bez ani jednej flagi. Dopiero
+    drugi agent każe powiedzieć, o którego chodzi — i wtedy mówimy to głośno (`WieluAgentow`),
+    zamiast wybierać pierwszego z brzegu. Wybranie „któregoś" znaczyłoby pisanie do cudzej
+    Organizacji cudzym kluczem, a to jest błąd, którego nie widać ani w wyniku, ani w logu.
+    """
+    wprost = os.environ.get(ZMIENNA_DOMU)
+    if wprost:
+        return Path(wprost).expanduser()
+
+    korzen = katalog_bazowy()
+    if _wybrany:
+        return korzen / _wybrany
+
+    znalezieni = agenci()
+    if len(znalezieni) == 1:
+        return korzen / znalezieni[0]
+    if len(znalezieni) > 1:
+        if czy_uklad_jednego_agenta():
+            # Stara konfiguracja obok nowych: ktoś jest w połowie przenosin. Nie zgadujemy.
+            raise WieluAgentow(
+                "Na tej maszynie jest kilku agentów ORAZ konfiguracja sprzed podziału.\n"
+                f"Agenci: {', '.join(znalezieni)}\n"
+                "Powiedz, o którego chodzi: `--agent <slug>`.")
+        raise WieluAgentow(
+            "Na tej maszynie jest kilku agentów — powiedz, o którego chodzi:\n"
+            + "\n".join(f"  --agent {s}" for s in znalezieni))
+
+    return korzen
+
+
+def konto_w_peku() -> str:
+    """Konto w pęku kluczy macOS: slug agenta albo konto sprzed podziału.
+
+    Jeden wpis „api-key" na maszynę znaczył JEDEN agent na maszynę — a Damian planuje kilku
+    w jednym Codeksie. Konto per slug rozdziela klucze tak, jak katalogi rozdzielają resztę.
+    """
+    korzen = katalog_bazowy()
+    katalog = sciezka_konfiguracji()
+    if katalog != korzen and katalog.parent == korzen:
+        return katalog.name
+    return KONTO_JEDNEGO_AGENTA
 
 
 def _plik_klucza() -> Path:
@@ -77,14 +176,23 @@ def _zapisz_keychain(klucz: str) -> str:
     cały ten moduł — wartość wylądowałaby w `ps`. Wariant `-w` bez wartości każe narzędziu
     zapytać, a my odpowiadamy na jego stdin.
     """
+    # `security` przy `-w` bez wartości pyta o hasło DWA razy („password data for new item"
+    # i „retype password"). Podajemy je dwa razy na wejściu, żeby oba pytania dostały odpowiedź
+    # i nie zostały na ekranie jako monity, których człowiek nie rozumie (Damian zobaczył je
+    # przy pierwszym uruchomieniu i nie wiedział, czy ma coś wpisać).
+    #
+    # Ostrzeżenie uczciwe: sprawdzone jest to, że dodatkowa linia niczego nie psuje. NIE jest
+    # sprawdzone na macOS, czy `security` czyta te pytania ze standardowego wejścia, czy prosto
+    # z terminala — w tym drugim przypadku monity zostaną mimo wszystko i dlatego `init`
+    # uprzedza o nich jednym zdaniem PRZED wywołaniem.
     wynik = subprocess.run(
-        ["security", "add-generic-password", "-U", "-a", KONTO, "-s", USLUGA, "-w"],
-        input=klucz, text=True, capture_output=True,
+        ["security", "add-generic-password", "-U", "-a", konto_w_peku(), "-s", USLUGA, "-w"],
+        input=f"{klucz}\n{klucz}\n", text=True, capture_output=True,
     )
     if wynik.returncode != 0:
         # Komunikat `security` nie zawiera klucza — możemy go pokazać w całości.
         raise RuntimeError(f"nie udało się zapisać w pęku kluczy: {wynik.stderr.strip()}")
-    return f'pęk kluczy macOS (usługa „{USLUGA}”, konto „{KONTO}”)'
+    return f'pęk kluczy macOS (usługa „{USLUGA}”, konto „{konto_w_peku()}”)'
 
 
 def _zapisz_plik(klucz: str) -> str:
@@ -103,7 +211,26 @@ def _zapisz_plik(klucz: str) -> str:
     with os.fdopen(deskryptor, "w") as f:
         f.write(klucz + "\n")
     os.chmod(plik, 0o600)
+
+    if not czy_prawa_chronia():
+        # Na Windows `chmod` jest niemal pustym gestem: ustawia tylko atrybut „tylko do
+        # odczytu", a nie to, kto plik przeczyta. Zdanie „prawa 600" byłoby tam nieprawdą
+        # o zabezpieczeniu — a nieprawda o zabezpieczeniu zdejmuje czujność skuteczniej,
+        # niż brak zabezpieczenia ją podnosi.
+        return (f"{plik} — UWAGA: na tym systemie prawa pliku NIE ograniczają dostępu. "
+                f"Klucz leży w pliku czytelnym dla innych programów tego konta. "
+                f"Zalecany WSL albo macOS/Linux — patrz README, sekcja o systemie.")
     return f"{plik} (prawa 600)"
+
+
+def czy_prawa_chronia() -> bool:
+    """Czy prawa pliku na tym systemie naprawdę ograniczają dostęp.
+
+    Rozdzielone od `czy_macos`, bo to inne pytanie: macOS ma pęk kluczy, Linux ma działające
+    prawa, a Windows nie ma ani jednego, ani drugiego — i to trzecie trzeba powiedzieć wprost
+    zamiast obiecywać „prawa 600".
+    """
+    return os.name == "posix"
 
 
 # ── odczyt ───────────────────────────────────────────────────────────────────
@@ -121,7 +248,7 @@ def wczytaj() -> str | None:
         return ze_srodowiska.strip()
 
     if czy_macos():
-        z_keychain = _wczytaj_keychain()
+        z_keychain, _ = _wczytaj_keychain()
         if z_keychain:
             return z_keychain
 
@@ -133,14 +260,57 @@ def wczytaj() -> str | None:
     return None
 
 
-def _wczytaj_keychain() -> str | None:
+#: Kod, którym `security` mówi „nie ma takiego wpisu". Każdy inny niezerowy znaczy coś
+#: innego — najczęściej „jest, ale nie mogę go otworzyć" (proces bez dostępu do pęku).
+KOD_BRAK_WPISU = 44
+
+#: Trzy odpowiedzi na pytanie „dlaczego nie mam klucza". Rozróżnienie NIE jest kosmetyczne:
+#: „nie zapisałeś klucza" każe człowiekowi uruchomić `init`, a „nie mam dostępu do pęku"
+#: znaczy, że klucz JEST i wszystko działa poprawnie — tylko pyta o niego proces, który
+#: z założenia nie ma go dostać (model w piaskownicy).
+BRAK_WPISU = "brak_wpisu"
+BRAK_DOSTEPU = "brak_dostepu"
+ZNALEZIONY = "znaleziony"
+
+
+def _wczytaj_keychain() -> tuple[str | None, str]:
+    """`(klucz, powód)`. Powód mówi, CZEGO zabrakło — patrz stałe wyżej."""
     wynik = subprocess.run(
-        ["security", "find-generic-password", "-a", KONTO, "-s", USLUGA, "-w"],
+        ["security", "find-generic-password", "-a", konto_w_peku(), "-s", USLUGA, "-w"],
         text=True, capture_output=True,
     )
-    if wynik.returncode != 0:
-        return None
-    return wynik.stdout.strip() or None
+    if wynik.returncode == 0:
+        klucz = wynik.stdout.strip()
+        return (klucz or None), (ZNALEZIONY if klucz else BRAK_WPISU)
+    if wynik.returncode == KOD_BRAK_WPISU:
+        return None, BRAK_WPISU
+    return None, BRAK_DOSTEPU
+
+
+def powod_braku_klucza() -> str:
+    """Zdanie tłumaczące, dlaczego `wczytaj()` nic nie oddało. Do pokazania człowiekowi.
+
+    Wołane WYŁĄCZNIE wtedy, gdy klucza nie ma — sprawdza pęk drugi raz, ale tylko na ścieżce
+    błędu, gdzie jedno dodatkowe wywołanie nic nie kosztuje, a zła diagnoza kosztuje wieczór.
+
+    Przypadek, dla którego to powstało: `sf-kit` uruchomiony PRZEZ MODEL w piaskownicy nie ma
+    dostępu do pęku kluczy i dostawał komunikat „Nie mam klucza. Uruchom `sf-kit init`" —
+    czyli instrukcję naprawy czegoś, co nie jest zepsute. Klucz jest zapisany, a brak dostępu
+    to zamierzone zachowanie: klucz należy do workera i do człowieka przy terminalu, nie do
+    modelu (README, sekcja o kluczu).
+    """
+    if czy_macos():
+        _, powod = _wczytaj_keychain()
+        if powod == BRAK_DOSTEPU:
+            return (
+                "Klucz JEST zapisany, ale ten proces nie ma dostępu do pęku kluczy.\n"
+                "Jeśli uruchamiasz `sf-kit` z wnętrza modelu (piaskownica Codexa), to jest\n"
+                "zachowanie zamierzone — klucz należy do człowieka przy terminalu i do workera,\n"
+                "nie do modelu. Uruchom to polecenie sam, w zwykłym terminalu.\n"
+                "Jeśli jesteś przy terminalu i mimo to widzisz ten komunikat, odblokuj pęk\n"
+                "kluczy (`security unlock-keychain`) albo zezwól narzędziu `security` na dostęp."
+            )
+    return "Nie mam klucza. Uruchom `./sf-kit init` — zapyta o niego i zapisze bezpiecznie."
 
 
 def zapytaj_i_zapisz() -> tuple[str, str]:
@@ -150,6 +320,9 @@ def zapytaj_i_zapisz() -> tuple[str, str]:
     znaków byłoby zgadywaniem cudzego formatu — a klucz, którego nie rozpoznajemy, i tak
     odrzuci serwer, i zrobi to wiarygodniej niż my.
     """
+    if czy_macos():
+        print("Klucz trafi do pęku kluczy macOS. System może przy tym wyświetlić własne\n"
+              "pytania o hasło — nic nie wpisuj, one dotyczą tego samego klucza.")
     klucz = getpass.getpass("Klucz API SalesForge (nie będzie widoczny): ").strip()
     if not klucz:
         raise ValueError("nie podałeś klucza")

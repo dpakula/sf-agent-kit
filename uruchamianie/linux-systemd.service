@@ -14,6 +14,8 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/sf-agent-kit
+# Kilku agentów? Dopisz `--agent <slug>` i nazwij plik usługi slugiem
+# (np. sf-kit-worker@kodeks-dpakula.service), żeby procesy się nie myliły.
 ExecStart=%h/sf-agent-kit/sf-kit worker
 
 # Wraca sam, gdy padnie — ale z odstępem. Worker padający natychmiast po starcie (zły klucz)
