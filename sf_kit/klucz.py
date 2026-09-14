@@ -103,7 +103,26 @@ def _zapisz_plik(klucz: str) -> str:
     with os.fdopen(deskryptor, "w") as f:
         f.write(klucz + "\n")
     os.chmod(plik, 0o600)
+
+    if not czy_prawa_chronia():
+        # Na Windows `chmod` jest niemal pustym gestem: ustawia tylko atrybut „tylko do
+        # odczytu", a nie to, kto plik przeczyta. Zdanie „prawa 600" byłoby tam nieprawdą
+        # o zabezpieczeniu — a nieprawda o zabezpieczeniu zdejmuje czujność skuteczniej,
+        # niż brak zabezpieczenia ją podnosi.
+        return (f"{plik} — UWAGA: na tym systemie prawa pliku NIE ograniczają dostępu. "
+                f"Klucz leży w pliku czytelnym dla innych programów tego konta. "
+                f"Zalecany WSL albo macOS/Linux — patrz README, sekcja o systemie.")
     return f"{plik} (prawa 600)"
+
+
+def czy_prawa_chronia() -> bool:
+    """Czy prawa pliku na tym systemie naprawdę ograniczają dostęp.
+
+    Rozdzielone od `czy_macos`, bo to inne pytanie: macOS ma pęk kluczy, Linux ma działające
+    prawa, a Windows nie ma ani jednego, ani drugiego — i to trzecie trzeba powiedzieć wprost
+    zamiast obiecywać „prawa 600".
+    """
+    return os.name == "posix"
 
 
 # ── odczyt ───────────────────────────────────────────────────────────────────

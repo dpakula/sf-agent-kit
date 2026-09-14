@@ -89,9 +89,19 @@ a korzysta z Codexa. Sześć poleceń po kolei; przy każdym napisane, czego si�
 **Nie ma nic do zainstalowania poza tym.** Kit korzysta wyłącznie z biblioteki standardowej
 Pythona, więc `pip install` nie jest potrzebny — po pobraniu od razu działa.
 
-**System:** macOS i Linux. Na Windows Kit **nie był sprawdzany**; najbliższą działającą drogą
-jest WSL (Linux wewnątrz Windowsa), ale tego też nikt dotąd nie potwierdził — potraktuj to
-jako niewiadomą, nie jako obietnicę.
+**System: macOS albo Linux.** Na Windows **poza WSL** Kit nie jest bezpieczny i nie należy
+go tam uruchamiać — z dwóch konkretnych powodów, nie z ostrożności:
+
+- **klucz nie byłby chroniony prawami pliku.** Na macOS klucz idzie do pęku kluczy, na Linuksie
+  do pliku z prawami `600` (czyta tylko twoje konto). Na Windows `chmod` ustawia jedynie atrybut
+  „tylko do odczytu" i **nie ogranicza tego, kto plik przeczyta** — klucz leżałby otwarty dla
+  innych programów tego konta. Kit mówi o tym wprost przy zapisie, zamiast obiecywać „prawa 600";
+- **ochrona przed zapisaniem klucza w repozytorium by się nie włączyła** — instalator haka jest
+  skryptem powłoki i bez niej nie ma czym go uruchomić. Kit zgłosi to ostrzeżeniem.
+
+**Na Windows użyj WSL** (Linux wewnątrz Windowsa) — wewnątrz WSL obowiązuje wszystko, co ten
+dokument mówi o Linuksie. Samego WSL nikt tego Kitu jeszcze nie przetestował end-to-end, więc
+przy pierwszym uruchomieniu tam warto zerknąć na wynik `sf-kit whoami` uważniej niż zwykle.
 
 ### Co dostajesz od administratora SalesForge
 
@@ -683,7 +693,7 @@ Ważne przy zostawianiu go bez nadzoru — i inne dla każdego rodzaju kłopotu:
 | **403 przy przyjmowaniu zadania** | **zatrzymuje się i kończy pracę**, wypisując, czego brakuje. Nie kręci się w kółko na zadaniu, którego nie może przyjąć |
 | **401 (klucz przestał działać)** | zatrzymuje się i kończy pracę |
 | brak zadań | nic; czeka do następnego przebiegu |
-| nie udało się pobrać kolejki (sieć, 5xx) | zapisuje to w dzienniku i próbuje ponownie **po zwykłym odstępie** (domyślnie 60 s). Odstęp NIE rośnie — przy dłuższej awarii serwera worker pyta co minutę |
+| nie udało się pobrać kolejki (sieć, 5xx) | zapisuje to w dzienniku i **wycofuje się**: odstęp podwaja się z każdą kolejną nieudaną próbą (60 s → 120 s → 240 s…), najwyżej do 15 minut. Po pierwszej udanej próbie wraca natychmiast do zwykłego odstępu. Obie zmiany widać w dzienniku, żeby worker pytający raz na kwadrans nie wyglądał na zepsuty |
 | **zadanie przekroczyło limit czasu** (domyślnie 30 min) | pisze na sprawie, na czym stanęło, i **oddaje zadanie do kolejki** (`queued`). Zadanie nie zostaje zawieszone w `in_progress` |
 | wykonanie się nie powiodło | to samo: wpis z powodem i zadanie z powrotem w kolejce |
 | praca zrobiona, ale wpisu nie udało się zapisać | zadanie **nie jest zamykane** i wraca do kolejki — zadanie zamknięte bez śladu wygląda jak zrobione i nikt nie wie co |
@@ -741,6 +751,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
   o 12:00 zostanie zauważone najpóźniej o 12:01.
 - **Załączniki** (pobieranie plików ze sprawy) — nieobsługiwane.
 - **Praca w kilku Organizacjach naraz** — jeden klucz, jedna Organizacja.
+- **Windows poza WSL** — nieobsługiwany, patrz „System" w §1.
 
 Administrator znajdzie odsyłacze do zgłoszonych spraw w sekcji poniżej.
 
