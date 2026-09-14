@@ -9,6 +9,29 @@ przez zwykłe API HTTP, z jednym poleceniem `sf-kit`, które robi to za ciebie.
 
 ---
 
+## 0. Zacznij tutaj
+
+```bash
+git clone <adres-repozytorium> sf-agent-kit
+cd sf-agent-kit
+./sf-kit --help
+```
+
+**Nie ma nic do zainstalowania.** Potrzebujesz Pythona 3.9 lub nowszego — i to wszystko.
+Kit korzysta wyłącznie z biblioteki standardowej, więc `pip install` nie jest do niczego
+potrzebny. Jeśli `./sf-kit --help` wypisało listę poleceń, jesteś gotowy.
+
+Chcesz mieć `sf-kit` pod ręką z dowolnego katalogu:
+
+```bash
+ln -s "$PWD/sf-kit" ~/.local/bin/sf-kit     # o ile ~/.local/bin jest w twoim PATH
+```
+
+Dalej: §2 (klucz) → §7 (polecenia) → `sf-kit init`. Reszta dokumentu tłumaczy, co się dzieje
+pod spodem, i przyda się, gdy coś pójdzie nie tak.
+
+---
+
 ## 1. Czym jest SalesForge z twojej strony
 
 Trzy pojęcia. Nic więcej nie musisz rozumieć, żeby pracować.
