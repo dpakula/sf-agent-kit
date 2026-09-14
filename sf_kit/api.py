@@ -20,9 +20,47 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass, field
 
 #: Ile czekamy na odpowiedź. Minuta: `codex exec` bywa wolny, ale SAMO API nie ma prawa.
 LIMIT_CZASU_S = 60
+
+#: Ile zadań bierzemy jednym pytaniem. 200 to sufit strony po stronie SalesForge — większa
+#: liczba nie da większej strony, da 422.
+NA_STRONE = 200
+
+#: Bezpiecznik przeglądania, nie limit projektowy. Dwadzieścia stron to 4000 zadań; kolejka,
+#: która tego nie mieści, potrzebuje filtru po stronie serwera, a nie kolejnej pętli u klienta.
+STRON_NAJWYZEJ = 20
+
+
+@dataclass
+class WynikSzukania:
+    """Zadania znalezione + ILE kolejki przy tym przejrzano.
+
+    Dwie liczby obok listy, bo „nie masz zadań" i „przejrzałem 4000 z 6200 i nie znalazłem"
+    to dwie różne wiadomości dla człowieka — a wyglądają identycznie, gdy oddaje się samą
+    pustą listę. Obcięcie ma być widoczne.
+    """
+
+    zadania: list[dict] = field(default_factory=list)
+    przejrzano: int = 0
+    wszystkich: int = 0
+
+    @property
+    def urwane(self) -> bool:
+        """Czy skończyliśmy na bezpieczniku, nie na końcu kolejki."""
+        return self.przejrzano < self.wszystkich
+
+    def __iter__(self):
+        """Żeby `for z in wynik` i `list(wynik)` dawały zadania — wołający pyta o nie najczęściej."""
+        return iter(self.zadania)
+
+    def __len__(self) -> int:
+        return len(self.zadania)
+
+    def __bool__(self) -> bool:
+        return bool(self.zadania)
 
 
 class BladAPI(RuntimeError):
@@ -133,26 +171,64 @@ class Klient:
 
     # ── zadania ──────────────────────────────────────────────────────────────
 
-    def zadania(self, *, status: str = "queued", limit: int = 50) -> list[dict]:
-        """Zadania agentów o danym statusie. **Bez** zawężenia do mnie — patrz `moje_zadania`."""
-        zapytanie = urllib.parse.urlencode(
-            {"assignee_kind": "agent", "status": status, "limit": limit})
-        odp = self._wywolaj("GET", f"tasks?{zapytanie}")
-        return odp.get("items", []) if isinstance(odp, dict) else []
+    def zadania(self, *, status: str = "queued", limit: int = 50,
+                offset: int = 0) -> dict:
+        """Jedna STRONA zadań agentów o danym statusie. Bez zawężenia do mnie.
 
-    def moje_zadania(self, *, slug: str, status: str = "queued", limit: int = 50) -> list[dict]:
-        """Moje zadania — odsiane PO STRONIE KLIENTA.
+        Oddaje całą odpowiedź serwera (`items`, `total`, `offset`), a nie samą listę: bez
+        `total` wołający nie ma jak odróżnić „to wszystko" od „tyle zmieściło się na stronie".
+        """
+        zapytanie = urllib.parse.urlencode(
+            {"assignee_kind": "agent", "status": status, "limit": limit, "offset": offset})
+        odp = self._wywolaj("GET", f"tasks?{zapytanie}")
+        return odp if isinstance(odp, dict) else {"items": [], "total": 0}
+
+    def moje_zadania(self, *, slug: str, status: str = "queued",
+                     ile_najwyzej: int | None = None) -> WynikSzukania:
+        """Moje zadania — odsiane PO STRONIE KLIENTA, ale przez CAŁĄ kolejkę.
 
         SalesForge nie ma dziś filtru „zadania agenta o slugu X": parametr `assignee` przyjmuje
-        wewnętrzny numer konta, którego posiadacz klucza nie zna (nie ma też endpointu „kim
-        jestem"). To jest OBEJŚCIE i tak jest opisane w README §3 — nie funkcja.
+        wewnętrzny numer konta, którego posiadacz klucza nie zna. To jest OBEJŚCIE i tak jest
+        opisane w README — nie funkcja. Filtr po stronie serwera jest zgłoszony jako osobna
+        potrzeba (README, „Ograniczenia wersji 0.2").
 
-        Cena: przy dużej tablicy pobieramy cudze zadania, żeby je wyrzucić. Przy 518 zadaniach
-        w kolejce i stronie 50 to jest jedno żądanie; gdy przestanie wystarczać, właściwą
-        naprawą jest filtr po stronie serwera, a nie większy `limit`.
+        DLACZEGO STRONICOWANIE, A NIE WIĘKSZY `limit`
+        ══════════════════════════════════════════════
+        Wersja 0.1 pytała o pierwsze 50 zadań i odsiewała je u siebie. Przy 518 zadaniach
+        w kolejce oznaczało to, że agent, którego zadanie stoi na pozycji 51 albo dalszej,
+        **nigdy go nie zobaczy** — a worker wygląda wtedy na bezczynnego, nie na zepsutego.
+        To jest najgorszy rodzaj usterki: cisza, którą łatwo wziąć za spokój.
+
+        Sufit strony po stronie SF to 200, więc bierzemy po 200 i idziemy `offset`-em aż do
+        `total` albo do znalezienia tego, po co przyszliśmy (`ile_najwyzej`). Worker potrzebuje
+        JEDNEGO zadania, więc zwykle kończy na pierwszej stronie.
+
+        `STRON_NAJWYZEJ` jest bezpiecznikiem na wypadek kolejki, która rośnie szybciej, niż ją
+        czytamy — a nie limitem projektowym. Gdy się o niego obijemy, wynik mówi o tym wprost
+        (`urwane`), bo przeszukanie części kolejki i przeszukanie całej dają ten sam wygląd:
+        „brak zadań".
         """
-        return [z for z in self.zadania(status=status, limit=limit)
-                if (z.get("assigned_agent_slug") or "") == slug]
+        zebrane: list[dict] = []
+        przejrzano = 0
+        wszystkich = 0
+
+        for _ in range(STRON_NAJWYZEJ):
+            strona = self.zadania(status=status, limit=NA_STRONE, offset=przejrzano)
+            pozycje = strona.get("items") or []
+            wszystkich = int(strona.get("total") or 0)
+            przejrzano += len(pozycje)
+
+            zebrane.extend(z for z in pozycje
+                           if (z.get("assigned_agent_slug") or "") == slug)
+
+            if ile_najwyzej is not None and len(zebrane) >= ile_najwyzej:
+                return WynikSzukania(zebrane[:ile_najwyzej], przejrzano, wszystkich)
+            # Pusta strona kończy przeglądanie także wtedy, gdy `total` kłamie — inaczej
+            # jedno przekłamanie licznika po stronie serwera dałoby dwadzieścia pustych pytań.
+            if not pozycje or przejrzano >= wszystkich:
+                break
+
+        return WynikSzukania(zebrane, przejrzano, wszystkich)
 
     def zadanie(self, task_id: str) -> dict:
         return self._wywolaj("GET", f"tasks/{task_id}")
@@ -198,9 +274,9 @@ class Klient:
         """
         wynik: dict = {"adres": self.baza, "organizacja": self.organizacja}
         try:
-            zadania = self.zadania(limit=1)
+            strona = self.zadania(limit=1)
             wynik["odczyt_zadan"] = "działa"
-            wynik["zadan_widocznych"] = "tak" if zadania else "brak w kolejce"
+            wynik["zadan_widocznych"] = str(strona.get("total") or 0)
         except BladAPI as blad:
             wynik["odczyt_zadan"] = f"NIE DZIAŁA — {blad}"
         return wynik

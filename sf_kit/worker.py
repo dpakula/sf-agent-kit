@@ -184,18 +184,31 @@ def _wroc_do_kolejki(klient: Klient, zid: str) -> None:
 
 
 def przebieg(klient: Klient, konf: Konfiguracja) -> int:
-    """Jeden przebieg: weź NAJWYŻEJ JEDNO zadanie. Zwraca liczbę obsłużonych (0 albo 1)."""
+    """Jeden przebieg: weź NAJWYŻEJ JEDNO zadanie.
+
+    Zwraca liczbę obsłużonych zadań (0 albo 1) albo **-1**, gdy nie udało się nawet pobrać
+    kolejki. Trzecia wartość jest tu po to, żeby `--once` mógł zakończyć się kodem błędu:
+    „nie miałem co robić" i „nie dodzwoniłem się do SF" to dwie różne rzeczy, a proces, który
+    na obie odpowiada zerem, nie nadaje się do niczyjego nadzoru (cron, launchd, systemd).
+    """
     try:
-        moje = klient.moje_zadania(slug=konf.slug)
+        # Jedno zadanie na przebieg, więc szukamy do pierwszego trafienia — przy kolejce
+        # liczonej w setkach zwykle kończy się to na jednej stronie.
+        wynik = klient.moje_zadania(slug=konf.slug, ile_najwyzej=1)
     except ZlyKlucz as blad:
         raise SystemExit(f"Klucz przestał działać: {blad}") from None
     except BladAPI as blad:
         _log(f"nie mogę pobrać zadań: {blad}")
-        return 0
+        return -1
 
-    if not moje:
+    if not wynik:
+        if wynik.urwane:
+            # Cisza z powodu bezpiecznika wygląda jak cisza z powodu braku pracy. Mówimy
+            # o tym wprost, bo to jedyny moment, w którym da się to zauważyć.
+            _log(f"brak moich zadań w przejrzanych {wynik.przejrzano} z {wynik.wszystkich} "
+                 f"pozycji kolejki — przeglądanie urwał bezpiecznik stron")
         return 0
-    _log(f"   wynik: {obsluz_zadanie(klient, konf, moje[0])}")
+    _log(f"   wynik: {obsluz_zadanie(klient, konf, wynik.zadania[0])}")
     return 1
 
 

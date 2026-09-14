@@ -107,16 +107,20 @@ def polecenie_tasks(_args) -> int:
     konf = konfiguracja.wczytaj()
     klient = _klient(konf)
     try:
-        moje = klient.moje_zadania(slug=konf.slug)
+        wynik = klient.moje_zadania(slug=konf.slug)
     except BladAPI as blad:
         print(f"Nie udało się pobrać zadań: {blad}", file=sys.stderr)
         return 1
 
-    if not moje:
-        print(f'Brak zadań w kolejce dla agenta „{konf.slug}”.')
+    if not wynik:
+        print(f'Brak zadań w kolejce dla agenta „{konf.slug}”'
+              f' (przejrzano {wynik.przejrzano} z {wynik.wszystkich} pozycji kolejki).')
+        if wynik.urwane:
+            print("UWAGA: przeglądanie urwał bezpiecznik stron — to NIE jest pewne „brak zadań”.")
         return 0
-    print(f'Zadania w kolejce dla „{konf.slug}” ({len(moje)}):\n')
-    for z in moje:
+    print(f'Zadania w kolejce dla „{konf.slug}” ({len(wynik)} '
+          f'z {wynik.wszystkich} pozycji kolejki):\n')
+    for z in wynik:
         sprawa = z.get("ticket_ref") or z.get("ticket_id") or "— bez sprawy"
         print(f"  {z.get('external_id')}")
         print(f"    {z.get('title')}")
