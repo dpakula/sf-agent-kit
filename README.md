@@ -62,6 +62,41 @@ Są cztery i tylko te cztery:
 Klucz API dostajesz **raz**, od administratora SalesForge. Wygląda tak: `sk_live_` i dalej
 ciąg znaków. Jest to **hasło do konta** — kto go ma, ten jest tobą.
 
+### Twój klucz ma być OSOBISTY (`scope=user`)
+
+To nie jest szczegół techniczny, tylko warunek, żeby cokolwiek zadziałało.
+
+W SalesForge klucz może mieć jeden z kilku zasięgów. **Klucz agenta ma być osobisty,
+czyli `scope=user`** — przypisany do twojego konta. Wtedy:
+
+- twoje uprawnienia **liczą się w locie z konta**, a nie z listy zapisanej na kluczu;
+- klucz niesie twoją rolę, więc przechodzisz przez bramki, które pytają o rolę, a nie
+  o pojedyncze uprawnienie;
+- wszystko, co robisz, jest podpisane twoim kontem — widać, kto co zrobił.
+
+**Klucz `member` albo `tenant` u agenta to błąd konfiguracji.** Taki klucz albo nie ma
+właściciela wcale (`tenant` — to klucz integracji, nie osoby), albo nosi zamrożoną listę
+uprawnień, która nie nadąża za zmianami na koncie. Jeśli dostałeś taki klucz — **powiedz
+o tym, zamiast obchodzić problem**; poproś o klucz osobisty.
+
+### Uprawnienia nadaje się na CZŁONKOSTWIE, nie na kluczu
+
+Drugi punkt, który myli wszystkich na początku (mnie też):
+
+> **Uprawnienia nie mieszkają na kluczu. Mieszkają na twoim członkostwie w Organizacji.**
+
+Twoje prawa to suma trzech rzeczy: **rola systemowa** + **tagi roli** + **nadania wpisane
+wprost na członkostwie**. Klucz osobisty czyta to wszystko w chwili każdego żądania.
+
+Lista uprawnień **na kluczu** ma inne znaczenie, niż się wydaje: to **zawężenie**, czyli sufit.
+Uprawnienia efektywne = *prawa właściciela* ∩ *lista na kluczu*. Dopisanie czegoś do klucza
+**nie doda ci uprawnienia**, którego nie masz na członkostwie — doda pozycję, która nic nie
+zmieni. Działa to tylko w jedną stronę: żeby ograniczyć klucz poniżej własnych praw.
+
+Praktyczny wniosek dla administratora: **`plans:write` nadaj na członkostwie agenta**
+w tej Organizacji. Jeśli dodatkowo zawężasz klucz listą — `plans:write` musi być **w obu
+miejscach naraz**, inaczej przecięcie je wytnie.
+
 ### Uprawnienia, o które musisz poprosić
 
 To jest zbadane i zmierzone, nie zgadywane (14.09.2026, wersja SF z tego dnia):
@@ -72,14 +107,15 @@ To jest zbadane i zmierzone, nie zgadywane (14.09.2026, wersja SF z tego dnia):
 | czytasz szczegóły zadania | `GET /api/v1/tasks/{id}` | żadne szczególne |
 | piszesz wpis na sprawie | `POST /api/v1/tickets/{id}/entries` | `tickets:comment` |
 | komentujesz zadanie | `POST /api/v1/tasks/{id}/comments` | żadne szczególne |
-| **bierzesz zadanie i kończysz je** | `PATCH /api/v1/tasks/{id}` | **`plans:write`** ← i to jest haczyk |
+| **bierzesz zadanie i kończysz je** | `PATCH /api/v1/tasks/{id}` | **`plans:write`** — nadane **na członkostwie** |
 
 **Bez `plans:write` nie zmienisz statusu zadania.** Dostaniesz `403 Manager access required`.
 Czyli: zobaczysz zadanie, wykonasz je, napiszesz wpis — ale nie oznaczysz jako zrobionego,
 a ono zostanie w kolejce, jakby nikt go nie tknął.
 
-> **Poproś administratora o klucz z uprawnieniami: `tickets:read`, `tickets:comment`
-> oraz `plans:write`.**
+> **Poproś administratora o:** klucz **osobisty (`scope=user`)** oraz o nadanie ci na
+> **członkostwie** w tej Organizacji uprawnień `tickets:read`, `tickets:comment`
+> i `plans:write`.
 
 **Uczciwe ostrzeżenie, które administrator powinien przeczytać przed nadaniem:**
 `plans:write` jest dziś szersze, niż nazwa sugeruje. Poza zmianą statusu twojego zadania
@@ -217,7 +253,7 @@ Uwaga: pole nazywa się `content`, nie `body`. Pomyłka daje `422`.
 |---|---|---|
 | **200 / 201** | udało się | nic |
 | **401** | klucz nieznany, wygasł albo go nie wysłałeś | sprawdź `sf-kit whoami`. Jeśli nie działa — klucz jest zły albo odwołany. **Nie próbuj w pętli**, poproś o nowy |
-| **403** | klucz jest dobry, ale nie wolno ci tej rzeczy | brakuje uprawnienia. Przy `PATCH /tasks` to prawie zawsze brak `plans:write` (§2). Zapisz, czego próbowałeś, i poproś administratora — **nie obchodź tego innym endpointem** |
+| **403** | klucz jest dobry, ale nie wolno ci tej rzeczy | brakuje uprawnienia **na twoim członkostwie** (nie na kluczu — §2). Przy `PATCH /tasks` to prawie zawsze `plans:write`. Zapisz, czego próbowałeś, i poproś administratora — **nie obchodź tego innym endpointem** |
 | **404** | nie ma takiego obiektu **albo nie masz do niego dostępu** | te dwie rzeczy wyglądają tak samo celowo. Sprawdź identyfikator; jeśli jest dobry, to znaczy, że ten obiekt nie jest twój |
 | **409** | konflikt — ktoś zmienił obiekt przed tobą | pobierz zadanie od nowa i spróbuj jeszcze raz. Nie nadpisuj na siłę |
 | **422** | wysłałeś coś w złym kształcie | odpowiedź mówi, którego pola brakuje. Najczęstsza pomyłka: `body` zamiast `content` |

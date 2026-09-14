@@ -87,7 +87,9 @@ def polecenie_whoami(_args) -> int:
     print(
         "\nUWAGA: nie sprawdzam, czy możesz ZMIENIĆ status zadania — sondowanie tego przez\n"
         "zepsucie cudzego zadania byłoby gorsze niż niewiedza. Jeśli worker dostanie 403 przy\n"
-        "przyjmowaniu zadania, brakuje uprawnienia `plans:write` (README §2)."
+        "przyjmowaniu zadania, brakuje uprawnienia `plans:write` — i nadaje się je NA TWOIM\n"
+        "CZŁONKOSTWIE w Organizacji, nie na kluczu (README §2). Klucz agenta ma być osobisty\n"
+        "(`scope=user`); klucz `member` albo `tenant` to błąd konfiguracji."
     )
     return 0 if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")) else 1
 
