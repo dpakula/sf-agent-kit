@@ -1,0 +1,33 @@
+# Worker SF Agent Kit jako usługa użytkownika (systemd --user).
+#
+# PODMIEŃ: %h/sf-agent-kit → ścieżkę, do której sklonowałeś Kit, jeśli jest inna.
+#   %h to twój katalog domowy — systemd podstawia go sam, więc przy standardowym
+#   `git clone` w katalogu domowym nie trzeba tu zmieniać niczego.
+#
+# Instalacja i włączenie: patrz uruchamianie/README.md
+
+[Unit]
+Description=SF Agent Kit — worker odbierający zadania z SalesForge
+# Bez sieci worker i tak nie ruszy; to tylko skraca listę błędów przy starcie systemu.
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/sf-agent-kit
+ExecStart=%h/sf-agent-kit/sf-kit worker
+
+# Wraca sam, gdy padnie — ale z odstępem. Worker padający natychmiast po starcie (zły klucz)
+# kręciłby się bez przerwy i zaśmiecał dziennik.
+Restart=always
+RestartSec=30
+
+# Dziennik: `journalctl --user -u sf-kit-worker -f`
+StandardOutput=journal
+StandardError=journal
+
+# systemd startuje z ubogim PATH. Bez tego `codex` bywa nieznaleziony, a worker kończy się
+# komunikatem „nie znalazłem polecenia codex w PATH". Sprawdź u siebie: `which codex`.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

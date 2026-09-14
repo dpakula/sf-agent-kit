@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Worker SF Agent Kit jako usługa użytkownika na macOS.
+
+  PODMIEŃ DWIE RZECZY:
+    1. /Users/TWOJA-NAZWA/sf-agent-kit  → ścieżka, do której sklonowałeś Kit (dwa miejsca)
+    2. /Users/TWOJA-NAZWA               → twój katalog domowy (w ścieżkach logów)
+
+  Ścieżkę do Kitu sprawdzisz poleceniem `pwd` w katalogu sf-agent-kit.
+
+  Instalacja i włączenie: patrz uruchamianie/README.md
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>pl.salesforge.sf-kit-worker</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/TWOJA-NAZWA/sf-agent-kit/sf-kit</string>
+        <string>worker</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/TWOJA-NAZWA/sf-agent-kit</string>
+
+    <!-- Wraca sam, gdy padnie. Worker padający w kółko widać w logu poniżej. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Odstęp przy ponownym starcie: bez niego padający worker kręci się bez przerwy. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/TWOJA-NAZWA/Library/Logs/sf-kit-worker.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/TWOJA-NAZWA/Library/Logs/sf-kit-worker.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- launchd startuje z ubogim PATH. Bez tego `codex` bywa nieznaleziony, a worker
+             kończy się komunikatem „nie znalazłem polecenia codex w PATH". Jeśli masz Codexa
+             gdzie indziej, dopisz ten katalog tutaj (sprawdzisz: `which codex`). -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
