@@ -103,6 +103,57 @@ def zloz(pola: dict[str, str], pliki: list[Path | str],
     return b"".join(czesci), f"multipart/form-data; boundary={granica}"
 
 
+#: Typy, które SalesForge przyjmuje jako załącznik (stan na 15.09.2026, `ALLOWED_MIME_TYPES`).
+#: Lista jest po stronie serwera i to on rozstrzyga — tu jest po to, żeby POWIEDZIEĆ CZŁOWIEKOWI
+#: PRZED wysyłką, zamiast pozwolić mu czekać na odmowę.
+TYPY_PRZYJMOWANE = {
+    "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/plain", "text/csv", "text/markdown",
+    "application/zip", "application/x-zip-compressed",
+}
+
+#: Czego najczęściej próbuje ktoś robiący makiety — i co z tym zrobić. HTML jest tu pierwszy
+#: nie przypadkiem: to jest DOKŁADNIE to, co osoba z ForMarketing ma wysyłać, a serwer tego
+#: nie przyjmuje. Spakowana makieta przechodzi i jest przy okazji lepsza, bo makieta to
+#: zwykle kilka plików (HTML + CSS + obrazy), a nie jeden.
+PODPOWIEDZI = {
+    "text/html": "spakuj makietę do `.zip` — wtedy przejdzie w całości, razem z CSS i obrazami",
+    "text/javascript": "spakuj do `.zip`",
+    "application/javascript": "spakuj do `.zip`",
+    "text/css": "spakuj do `.zip`",
+    "application/json": "zmień rozszerzenie na `.txt` albo spakuj do `.zip`",
+}
+
+
+def sprawdz_typy(pliki: list[Path]) -> None:
+    """Rzuca, gdy któryś plik ma typ, którego SalesForge nie przyjmie.
+
+    Sprawdzamy U SIEBIE, mimo że serwer i tak sprawdzi. Powód jest praktyczny: odmowa po
+    stronie serwera przychodzi jako `403`, a `403` w każdym innym miejscu znaczy „nie masz
+    uprawnień" — czyli człowiek zaczyna szukać winy w kluczu zamiast w pliku. Sam się na to
+    nabrałem przy pierwszym teście odbiorczym.
+
+    Drugi powód: przy `zglos` sprawa powstaje PRZED wysyłką plików. Odmowa dopiero na
+    serwerze zostawia sprawę bez załączników i człowieka z pytaniem, co teraz.
+    """
+    zle = []
+    for p in pliki:
+        typ = typ_pliku(p)
+        if typ in TYPY_PRZYJMOWANE:
+            continue
+        rada = PODPOWIEDZI.get(typ, "dozwolone są: obrazy, PDF, dokumenty Office, "
+                                     "`.txt`, `.csv`, `.md` oraz `.zip`")
+        zle.append(f"{p.name} ({typ}) — {rada}")
+    if zle:
+        raise ValueError(
+            "SalesForge nie przyjmie tych plików:\n  " + "\n  ".join(zle))
+
+
 def sprawdz_pliki(sciezki: list[str]) -> list[Path]:
     """Ścieżki → `Path`, z głośnym błędem PRZED wysłaniem czegokolwiek.
 
@@ -123,4 +174,5 @@ def sprawdz_pliki(sciezki: list[str]) -> list[Path]:
     if braki:
         raise FileNotFoundError(
             "nie mogę wysłać — tych plików nie ma albo są puste:\n  " + "\n  ".join(braki))
+    sprawdz_typy(gotowe)
     return gotowe

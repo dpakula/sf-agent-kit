@@ -117,3 +117,30 @@ class TestAdresSprawy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOstatniaZmiana(unittest.TestCase):
+    """Kształt sprawy z PRAWDZIWEGO API — nie z mojego wyobrażenia o nim.
+
+    `ostatnia_edycja` jest słownikiem (kto, kiedy, awatar), a nie napisem. Pierwsza wersja
+    `sf-kit sprawy` cięła je jak tekst i wywracała się wyjątkiem `KeyError: slice(...)`.
+    Testy jednostkowe tego nie widziały, bo wszystkie karmiły funkcje uproszczonym kształtem;
+    złapał to dopiero test odbiorczy na produkcji.
+    """
+
+    def test_slownik_ostatniej_edycji_nie_wywraca_listy(self):
+        sprawa = {"ostatnia_edycja": {"nazwa": "api:x", "kiedy": "2026-09-14T23:38:44.390114Z"},
+                  "updated_at": "2026-09-14T23:38:44.402408Z"}
+        self.assertEqual(autor.ostatnia_zmiana(sprawa), "2026-09-14 23:38")
+
+    def test_brak_ostatniej_edycji_spada_na_updated_at(self):
+        self.assertEqual(
+            autor.ostatnia_zmiana({"updated_at": "2026-01-02T03:04:05Z"}), "2026-01-02 03:04")
+
+    def test_sprawa_bez_dat_nie_wywraca_sie(self):
+        self.assertEqual(autor.ostatnia_zmiana({}), "")
+
+    def test_napis_zamiast_slownika_tez_przechodzi(self):
+        """Kontrakt może się zmienić w drugą stronę — obie postacie mają działać."""
+        self.assertEqual(
+            autor.ostatnia_zmiana({"ostatnia_edycja": "2026-05-06T07:08:09Z"}), "2026-05-06 07:08")

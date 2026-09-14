@@ -49,6 +49,33 @@ Nie wpisuj i nie pytaj mnie o klucz API w rozmowie.
 i dlaczego — czytaj dalej; wszystko poniżej jest dla niego i dla ciebie, gdy zechcesz zajrzeć
 głębiej.
 
+---
+
+## Którym agentem jesteś? Dwie drogi, jedno narzędzie
+
+Kit obsługuje **dwa sposoby pracy** i to jest pierwsza rzecz do rozstrzygnięcia — reszta
+dokumentu zależy od odpowiedzi.
+
+| | **worker** — pracujesz dla kolejki | **autor** — pracujesz z człowiekiem |
+|---|---|---|
+| kierunek | **ciągniesz** zadania z SalesForge | **pchasz** do SalesForge gotową pracę |
+| kto zaczyna | ktoś przypisuje ci zadanie | człowiek obok ciebie mówi „gotowe" |
+| co robisz | wykonujesz i zamykasz zadanie | zakładasz sprawę / dopisujesz postęp |
+| polecenia | `tasks`, `worker` | `zglos`, `wpis`, `zalacz`, `sprawy` |
+| chodzi | w tle, bez nadzoru | wtedy, gdy człowiek poprosi |
+| czytaj | §3 (pętla pracy), §10 | **§9a (scenariusze autora)**, §10 |
+
+Profil wybierasz przy `sf-kit init`. Nie ogranicza on uprawnień — te są po stronie
+SalesForge — tylko **pokazuje polecenia, które do tej roli należą**, i chowa resztę.
+
+Trzeci profil, **koordynator**, jest zapowiedziany i **jeszcze nie ma poleceń**: bez trasy
+„kim jestem" (§11) Kit nie ma jak sprawdzić, czy ktoś naprawdę ma do nich prawo, a profil
+obiecujący polecenia kończące się `403` byłby gorszy od jego braku.
+
+**Jeden człowiek może mieć kilku agentów** — po jednym na profil albo na Organizację. Kit
+trzyma wtedy osobną konfigurację i osobny klucz dla każdego; patrz §10, „Kilku agentów
+na jednej maszynie".
+
 Poza tym plikiem jest jeszcze jeden: [`uruchamianie/`](uruchamianie/README.md) — gotowce
 na uruchomienie workera w tle. Potrzebny dopiero wtedy, gdy narzędzie już działa.
 
@@ -186,7 +213,7 @@ mój slug:     codex-formarketing
 
 odczyt zadań: działa
 zadania:      518
-ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.2”.
+ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.3”.
 
 Zmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.
 ```
@@ -625,18 +652,112 @@ się niepowodzeniem — i będą wracać do kolejki z wpisem mówiącym, na czym
 
 ---
 
+## 9a. Scenariusze profilu AUTOR
+
+Ta sekcja jest dla agenta, który pracuje **obok człowieka** i zgłasza wyniki do SalesForge.
+
+### „Makieta gotowa" — krok po kroku
+
+Człowiek mówi: *skończyłam, wyślij to*. Od tego momentu prowadzisz.
+
+**1. Zbierz, co ma pójść.** Trzy rzeczy, w tej kolejności ważności:
+- **sama praca** — pliki makiety (HTML, CSS, obrazy). **Spakuj je do jednego `.zip`**;
+  SalesForge nie przyjmuje pojedynczych plików `.html`, a spakowana makieta i tak jest
+  lepsza, bo trzyma się w całości razem z CSS-em i obrazami (§11);
+- **zrzuty ekranu** — jak to wygląda. `.png` przechodzi bez pakowania;
+- **notatka** — dla kogo to jest, co obejmuje, czego NIE obejmuje. `.md` albo `.txt`.
+
+**2. Napisz opis.** Kit podpowie szkielet, jeśli podasz sam tytuł, ale **uzupełnij go**:
+
+```
+**Sedno** — makieta strony głównej dla Klienta X gotowa do przeglądu.
+
+**Co jest** — trzy widoki (desktop, tablet, telefon), statyczny HTML + CSS,
+bez podpięcia do CMS-a i bez treści docelowych (lorem ipsum w sekcji „O nas").
+
+**Jak odebrać** — rozpakuj `makieta.zip`, otwórz `index.html` w przeglądarce.
+Zrzuty w załączniku pokazują, jak to ma wyglądać na telefonie.
+```
+
+Trzy nagłówki nie są ozdobą: to trzy pytania, na które odbiorca i tak musi odpowiedzieć
+sobie sam, gdy ich nie ma — a wtedy pyta człowieka, którego właśnie chcieliśmy odciążyć.
+
+**3. Zgłoś.**
+
+```bash
+sf-kit zglos --tytul "Makieta strony głównej dla Klienta X" \
+             --opis opis.md --tag makieta \
+             --zalacz makieta.zip zrzut-desktop.png zrzut-telefon.png
+```
+
+**4. Podaj człowiekowi numer i adres.** Kit wypisuje oba. To jest jedyne, co człowiek
+ma potem powiedzieć albo wkleić komuś innemu — powiedz mu to wprost:
+
+> „Zgłoszone jako **FM-12**: https://sf.dpakula.pl/tickets/… . Od tej chwili pytania
+> i uwagi do tej makiety idą wpisami na tej sprawie — dopisuję je stąd, wystarczy,
+> że powiesz."
+
+**5. Od tej chwili rozmowa toczy się na sprawie.** Nowa wersja, odpowiedź na uwagę,
+poprawka — wszystko `sf-kit wpis`, nie nowe zgłoszenie. Druga sprawa o tej samej makiecie
+rozdziela rozmowę na dwa miejsca i nikt już nie wie, gdzie jest aktualny stan.
+
+### „Postęp" — w trakcie pracy
+
+Po każdym większym etapie, gdy człowiek chce, żeby było to widać:
+
+```bash
+sf-kit wpis FM-12 --opis postep.md --zalacz podglad.png
+```
+
+Nie po każdej zmianie pliku. Wpis ma odpowiadać na pytanie „co się zmieniło od ostatniego
+razu", a nie odtwarzać historię edycji — od tego jest repozytorium, nie sprawa.
+
+### Czego NIE robić
+
+- **Nie zakładaj sprawy „na próbę".** Każda powiadamia obserwujących; sprawa testowa to
+  mail do ludzi, którzy nie prosili o test. Jeśli musisz — tytuł zaczyna się od `[TEST]`
+  i zamykasz ją od razu po sprawdzeniu.
+- **Nie wysyłaj `--widocznosc external` bez pytania.** `internal` widzi zespół, `external`
+  widzi też klient — a treści, której klient nie miał zobaczyć, nie da się odzobaczyć.
+- **Nie zgaduj, co człowiek chciał wysłać.** Brakujący plik zgłoś, zamiast wysyłać niepełną
+  paczkę: zgłoszenie z połową makiety wygląda na kompletne.
+
 ## 10. `sf-kit` — polecenia
+
+**Wspólne:**
 
 ```bash
 sf-kit --version                # która wersja Kitu jest zainstalowana
 sf-kit init                     # zapisz klucz (bez echa) i ustawienia
-sf-kit whoami                   # sprawdź, czy klucz działa
+sf-kit whoami                   # kim jesteś, czy klucz działa, gdzie leżą ustawienia
+sf-kit --agent <slug> …         # gdy na tej maszynie jest kilku agentów
+```
+
+**Profil `worker` — ciągniesz zadania z kolejki:**
+
+```bash
 sf-kit tasks                    # pokaż zadania w kolejce dla twojego sluga
 sf-kit worker                   # pętla: bierz zadania, wykonuj, raportuj
 sf-kit worker --once            # jeden przebieg zamiast pętli
 sf-kit worker --interval 60     # co ile sekund odpytywać (domyślnie 60)
-sf-kit worker --runtime codex   # wykonawca (domyślny)
 ```
+
+**Profil `autor` — pchasz do SalesForge gotową pracę człowieka:**
+
+```bash
+sf-kit zglos --tytul "…" [--opis plik.md|-] [--tag makieta] [--zalacz plik…]
+sf-kit wpis <sprawa> [--opis plik.md|-] [--zalacz plik…] [--widocznosc internal|external]
+sf-kit zalacz <sprawa> <plik…> [--notka "…"]
+sf-kit sprawy [--limit 50]
+```
+
+`<sprawa>` to **numer** (`FM-12`, `fm-12`, samo `12`) albo identyfikator. Sam numer działa,
+dopóki jest jednoznaczny — gdy pasuje do kilku spraw, Kit odmówi i wypisze kandydatów,
+bo dopisanie postępu do niewłaściwej sprawy wygląda dokładnie jak poprawna praca.
+
+Opis idzie **plikiem** (`--opis notatka.md`) albo standardowym wejściem (`--opis -`),
+nigdy argumentem: opisy są długie i wielolinijkowe, a argumenty procesu widzi każdy
+na maszynie.
 
 Ustawienia leżą w `~/.config/sf-kit/config.json` — wszystko poza kluczem: adres SF,
 identyfikator Organizacji, slug agenta, katalog roboczy, limit czasu na zadanie.
@@ -648,8 +769,8 @@ cd sf-agent-kit && git pull
 ```
 
 Klucz i ustawienia leżą **poza** katalogiem Kitu, więc `git pull` ich nie dotyka. Wydania
-są oznaczane tagami (`v0.1.0`, `v0.2.0`); żeby stanąć na konkretnym:
-`git fetch --tags && git checkout v0.2.0`.
+są oznaczane tagami (`v0.1.0`, `v0.2.0`, `v0.3.0`); żeby stanąć na konkretnym:
+`git fetch --tags && git checkout v0.3.0`.
 
 ### Co Codex dostaje do wykonania
 
@@ -702,6 +823,38 @@ Ważne przy zostawianiu go bez nadzoru — i inne dla każdego rodzaju kłopotu:
 Workera uruchomionego w terminalu zatrzymuje **Ctrl+C**. Uruchomionego w tle — sposobem
 właściwym dla wybranego mechanizmu ([`uruchamianie/`](uruchamianie/README.md)).
 
+### Kilku agentów na jednej maszynie
+
+Jeden człowiek może prowadzić kilku agentów — po jednym na profil albo na Organizację.
+Kit trzyma wtedy **osobną konfigurację i osobny klucz dla każdego**:
+
+```
+~/.config/sf-kit/<slug>/config.json     ← ustawienia tego agenta
+~/.config/sf-kit/<slug>/credentials     ← jego klucz (Linux; na macOS: pęk kluczy,
+                                           konto = slug agenta)
+```
+
+**Przy jednym agencie nie trzeba nic robić** — żadnej flagi, żadnego przenoszenia.
+Dotyczy to też tych, którzy skonfigurowali Kit przed wersją 0.3: stary układ
+(`~/.config/sf-kit/config.json`) działa dalej, bez zmian.
+
+Drugi agent powstaje przez zwykłe `sf-kit init` — pierwsze pytanie brzmi o slug i to on
+wskazuje, gdzie wszystko wyląduje. Od tej chwili każde polecenie chce wiedzieć, o którego
+agenta chodzi:
+
+```bash
+sf-kit --agent codex-formarketing sprawy
+sf-kit --agent kodeks-dpakula worker
+```
+
+Bez tej flagi Kit **odmówi i wypisze listę agentów** — zamiast wybrać któregoś. Wybranie
+„pierwszego z brzegu" znaczyłoby pisanie do cudzej Organizacji cudzym kluczem, a tego nie
+widać ani w wyniku, ani w dzienniku.
+
+Alternatywa dla flagi: `SF_KIT_HOME=/ścieżka/do/katalogu sf-kit …` — wskazuje katalog
+wprost i wygrywa ze wszystkim. Przydaje się w kontenerze i przy uruchamianiu w tle
+(jeden proces na agenta — patrz [`uruchamianie/`](uruchamianie/README.md)).
+
 ### Zmiana ustawień po `init`
 
 Najprościej uruchomić `sf-kit init` jeszcze raz (Enter zostawia dotychczasowe wartości).
@@ -737,7 +890,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.2
+## 11. Ograniczenia wersji 0.3
 
 - **Nie ma endpointu „kim jestem"** dla klucza API. `sf-kit whoami` sprawdza klucz, próbując
   odczytu — powie, czy działa, ale nie poda nazwy konta ani uprawnień efektywnych.
@@ -752,6 +905,15 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 - **Załączniki** (pobieranie plików ze sprawy) — nieobsługiwane.
 - **Praca w kilku Organizacjach naraz** — jeden klucz, jedna Organizacja.
 - **Windows poza WSL** — nieobsługiwany, patrz „System" w §1.
+- **SalesForge nie przyjmuje plików `.html`** (ani `.css`, ani `.js`) jako załączników.
+  Dozwolone są obrazy, PDF, dokumenty Office, `.txt`, `.csv`, `.md` oraz **`.zip`**. Makietę
+  wysyła się więc spakowaną — Kit mówi o tym **przed** wysyłką i podpowiada spakowanie,
+  zamiast pozwolić serwerowi odmówić kodem `403` (który wszędzie indziej znaczy „brak
+  uprawnień" i wysyła człowieka szukać winy w kluczu).
+- **Obserwujących trzeba wpisać identyfikatorami kont** do konfiguracji agenta — nie ma
+  odczytu listy kont dla klucza agenta ani dopisywania po adresie. *(zgłoszone)*
+- **Nie ma odczytu sprawy po numerze** — `sf-kit` rozwiązuje `FM-12` przeglądając listę
+  spraw Organizacji. Działa; jest to obejście.
 
 Administrator znajdzie odsyłacze do zgłoszonych spraw w sekcji poniżej.
 
@@ -784,6 +946,37 @@ Kitem nie musi jej czytać.
 **Slug musi się zgadzać znak w znak** z tym, co człowiek wpisze w `sf-kit init`. Literówka
 nie daje żadnego błędu: `whoami` mówi „działa", a `tasks` pokazuje „brak zadań" —
 nieodróżnialnie od stanu, w którym nic jeszcze nie przypisano.
+
+### Zestawy uprawnień per profil
+
+| profil | uprawnienia na członkostwie | po co |
+|---|---|---|
+| **worker** | `tickets:read`, `tickets:comment`, `tasks:own` | czyta zadania, pisze sprawozdania, zmienia status SWOICH zadań |
+| **autor** | `tickets:read`, `tickets:comment`, **`tickets:write`**, `context:read` | jak wyżej plus **zakładanie spraw** |
+| koordynator | — | profil zapowiedziany, bez poleceń (czeka na trasę „kim jestem") |
+
+**`tickets:write` to jedyna różnica** między workerem a autorem i jedyne, co trzeba dodać
+istniejącemu agentowi, żeby mógł zgłaszać. Zestaw domyślny konta zakładanego z panelu
+**go nie zawiera** — dodaje się go jednym kliknięciem na członkostwie, bez wymiany klucza.
+
+**Załączniki nie mają własnego uprawnienia.** Wysyłka plików idzie tą samą trasą co wpis
+i bramkuje ją `tickets:comment`. Kto może napisać wpis, może dołączyć do niego pliki.
+
+### Obserwujący sprawy zakładane przez agenta
+
+Backend **nie dopisuje nikogo poza samym autorem**, gdy sprawa powstaje kluczem API. Sprawa
+założona przez agenta spoza floty nie powiadomiłaby więc **nikogo** — leżałaby, wyglądając
+na zgłoszoną.
+
+Dlatego Kit podaje obserwujących jawnie, z konfiguracji agenta:
+
+```json
+"obserwatorzy_domyslni": ["<id konta>", "<id konta>"]
+```
+
+To są **identyfikatory kont**, nie adresy — i wpisuje je administrator, bo agent nie ma ich
+jak odczytać (lista kont jest dla jego klucza niedostępna). Znajdziesz je w panelu, w adresie
+profilu użytkownika. Jest to znana niedogodność, nie docelowy kształt (§11).
 
 ### Zmiana uprawnień bez wymiany klucza
 

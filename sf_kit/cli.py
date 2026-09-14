@@ -178,7 +178,7 @@ def polecenie_whoami(_args) -> int:
     # Data ważności klucza. SalesForge nie oddaje jej dziś posiadaczowi klucza — i to jest
     # zgłoszona luka, nie nasza niewiedza. Jedna linia: `whoami` ma być odczytem stanu,
     # a nie miejscem na wykład (pełne wyjaśnienie → README, „Ograniczenia wersji 0.2").
-    print("ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.2”.")
+    print("ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.3”.")
     print("\nZmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.")
     return 0 if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")) else 1
 
@@ -373,7 +373,7 @@ def polecenie_sprawy(args) -> int:
     print(f"Sprawy w Organizacji ({len(lista)}):\n")
     for s in lista:
         numer = autor.numer_sprawy(s) or str(s.get("id", ""))[:8]
-        zmiana = (s.get("ostatnia_edycja") or s.get("updated_at") or "")[:16].replace("T", " ")
+        zmiana = autor.ostatnia_zmiana(s)
         print(f"  {numer:14} {(s.get('title') or '')[:58]}")
         print(f"  {'':14} {s.get('status', '?'):12} {zmiana}")
     return 0

@@ -17,10 +17,32 @@ albo systemd, bo wracają same po restarcie komputera.
 
 ---
 
+## Kilku agentów? Jeden proces na agenta
+
+Gdy na maszynie jest więcej niż jeden agent, każde uruchomienie musi wiedzieć, o którego
+chodzi — inaczej Kit odmówi (i dobrze: wybranie „któregoś" znaczyłoby pracę cudzym kluczem).
+Wszędzie niżej dopisz `--agent <slug>` albo ustaw `SF_KIT_HOME`:
+
+```bash
+./sf-kit --agent kodeks-dpakula worker
+# albo
+SF_KIT_HOME=~/.config/sf-kit/kodeks-dpakula ./sf-kit worker
+```
+
+Przy jednym agencie nic nie dopisujesz — działa jak dotąd.
+
+---
+
 ## tmux (najprostszy)
 
 ```bash
 tmux new -s worker -d 'cd ~/sf-agent-kit && ./sf-kit worker'
+```
+
+Z kilkoma agentami — osobna sesja na każdego, nazwana jego slugiem:
+
+```bash
+tmux new -s worker-kodeks-dpakula -d 'cd ~/sf-agent-kit && ./sf-kit --agent kodeks-dpakula worker'
 ```
 
 Podglądnięcie, co robi:

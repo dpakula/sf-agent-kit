@@ -109,3 +109,18 @@ def czy_opis_wymaga_uzupelnienia(opis: str) -> bool:
     zdecydował świadomie.
     """
     return "(co powstało" in opis or "(od którego pliku" in opis
+
+
+def ostatnia_zmiana(sprawa: dict) -> str:
+    """Kiedy sprawa ostatnio drgnęła — `RRRR-MM-DD GG:MM` albo pusty napis.
+
+    `ostatnia_edycja` jest SŁOWNIKIEM (kto, kiedy, awatar), nie napisem — pierwsza wersja
+    tego kodu próbowała je pociąć jak tekst i wywracała `sf-kit sprawy` wyjątkiem
+    `KeyError: slice(...)`. Żaden test jednostkowy tego nie widział, bo wszystkie karmiły
+    funkcje uproszczonym kształtem sprawy; złapał to dopiero test odbiorczy na prawdziwych
+    danych. Stąd ta funkcja: jedno miejsce, które zna prawdziwy kształt.
+    """
+    edycja = sprawa.get("ostatnia_edycja")
+    kiedy = edycja.get("kiedy") if isinstance(edycja, dict) else edycja
+    kiedy = kiedy or sprawa.get("updated_at") or ""
+    return str(kiedy)[:16].replace("T", " ")

@@ -71,12 +71,12 @@ class TestSkladanieCiala(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as k:
             kat = Path(k)
-            pliki = [_plik(kat, "a.html"), _plik(kat, "b.png")]
+            pliki = [_plik(kat, "a.md"), _plik(kat, "b.png")]
             cialo, typ = multipart.zloz({"content": "opis"}, pliki)
 
         tekst = cialo.decode("utf-8", errors="replace")
         self.assertEqual(tekst.count('name="files"'), 2)
-        self.assertIn('filename="a.html"', tekst)
+        self.assertIn('filename="a.md"', tekst)
         self.assertIn('filename="b.png"', tekst)
         self.assertTrue(typ.startswith("multipart/form-data; boundary="))
 
@@ -113,7 +113,7 @@ class TestSprawdzaniePrzedWyslaniem(unittest.TestCase):
     def test_brakujacy_plik_zatrzymuje_CALA_paczke(self):
         """Paczka odrzucona w połowie zostawia sprawę z częścią plików — lepiej nie zacząć."""
         with tempfile.TemporaryDirectory() as k:
-            istniejacy = _plik(Path(k), "jest.html")
+            istniejacy = _plik(Path(k), "jest.md")
             with self.assertRaises(FileNotFoundError) as p:
                 multipart.sprawdz_pliki([str(istniejacy), str(Path(k) / "nie-ma.png")])
         self.assertIn("nie-ma.png", str(p.exception))
@@ -121,7 +121,7 @@ class TestSprawdzaniePrzedWyslaniem(unittest.TestCase):
     def test_pusty_plik_tez_zatrzymuje(self):
         """Pusty załącznik wygląda na wysłany i nie niesie nic — gorszy od braku."""
         with tempfile.TemporaryDirectory() as k:
-            pusty = _plik(Path(k), "pusty.html", b"")
+            pusty = _plik(Path(k), "pusty.md", b"")
             with self.assertRaises(FileNotFoundError):
                 multipart.sprawdz_pliki([str(pusty)])
 
@@ -139,14 +139,14 @@ class TestWysylkaPrzezKlienta(unittest.TestCase):
 
         k = Atrapa(baza="https://x", klucz="sk_live_x", organizacja="org")
         with tempfile.TemporaryDirectory() as kat:
-            plik = _plik(Path(kat), "makieta.html", b"<html>")
+            plik = _plik(Path(kat), "makieta.zip", b"PK\x03\x04udawany-zip")
             k.wpis_z_plikami("sprawa-1", "gotowe", [plik])
 
         self.assertEqual(zlapane["metoda"], "POST")
         self.assertIn("entries/with-attachments", zlapane["sciezka"],
                       "paczka ma iść trasą dającą JEDEN wpis i jedno powiadomienie")
         self.assertIn(b"gotowe", zlapane["dane"])
-        self.assertIn(b"<html>", zlapane["dane"])
+        self.assertIn(b"udawany-zip", zlapane["dane"])
 
     def test_widocznosc_przechodzi_do_pola_formularza(self):
         zlapane = {}
@@ -187,6 +187,52 @@ class TestWysylkaPrzezKlienta(unittest.TestCase):
 
         Atrapa(baza="https://x", klucz="k", organizacja="o").zaloz_sprawe(tytul="T", opis="O")
         self.assertNotIn("watcher_user_ids", zlapane["cialo"])
+
+
+class TestKontrolaTypow(unittest.TestCase):
+    """Czego SalesForge nie przyjmie — powiedziane PRZED wysyłką (znalezione testem odbiorczym).
+
+    Serwer odrzuca nieprzyjmowany typ kodem **403**, a `403` w każdym innym miejscu znaczy
+    „nie masz uprawnień". Bez tej kontroli człowiek szuka winy w kluczu zamiast w pliku —
+    autor Kitu nabrał się na to przy pierwszym uruchomieniu.
+    """
+
+    def test_HTML_jest_odrzucany_z_PODPOWIEDZIA(self):
+        """Najważniejszy przypadek: osoba z ForMarketing robi makiety HTML."""
+        with tempfile.TemporaryDirectory() as k:
+            plik = _plik(Path(k), "makieta.html", b"<html>")
+            with self.assertRaises(ValueError) as p:
+                multipart.sprawdz_typy([plik])
+        tresc = str(p.exception)
+        self.assertIn("makieta.html", tresc)
+        self.assertIn(".zip", tresc, "komunikat ma mówić, CO zrobić, nie tylko że się nie da")
+
+    def test_zip_przechodzi(self):
+        """Spakowana makieta to droga, którą README ma zalecać."""
+        with tempfile.TemporaryDirectory() as k:
+            multipart.sprawdz_typy([_plik(Path(k), "makieta.zip", b"PK")])
+
+    def test_typowe_zalaczniki_przechodza(self):
+        with tempfile.TemporaryDirectory() as k:
+            kat = Path(k)
+            multipart.sprawdz_typy([
+                _plik(kat, "zrzut.png"), _plik(kat, "notatka.md"),
+                _plik(kat, "dane.csv"), _plik(kat, "opis.pdf"),
+            ])
+
+    def test_nieznany_typ_dostaje_LISTE_dozwolonych(self):
+        with tempfile.TemporaryDirectory() as k:
+            with self.assertRaises(ValueError) as p:
+                multipart.sprawdz_typy([_plik(Path(k), "cos.qwertyz")])
+        self.assertIn(".zip", str(p.exception))
+
+    def test_kontrola_dziala_PRZED_wyslaniem(self):
+        """Przy `zglos` sprawa powstaje przed plikami — odmowa dopiero z serwera zostawiłaby
+        sprawę bez załączników i człowieka z pytaniem, co teraz."""
+        with tempfile.TemporaryDirectory() as k:
+            plik = _plik(Path(k), "strona.html", b"<html>")
+            with self.assertRaises(ValueError):
+                multipart.sprawdz_pliki([str(plik)])
 
 
 if __name__ == "__main__":
