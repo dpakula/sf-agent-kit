@@ -13,6 +13,13 @@ import sys
 
 from . import WERSJA
 from . import config as konfiguracja
+
+#: Trzy profile w JEDNYM narzędziu (decyzja Damiana 15.09). Profil nie ogranicza uprawnień —
+#: te są po stronie SalesForge — tylko POKAZUJE to, co do danej roli należy, i chowa resztę.
+#: Docelowo rozstrzygnie to `GET /me`; dopóki go nie ma, profil jest deklaracją człowieka,
+#: a README mówi wprost, czego każdy z nich potrzebuje.
+PROFILE = ("worker", "autor", "koordynator")
+PROFIL_DOMYSLNY = "worker"
 from . import klucz as magazyn_klucza
 from .api import BladAPI, Klient
 
@@ -30,20 +37,42 @@ def _klient(konf: konfiguracja.Konfiguracja) -> Klient:
     return Klient(baza=konf.adres, klucz=kl, organizacja=konf.organizacja)
 
 
-def polecenie_init(_args) -> int:
-    """Zapytaj o klucz i o resztę ustawień. Klucz — bez echa, resztę zwyczajnie."""
+def polecenie_init(args) -> int:
+    """Zapytaj o slug, profil i resztę ustawień. Klucz — bez echa, na końcu.
+
+    SLUG JEST PIERWSZY I TO NIE JEST KOLEJNOŚĆ Z GRZECZNOŚCI: od niego zależy, GDZIE wyląduje
+    konfiguracja (`~/.config/sf-kit/<slug>/`) i pod jakim kontem klucz w pęku. Pytanie o niego
+    później znaczyłoby zapisywanie do katalogu, o którym jeszcze nie wiemy.
+    """
     print("Konfiguracja SF Agent Kit. Enter zostawia wartość w nawiasie.\n")
-    konf = konfiguracja.wczytaj()
 
     def pytaj(etykieta: str, teraz: str) -> str:
         podane = input(f"{etykieta} [{teraz or 'brak'}]: ").strip()
         return podane or teraz
 
+    # Slug PRZED wczytaniem konfiguracji — bo to on wskazuje, którą konfigurację wczytać.
+    wstepny = konfiguracja.wczytaj_jesli_jest()
+    slug = pytaj("Twój slug agenta w SF (np. codex-formarketing)",
+                 getattr(args, "agent", None) or (wstepny.slug if wstepny else ""))
+    if not slug:
+        print("Bez sluga nie wiem, którym agentem jesteś ani gdzie zapisać ustawienia.",
+              file=sys.stderr)
+        return 2
+    magazyn_klucza.ustaw_agenta(slug)
+
+    konf = konfiguracja.wczytaj()
+    konf.slug = slug
+    konf.profil = pytaj(f"Profil: {' / '.join(PROFILE)}", konf.profil or PROFIL_DOMYSLNY)
+    if konf.profil not in PROFILE:
+        print(f"Nie znam profilu „{konf.profil}”. Dostępne: {', '.join(PROFILE)}",
+              file=sys.stderr)
+        return 2
+
     konf.adres = pytaj("Adres SalesForge", konf.adres)
     konf.organizacja = pytaj("Identyfikator Organizacji (X-Tenant-Id)", konf.organizacja)
-    konf.slug = pytaj("Twój slug agenta w SF (np. codex-2-dpakula)", konf.slug)
-    konf.katalog_roboczy = pytaj("Katalog roboczy (pusty = bieżący)", konf.katalog_roboczy)
-    konf.runtime = pytaj("Wykonawca: codex albo shell", konf.runtime)
+    if konf.profil == "worker":
+        konf.katalog_roboczy = pytaj("Katalog roboczy (pusty = bieżący)", konf.katalog_roboczy)
+        konf.runtime = pytaj("Wykonawca: codex albo shell", konf.runtime)
 
     plik = konfiguracja.zapisz(konf)
     print(f"\nUstawienia zapisane: {plik}")
@@ -120,10 +149,12 @@ def polecenie_whoami(_args) -> int:
     if not kl:
         raise SystemExit(magazyn_klucza.powod_braku_klucza())
 
+    print(f"agent:        {konf.slug or '(nie ustawiony)'}"
+          f"   profil: {konf.profil}")
+    print(f"ustawienia:   {konfiguracja.sciezka()}")
     print(f"klucz:        {magazyn_klucza.skrot(kl)}")
     print(f"adres:        {konf.adres}")
     print(f"Organizacja:  {konf.organizacja or '(nie ustawiona)'}")
-    print(f"mój slug:     {konf.slug or '(nie ustawiony)'}")
 
     braki = konf.braki()
     if braki:
@@ -215,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
     # `--version` przed podkomendami: pierwsze pytanie przy każdym zgłoszeniu brzmi „która
     # wersja u ciebie stoi", a odpowiedź „nie wiem" kosztuje rundę korespondencji.
     parser.add_argument("--version", action="version", version=f"sf-kit {WERSJA}")
+    # `--agent` jest globalny, bo dotyczy KAŻDEGO polecenia: wskazuje, czyją konfigurację
+    # i czyj klucz wziąć. Przy jednym agencie na maszynie nie trzeba go podawać nigdy.
+    parser.add_argument("--agent", default=None, metavar="SLUG",
+                        help="którym agentem jesteś (gdy na tej maszynie jest ich kilku)")
     pod = parser.add_subparsers(dest="polecenie", required=True)
 
     pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)
@@ -229,8 +264,14 @@ def main(argv: list[str] | None = None) -> int:
     w.set_defaults(funkcja=polecenie_worker)
 
     args = parser.parse_args(argv)
+    magazyn_klucza.ustaw_agenta(getattr(args, "agent", None))
     try:
         return args.funkcja(args)
+    except magazyn_klucza.WieluAgentow as blad:
+        # Nie wybieramy „któregoś": pisanie do cudzej Organizacji cudzym kluczem jest błędem,
+        # którego nie widać ani w wyniku, ani w logu.
+        print(str(blad), file=sys.stderr)
+        return 2
     except KeyboardInterrupt:
         print("\nPrzerwane.", file=sys.stderr)
         return 130

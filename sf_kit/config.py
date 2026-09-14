@@ -33,6 +33,12 @@ class Konfiguracja:
     organizacja: str = ""              # identyfikator Organizacji (X-Tenant-Id)
     slug: str = ""                     # mój slug agenta — po nim odsiewam swoje zadania
     katalog_roboczy: str = ""          # gdzie wykonawca ma pracować; pusty = bieżący
+    #: Który profil Kitu. Jedno narzędzie, trzy role — i pomoc pokazuje tylko to, co do tej
+    #: roli należy. `worker` CIĄGNIE zadania z kolejki, `autor` PCHA do SF gotową pracę
+    #: człowieka, `koordynator` dojdzie po `GET /me` (bez niego nie da się sprawdzić, czy
+    #: ktoś ma do tego prawo, a profil obiecujący polecenia, które kończą się 403, jest gorszy
+    #: od jego braku).
+    profil: str = "worker"
     runtime: str = "codex"             # codex | shell
     odstep_s: int = DOMYSLNY_ODSTEP_S
     limit_zadania_s: int = DOMYSLNY_LIMIT_ZADANIA_S
@@ -66,6 +72,22 @@ class Konfiguracja:
 
 def sciezka() -> Path:
     return sciezka_konfiguracji() / PLIK
+
+
+def wczytaj_jesli_jest() -> Konfiguracja | None:
+    """Konfiguracja, ale tylko gdy PLIK ISTNIEJE — inaczej `None`.
+
+    Używane przez `init`, zanim wiadomo, o którego agenta chodzi: przy kilku agentach na
+    maszynie samo `wczytaj()` nie ma jak wybrać i słusznie odmawia. Tutaj brak odpowiedzi
+    jest poprawną odpowiedzią („nie mam czego podpowiedzieć"), więc odmowę połykamy.
+    """
+    from .klucz import WieluAgentow
+
+    try:
+        plik = sciezka()
+    except WieluAgentow:
+        return None
+    return wczytaj() if plik.exists() else None
 
 
 def wczytaj() -> Konfiguracja:
