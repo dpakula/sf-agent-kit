@@ -12,7 +12,19 @@ i raportować wynik — przez zwykłe API HTTP, jednym poleceniem `sf-kit`.
 - **Administratora SalesForge**, który zakłada konta agentów i nadaje uprawnienia —
   dla niego jest sekcja na końcu.
 
-Nie trzeba czytać niczego poza tym plikiem.
+Poza tym plikiem jest jeszcze jeden: [`uruchamianie/`](uruchamianie/README.md) — gotowce
+na uruchomienie workera w tle. Potrzebny dopiero wtedy, gdy narzędzie już działa.
+
+### Gdy coś nie działa, a nie ma jeszcze gdzie o tym napisać
+
+Kanałem zgłoszeń jest wpis na sprawie w SalesForge — ale to wymaga działającego klucza,
+więc **przy kłopotach z pierwszym uruchomieniem nie zadziała**. Wtedy pisz do osoby, od
+której dostałeś klucz: to ona jest w tym dokumencie nazywana **administratorem SalesForge**
+i to ona zakłada konta, nadaje uprawnienia i wydaje klucze. Jeśli nie wiesz, kto to —
+zapytaj tego, kto poprosił cię o uruchomienie Kitu.
+
+**Zanotuj sobie ten kontakt teraz, przed pierwszym uruchomieniem.** Połowa rzeczy, które
+mogą pójść nie tak na starcie, kończy się prośbą właśnie do tej osoby.
 
 ---
 
@@ -23,11 +35,19 @@ a korzysta z Codexa. Sześć poleceń po kolei; przy każdym napisane, czego si�
 
 ### Czego potrzebujesz przed startem
 
-| rzecz | jak sprawdzić, czy jest |
-|---|---|
-| Codex CLI, zalogowany | `codex --version` wypisuje numer |
-| Python 3.9 lub nowszy | `python3 --version` wypisuje numer |
-| git | `git --version` wypisuje numer |
+| rzecz | jak sprawdzić | czego brakuje, gdy nie ma |
+|---|---|---|
+| Codex CLI | `codex --version` wypisuje numer | instalacja wg dokumentacji OpenAI; potem `codex login` |
+| …**zalogowany** | `codex exec "napisz OK"` odpowiada, nie prosi o logowanie | `codex login` |
+| Python 3.9+ | `python3 --version` wypisuje numer | macOS: `brew install python3`; Linux: z menedżera pakietów |
+| git | `git --version` wypisuje numer | macOS: `xcode-select --install`; Linux: z menedżera pakietów |
+
+**Nie ma nic do zainstalowania poza tym.** Kit korzysta wyłącznie z biblioteki standardowej
+Pythona, więc `pip install` nie jest potrzebny — po pobraniu od razu działa.
+
+**System:** macOS i Linux. Na Windows Kit **nie był sprawdzany**; najbliższą działającą drogą
+jest WSL (Linux wewnątrz Windowsa), ale tego też nikt dotąd nie potwierdził — potraktuj to
+jako niewiadomą, nie jako obietnicę.
 
 ### Co dostajesz od administratora SalesForge
 
@@ -53,15 +73,45 @@ cd sf-agent-kit
 Adres `https://` działa bez konta GitHub i bez konfigurowania kluczy SSH. Powinien pojawić
 się katalog `sf-agent-kit`.
 
+**Uruchom to w swoim katalogu domowym** (czyli tam, gdzie terminal startuje domyślnie).
+Gotowce z katalogu [`uruchamianie/`](uruchamianie/README.md) zakładają ścieżkę
+`~/sf-agent-kit`; przy innym miejscu trzeba je będzie poprawić.
+
+**O zapisie `./sf-kit`:** kropka z ukośnikiem znaczy „program z tego katalogu", więc wszystkie
+polecenia poniżej działają **po wejściu do `sf-agent-kit`**. Jeśli wolisz wołać `sf-kit`
+z dowolnego miejsca:
+
+```bash
+mkdir -p ~/.local/bin && ln -sf "$PWD/sf-kit" ~/.local/bin/sf-kit
+```
+
+(o ile `~/.local/bin` jest w twoim `PATH` — sprawdzisz to poleceniem `echo $PATH`).
+Dalej w dokumencie pisane jest krótkie `sf-kit`; jeśli nie zakładałeś skrótu, dopisuj `./`
+i pracuj w katalogu Kitu.
+
 **2. Zapisz klucz i ustawienia**
 
 ```bash
 ./sf-kit init
 ```
 
-Polecenie zadaje pięć pytań (adres, Organizacja, slug, katalog roboczy, wykonawca),
-a na końcu prosi o klucz — **wpisywany bez pokazywania na ekranie**. Kończy się linią
-„Klucz … zapisany".
+Polecenie zadaje pięć pytań, a na końcu prosi o klucz — **wpisywany bez pokazywania na
+ekranie** (to normalne, nie jest zepsute). Co wpisać:
+
+| pytanie | co wpisać |
+|---|---|
+| Adres SalesForge | to, co dał administrator; Enter zostawia wartość w nawiasie |
+| Identyfikator Organizacji | długi ciąg od administratora |
+| Twój slug agenta w SF | slug od administratora, np. `codex-formarketing` |
+| Katalog roboczy | katalog, w którym agent ma pracować, np. `/Users/ty/praca-sf`. **Musi istnieć** — zadanie ze wskazanym nieistniejącym katalogiem zostanie odrzucone |
+| Wykonawca | `codex` (`shell` jest trybem testowym administratora — §10) |
+
+Kończy się liniami „Klucz … zapisany" i „Ochrona przed zapisaniem klucza w repozytorium:
+włączona".
+
+**Uruchomienie `init` po raz drugi nadpisuje poprzedni klucz** — to jest właściwy sposób
+poprawienia literówki albo wpisania nowego klucza. Enter przy każdym pytaniu zostawia
+dotychczasową wartość, więc można zmienić sam klucz.
 
 > **To polecenie wykonuje człowiek, sam, w terminalu.** Nie przez model, nie przez wklejenie
 > klucza w czat. Powód jest w §4.
@@ -72,8 +122,32 @@ a na końcu prosi o klucz — **wpisywany bez pokazywania na ekranie**. Kończy 
 ./sf-kit whoami
 ```
 
-Spodziewany wynik: skrót klucza, adres, Organizacja, slug i linia **`odczyt zadań: działa`**.
-Jeśli zamiast tego widać `NIE DZIAŁA` — patrz §7, tabela kodów.
+Spodziewany wynik:
+
+```
+klucz:        sk_live_…a7f2
+adres:        https://sf.dpakula.pl
+Organizacja:  289cef06-b8b9-4a0c-967f-2533b08e82c4
+mój slug:     codex-formarketing
+
+odczyt zadań: działa
+zadania:      518
+ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.2”.
+
+Zmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.
+```
+
+Gdy klucz nie działa, ostatnia ważna linia wygląda tak:
+
+```
+odczyt zadań: NIE DZIAŁA — klucz nie został przyjęty (401). Uruchom `sf-kit init` …
+```
+
+**Cały ten wynik można bezpiecznie pokazać komuś przy diagnozie** — w linii `klucz:` jest
+tylko skrót (stały początek i cztery ostatnie znaki), po którym da się odróżnić dwa klucze
+od siebie, a nie da się żadnego użyć.
+
+Kody błędów i co z nimi zrobić: §7.
 
 **4. Zobacz swoje zadania**
 
@@ -81,8 +155,26 @@ Jeśli zamiast tego widać `NIE DZIAŁA` — patrz §7, tabela kodów.
 ./sf-kit tasks
 ```
 
-Wypisuje zadania czekające w kolejce dla twojego sluga. „Brak zadań" na tym etapie jest
-normalny — znaczy tylko tyle, że nikt jeszcze nic nie przypisał.
+Wypisuje zadania czekające w kolejce dla twojego sluga:
+
+```
+Zadania w kolejce dla „codex-formarketing” (1 z 518 pozycji kolejki):
+
+  ADVERTPR-901
+    Uporządkuj katalog raportów
+    sprawa: ADVERTPR-777   id: 8a1f…
+```
+
+„Brak zadań" na tym etapie jest normalny — znaczy, że nikt jeszcze nic nie przypisał.
+Liczba w nawiasie („z 518 pozycji kolejki") mówi, ile zadań w ogóle przejrzano; gdy pojawi
+się przy niej ostrzeżenie o bezpieczniku, wynik NIE jest pewnym „brak zadań".
+
+> **Uwaga na literówkę w slugu.** Slug wpisany w `init` musi zgadzać się **znak w znak**
+> z tym, który administrator ustawił na koncie agenta. Przy pomyłce wszystko wygląda
+> poprawnie — `whoami` mówi „działa" — a `tasks` pokazuje „brak zadań" **nieodróżnialnie
+> od stanu, w którym naprawdę nic nie przypisano**. Gdy zadanie zostało przypisane,
+> a lista jest pusta, sprawdź slug w pierwszej kolejności: `sf-kit whoami` wypisuje go
+> w linii `mój slug:`; poproś administratora o porównanie z kontem.
 
 **5. Wykonaj jedno zadanie próbnie**
 
@@ -91,8 +183,15 @@ normalny — znaczy tylko tyle, że nikt jeszcze nic nie przypisał.
 ```
 
 Bierze **najwyżej jedno** zadanie, wykonuje je, pisze sprawozdanie na sprawie i zamyka
-zadanie. Na ekranie widać każdy z tych kroków. Zrób to pierwszy raz na zadaniu testowym,
-nie na prawdziwym.
+zadanie. Na ekranie widać każdy z tych kroków.
+
+**Zrób to pierwszy raz na zadaniu testowym.** Zadania nie zakłada się samemu — poproś
+administratora, żeby przypisał ci jedno próbne (np. „wypisz zawartość katalogu roboczego")
+przy sprawie, na której nie przeszkadza dodatkowy wpis. Pierwszy przebieg na prawdziwej
+sprawie klienta zostawia ślad, którego nie da się cofnąć.
+
+Gdy nie ma żadnego zadania, `--once` kończy się bez pracy i bez błędu — wypisuje tylko
+wiersz startowy workera.
 
 **6. Zostaw workera pracującego**
 
@@ -107,7 +206,8 @@ zamknięcie terminala i restart komputera, użyj gotowych plików z katalogu
 
 ### Gotowy prompt do wklejenia w Codexa
 
-Jeśli wolisz, żeby krokami 1 i 3–5 zajął się model:
+Jeśli wolisz, żeby model poprowadził cię przez kroki 1, 3 i 4 (klucz z kroku 2 i pierwszy
+przebieg z kroku 5 zostają po twojej stronie):
 
 ```
 Sklonuj https://github.com/dpakula/sf-agent-kit.git, wejdź do katalogu sf-agent-kit
@@ -118,7 +218,9 @@ Potem poprowadź mnie przez pierwsze uruchomienie:
 2. poczekaj, aż sam uruchomię `./sf-kit init` — tego NIE rób za mnie, tam wpisuję klucz,
 3. po moim potwierdzeniu uruchom `./sf-kit whoami` i `./sf-kit tasks` i wytłumacz mi wynik
    zwykłym językiem,
-4. jeśli coś nie zadziała, powiedz mi wprost, o co mam poprosić administratora.
+4. jeśli coś nie zadziała, powiedz mi wprost, o co mam poprosić administratora,
+5. NIE uruchamiaj `./sf-kit worker` ani `--once` bez mojej zgody — pierwszy przebieg
+   chcę zobaczyć sama, na zadaniu testowym.
 
 Nie wpisuj i nie pytaj mnie o klucz API w rozmowie.
 ```
@@ -279,10 +381,18 @@ Konto agenta zakładane z panelu dostaje go automatycznie.
 Gdy przyczyną jest brak nadania, człowiek nie musi rozumieć modelu uprawnień. Wystarczy,
 że przekaże administratorowi to:
 
-> „Poproszę o nadanie uprawnienia **`tasks:own`** na moim członkostwie w tej Organizacji
-> w SalesForge. To jedno kliknięcie w panelu, klucza nie trzeba wymieniać."
+> „Proszę o nadanie uprawnienia **`tasks:own`** na członkostwie **konta agenta o slugu
+> `<slug>`** w tej Organizacji w SalesForge. To jedno kliknięcie w panelu, klucza nie
+> trzeba wymieniać."
 
-(w miejsce `tasks:own` wstaw to, którego brakuje — `tickets:comment` przy wpisach).
+W miejsce `<slug>` wstaw slug z `sf-kit whoami`, a w miejsce `tasks:own` — uprawnienie,
+którego brakuje (`tickets:comment` przy wpisach).
+
+> **Uwaga, łatwo tu wskazać złą osobę.** Uprawnienie nadaje się na członkostwie **konta
+> agenta**, a nie na koncie człowieka, który uruchamia Kit. To są dwa różne konta: agent
+> ma własne, z własnym slugiem, i to jemu wystawiono klucz. Prośba napisana w pierwszej
+> osobie („na moim członkostwie") potrafi skończyć się nadaniem uprawnienia człowiekowi,
+> po którym `403` nie zniknie — i wtedy szuka się przyczyny tam, gdzie jej nie ma.
 
 ### Zasięg klucza — rozpoznanie, nie wykład
 
@@ -449,6 +559,37 @@ Gotowe zdanie do przekazania jest w §5 — użyj go zamiast tłumaczyć model u
 **Czego nie obiecywać:** że zadanie zostanie zauważone natychmiast (worker odpytuje co
 minutę) i że wynik pojawi się w powiadomieniu (Kit pisze na sprawie — tam trzeba zajrzeć).
 
+### Gdzie człowiek zobaczy wynik pracy
+
+Wynik to **wpis na sprawie** w SalesForge i tam trzeba po niego pójść — nie przychodzi
+mailem ani powiadomieniem. Drugim śladem jest samo zadanie: zmienia status na `completed`
+i znika z kolejki.
+
+**Do panelu SalesForge człowiek potrzebuje własnego dostępu.** Klucz wpisany w `sf-kit init`
+należy do **konta agenta** — to nie jest login człowieka i nie otworzy nim przeglądarki.
+To osobna rzecz do poproszenia administratora, obok czterech danych z §1:
+
+> „Proszę o dostęp do panelu SalesForge dla mnie osobiście, żebym mógł/mogła oglądać sprawy
+> i wpisy agenta w przeglądarce."
+
+Bez tego powstaje stan dość absurdalny: agent pracuje, a osoba, która go uruchomiła, nie widzi
+efektów. Warto załatwić to od razu, a nie po pierwszym wykonanym zadaniu.
+
+Adres sprawy wygląda tak: `<adres SalesForge>/tickets/<identyfikator sprawy>`. Identyfikator
+bierze się z pola `ticket_id` zadania (`sf-kit tasks` pokazuje obok zadania jego sprawę —
+`ticket_ref` to nazwa czytelna dla człowieka, `ticket_id` to identyfikator do adresu).
+
+### Czego te zadania w ogóle dotyczą
+
+Wykonawcą jest Codex pracujący **na plikach w katalogu roboczym** — więc zadania są tego
+rodzaju: uporządkuj katalog, przygotuj zestawienie z plików, popraw treść, wygeneruj
+raport, sprawdź dane w arkuszu. Nie są to zadania wymagające klikania w cudzych systemach
+ani dostępu do rzeczy spoza tego katalogu; takie Kit odrzuci, zamiast improwizować.
+
+**Uwaga o kosztach:** każde wykonane zadanie zużywa limit konta Codexa osoby, która
+uruchomiła workera. Przy wyczerpanym limicie albo wygasłym logowaniu zadania zaczną kończyć
+się niepowodzeniem — i będą wracać do kolejki z wpisem mówiącym, na czym stanęły.
+
 ---
 
 ## 10. `sf-kit` — polecenia
@@ -510,6 +651,49 @@ Bez tego `--runtime shell` odmawia i wyjaśnia dlaczego. Dwa kroki zamiast jedne
 celowo: w tym trybie treść dowolnego zadania z kolejki staje się poleceniem wykonanym na
 tej maszynie.
 
+### Co worker robi przy kłopotach
+
+Ważne przy zostawianiu go bez nadzoru — i inne dla każdego rodzaju kłopotu:
+
+| sytuacja | co robi worker |
+|---|---|
+| **403 przy przyjmowaniu zadania** | **zatrzymuje się i kończy pracę**, wypisując, czego brakuje. Nie kręci się w kółko na zadaniu, którego nie może przyjąć |
+| **401 (klucz przestał działać)** | zatrzymuje się i kończy pracę |
+| brak zadań | nic; czeka do następnego przebiegu |
+| nie udało się pobrać kolejki (sieć, 5xx) | zapisuje to w dzienniku i próbuje ponownie **po zwykłym odstępie** (domyślnie 60 s). Odstęp NIE rośnie — przy dłuższej awarii serwera worker pyta co minutę |
+| **zadanie przekroczyło limit czasu** (domyślnie 30 min) | pisze na sprawie, na czym stanęło, i **oddaje zadanie do kolejki** (`queued`). Zadanie nie zostaje zawieszone w `in_progress` |
+| wykonanie się nie powiodło | to samo: wpis z powodem i zadanie z powrotem w kolejce |
+| praca zrobiona, ale wpisu nie udało się zapisać | zadanie **nie jest zamykane** i wraca do kolejki — zadanie zamknięte bez śladu wygląda jak zrobione i nikt nie wie co |
+| zadanie bez przypiętej sprawy | nie ma gdzie zdać sprawozdania; zadanie zostaje w kolejce |
+
+Workera uruchomionego w terminalu zatrzymuje **Ctrl+C**. Uruchomionego w tle — sposobem
+właściwym dla wybranego mechanizmu ([`uruchamianie/`](uruchamianie/README.md)).
+
+### Zmiana ustawień po `init`
+
+Najprościej uruchomić `sf-kit init` jeszcze raz (Enter zostawia dotychczasowe wartości).
+Można też poprawić plik `~/.config/sf-kit/config.json` — nazwy pól:
+
+```json
+{
+  "adres": "https://sf.dpakula.pl",
+  "organizacja": "289cef06-…",
+  "slug": "codex-formarketing",
+  "katalog_roboczy": "/Users/ty/praca-sf",
+  "runtime": "codex",
+  "odstep_s": 60,
+  "limit_zadania_s": 1800,
+  "zezwol_shell": false
+}
+```
+
+`odstep_s` — co ile sekund sprawdzać kolejkę. `limit_zadania_s` — po ilu sekundach przerwać
+wykonanie jednego zadania (1800 = 30 minut).
+
+**Katalog roboczy**: bierze się z konfiguracji. Zadanie może wskazać własny (pole
+`katalog_roboczy`) i wtedy wygrywa; gdy nie ma ani jednego, ani drugiego — albo wskazany
+katalog nie istnieje — zadanie zostaje odrzucone z wpisem, zamiast być wykonane byle gdzie.
+
 ### Testy
 
 ```bash
@@ -557,6 +741,15 @@ Kitem nie musi jej czytać.
    agenta. Klucz pokazywany jest **raz** — przekaż go kanałem innym niż poczta.
 4. Przypisz agentowi zadanie (pole wykonawcy) — dopiero wtedy `sf-kit tasks` cokolwiek
    pokaże.
+5. **Załóż jedno zadanie testowe** przy sprawie, na której nie przeszkadza dodatkowy wpis
+   (np. „wypisz zawartość katalogu roboczego"). Pierwszy przebieg u nowej osoby ma pójść
+   na nim, nie na sprawie klienta.
+6. **Zadbaj o dostęp do panelu dla człowieka**, który będzie agenta uruchamiał. Klucz agenta
+   nie jest jego loginem — bez własnego konta nie zobaczy wpisów, które agent pisze.
+
+**Slug musi się zgadzać znak w znak** z tym, co człowiek wpisze w `sf-kit init`. Literówka
+nie daje żadnego błędu: `whoami` mówi „działa", a `tasks` pokazuje „brak zadań" —
+nieodróżnialnie od stanu, w którym nic jeszcze nie przypisano.
 
 ### Zmiana uprawnień bez wymiany klucza
 
@@ -616,5 +809,11 @@ jego użytkownik.
 
 ---
 
-**SF Agent Kit** · SalesForge / ADVERTpro.co
-Pytania i usterki: wpis na sprawie, przy której pracujesz.
+**SF Agent Kit** — narzędzie do pracy z **SalesForge**, systemem prowadzenia spraw i zadań
+rozwijanym przez ADVERTpro.co. Organizacja, w której pracujesz, jest osobną przestrzenią
+w tym systemie — jej identyfikator podaje administrator i nie musi mieć nic wspólnego
+z ADVERTpro.
+
+Pytania i usterki: wpis na sprawie, przy której pracujesz. Gdy Kit jeszcze nie działa —
+do osoby, od której masz klucz — patrz „Gdy coś nie działa, a nie ma jeszcze gdzie
+o tym napisać" na początku dokumentu.
