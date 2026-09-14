@@ -9,7 +9,7 @@ własnych ustawień pokazuje mu też klucz.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .klucz import sciezka_konfiguracji
@@ -53,6 +53,18 @@ class Konfiguracja:
     #: Teraz trzeba jeszcze świadomie dopisać to pole do pliku ustawień — a dopisuje je
     #: administrator, nie osoba, która przegląda `--help`.
     zezwol_shell: bool = False
+
+    #: Kto ma dostawać powiadomienia o sprawach zakładanych przez tego agenta —
+    #: identyfikatory KONT w SalesForge (nie adresy).
+    #:
+    #: Sprawdzone w kodzie SF: przy kluczu API backend **nie dopisuje nikogo poza samym
+    #: autorem** („skip for API key" w `create_ticket`). Sprawa założona przez agenta spoza
+    #: floty bez tej listy nie powiadomiłaby NIKOGO — leżałaby, wyglądając na zgłoszoną.
+    #:
+    #: Identyfikatory wpisuje ADMINISTRATOR: agent nie ma ich jak odczytać, bo lista kont
+    #: jest dla jego klucza niedostępna. To jest znana niedogodność, zgłoszona jako luka
+    #: (README, „Ograniczenia") — nie docelowy kształt.
+    obserwatorzy_domyslni: list = field(default_factory=list)
 
     def braki(self) -> list[str]:
         """Czego brakuje, żeby worker mógł ruszyć. Pusta lista = wszystko jest.
