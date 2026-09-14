@@ -314,3 +314,48 @@ def _podniesc(*_a, **_k):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOchronaRepozytorium(unittest.TestCase):
+    """`sf-kit init` NAPRAWDĘ włącza ochronę przed zapisaniem klucza (B11).
+
+    README obiecywał to od wersji 0.1, a `init` tego nie robił: instalator haka istniał jako
+    skrypt, który trzeba było uruchomić samemu. Nieprawdziwe zdanie o zabezpieczeniu jest
+    gorsze od braku zabezpieczenia, bo zdejmuje czujność — i dlatego obietnicy pilnuje odtąd
+    test, a nie akapit.
+    """
+
+    def test_init_instaluje_hak_w_repozytorium(self):
+        import shutil
+        import subprocess
+        import tempfile
+
+        korzen = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tymczasowy:
+            kopia = Path(tymczasowy) / "kit"
+            # `.git` WYKLUCZONY: kopiowanie go przeniosłoby razem z repozytorium hak,
+            # który jest tu przedmiotem badania — test zaczynałby od stanu końcowego.
+            shutil.copytree(korzen, kopia,
+                            ignore=shutil.ignore_patterns("__pycache__", ".git"))
+            subprocess.run(["git", "init", "-q"], cwd=kopia, check=True,
+                           env={"PATH": "/usr/bin:/bin", "HOME": tymczasowy})
+            hak = kopia / ".git" / "hooks" / "pre-commit"
+            self.assertFalse(hak.exists(), "świeże repozytorium nie ma jeszcze haka")
+
+            wynik = subprocess.run(
+                ["bash", str(kopia / "hooks" / "install.sh")], cwd=kopia,
+                capture_output=True, text=True,
+                env={"PATH": "/usr/bin:/bin", "HOME": tymczasowy})
+
+            self.assertEqual(wynik.returncode, 0, wynik.stderr)
+            self.assertTrue(hak.exists(), "hak nie został zainstalowany")
+
+    def test_init_wola_instalator(self):
+        """Sama obecność instalatora nic nie daje, dopóki `init` go nie uruchamia."""
+        import inspect
+
+        from sf_kit import cli
+
+        zrodlo = inspect.getsource(cli.polecenie_init)
+        self.assertIn("_wlacz_ochrone_repozytorium", zrodlo,
+                      "`init` nie włącza ochrony — README obiecuje coś, czego nie robi")

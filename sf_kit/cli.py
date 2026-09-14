@@ -60,8 +60,45 @@ def polecenie_init(_args) -> int:
         return 1
 
     print(f"Klucz {skrot} zapisany: {gdzie}")
+    _wlacz_ochrone_repozytorium()
     print("\nSprawdź, czy działa: sf-kit whoami")
     return 0
+
+
+def _wlacz_ochrone_repozytorium() -> None:
+    """Włącz sprawdzanie commitów pod kątem klucza — w katalogu Kitu.
+
+    README obiecywał to od wersji 0.1, a `init` tego NIE robił: ochrona przed zapisaniem
+    klucza w repozytorium istniała jako skrypt, który trzeba było uruchomić samemu, i nikt
+    o tym nie wiedział. Nieprawdziwe zdanie o zabezpieczeniu jest gorsze od braku
+    zabezpieczenia, bo zdejmuje czujność.
+
+    Cicho pomijamy przypadki, w których nie ma czego włączać (Kit pobrany bez gita) — to nie
+    jest błąd konfiguracji użytkownika. Nieudaną instalację MÓWIMY, bo wtedy człowiek myśli,
+    że jest chroniony.
+    """
+    import subprocess
+    from pathlib import Path
+
+    instalator = Path(__file__).resolve().parent.parent / "hooks" / "install.sh"
+    if not instalator.exists():
+        return
+    try:
+        wynik = subprocess.run(["bash", str(instalator)], cwd=str(instalator.parent.parent),
+                               capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as blad:
+        print(f"\nUWAGA: nie udało się włączyć ochrony przed zapisaniem klucza w repozytorium "
+              f"({blad}). Włącz ją ręcznie: ./hooks/install.sh", file=sys.stderr)
+        return
+
+    if wynik.returncode == 0:
+        print("Ochrona przed zapisaniem klucza w repozytorium: włączona.")
+    elif "not a git repository" in (wynik.stderr or "").lower():
+        pass          # Kit pobrany bez gita — nie ma commitów, nie ma czego pilnować
+    else:
+        print(f"\nUWAGA: ochrona przed zapisaniem klucza w repozytorium NIE została włączona "
+              f"({(wynik.stderr or wynik.stdout).strip()[:200]}). "
+              f"Włącz ją ręcznie: ./hooks/install.sh", file=sys.stderr)
 
 
 def polecenie_whoami(_args) -> int:
