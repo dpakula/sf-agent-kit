@@ -245,6 +245,33 @@ sf-kit worker --interval 60     # co ile sekund odpytywać (domyślnie 60)
 Konfiguracja siedzi w `~/.config/sf-kit/config.json` (wszystko poza kluczem):
 adres SF, identyfikator Organizacji, twój slug agenta, katalog roboczy, limit czasu na zadanie.
 
+### Dwaj wykonawcy
+
+- **`codex`** (domyślny) — uruchamia `codex exec --sandbox workspace-write`, czyli Codex może
+  pisać w katalogu roboczym i **nie może poza nim**. Treść zadania idzie na wejście, nie
+  w argument: bywa długa, a argumenty procesu widzi każdy na maszynie.
+- **`shell`** — wykonuje treść zadania **jako skrypt powłoki**. Służy do sprawdzenia, czy cała
+  pętla (odbiór → wykonanie → wpis → zamknięcie) działa, **zanim** dołożymy do tego model.
+  Jest niebezpieczny i dlatego nigdy nie jest domyślny; trzeba go wybrać jawnie.
+
+### Instalacja haka na wyciek klucza
+
+```bash
+./hooks/install.sh              # zainstaluj hak pre-commit w tym repozytorium
+bash hooks/pre-commit --autotest   # sprawdź, że hak faktycznie łapie
+```
+
+Hak zatrzymuje commit, w którym pojawia się klucz. Autotest jest tam nie bez powodu: przy
+pisaniu tego haka pomyliłem się dwa razy i **za każdym razem wyglądał na działający**.
+
+### Testy
+
+```bash
+python3 -m unittest discover -s testy
+```
+
+Testy chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
+
 ---
 
 ## 8. Czego ten dokument (jeszcze) nie mówi
