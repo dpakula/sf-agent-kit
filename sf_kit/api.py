@@ -27,6 +27,10 @@ from . import WERSJA
 #: Ile czekamy na odpowiedź. Minuta: `codex exec` bywa wolny, ale SAMO API nie ma prawa.
 LIMIT_CZASU_S = 60
 
+#: Osobny, dłuższy limit na wysyłkę załączników. Makieta HTML ze zrzutami to megabajty,
+#: a zerwanie wysyłki w połowie zostawia sprawę z częścią plików.
+LIMIT_CZASU_WYSYLKI_S = 300
+
 #: Ile zadań bierzemy jednym pytaniem. 200 to sufit strony po stronie SalesForge — większa
 #: liczba nie da większej strony, da 422.
 NA_STRONE = 200
@@ -249,6 +253,84 @@ class Klient:
         if wersja is not None:
             cialo["version"] = wersja
         return self._wywolaj("PATCH", f"tasks/{task_id}", cialo=cialo)
+
+    # ── sprawy: profil AUTOR (v0.3) ──────────────────────────────────────────
+
+    def zaloz_sprawe(self, *, tytul: str, opis: str, priorytet: str = "medium",
+                     kategoria: str | None = None,
+                     obserwatorzy: list[str] | None = None) -> dict:
+        """Nowa sprawa w Organizacji klucza. Wymaga `tickets:write`.
+
+        `obserwatorzy` to identyfikatory KONT (nie adresy) — SalesForge sprawdza przy tym
+        członkostwo w tej Organizacji. Podajemy ich jawnie, bo backend przy kluczu API
+        **nie dopisuje nikogo poza samym autorem** (`create_ticket`: „skip for API key").
+        Sprawa założona przez agenta spoza floty bez obserwujących nie powiadomiłaby nikogo —
+        czyli leżałaby, wyglądając na zgłoszoną.
+        """
+        cialo: dict = {"title": tytul, "description": opis, "priority": priorytet}
+        if kategoria:
+            cialo["category"] = kategoria
+        if obserwatorzy:
+            cialo["watcher_user_ids"] = list(obserwatorzy)
+        return self._wywolaj("POST", "tickets", cialo=cialo)
+
+    def sprawy(self, *, limit: int = 50) -> list[dict]:
+        """Sprawy widoczne dla tego klucza w jego Organizacji."""
+        zapytanie = urllib.parse.urlencode({"limit": limit})
+        odp = self._wywolaj("GET", f"tickets?{zapytanie}")
+        if isinstance(odp, dict):
+            return odp.get("items") or odp.get("pozycje") or []
+        return odp if isinstance(odp, list) else []
+
+    def wpis_z_plikami(self, ticket_id: str, tresc: str | None, pliki: list,
+                       *, widocznosc: str = "internal") -> dict:
+        """JEDEN wpis z N plikami — i jedno powiadomienie dla obserwujących.
+
+        Trasa `/entries/with-attachments` istnieje dokładnie po to: wgranie dwunastu plików
+        po jednym dało kiedyś dwanaście wpisów i dwanaście maili w piętnaście sekund. Kit ma
+        z tej lekcji korzystać, a nie powtarzać ją po swojej stronie.
+
+        Pliki sprawdzamy PRZED wysłaniem (`multipart.sprawdz_pliki`): paczka odrzucona w połowie
+        zostawiłaby sprawę z częścią załączników.
+        """
+        from . import multipart
+
+        gotowe = multipart.sprawdz_pliki([str(p) for p in pliki])
+        cialo, typ = multipart.zloz(
+            {"content": tresc or "", "entry_type": "note",
+             "is_internal": "true" if widocznosc == "internal" else "false"},
+            gotowe,
+        )
+        return self._wywolaj_surowo(
+            "POST", f"tickets/{ticket_id}/entries/with-attachments",
+            dane=cialo, typ_tresci=typ)
+
+    def _wywolaj_surowo(self, metoda: str, sciezka: str, *, dane: bytes,
+                        typ_tresci: str) -> dict:
+        """Żądanie z gotowym ciałem (multipart). Osobne od `_wywolaj`, które składa JSON.
+
+        Limit czasu jest tu WIĘKSZY: paczka plików idzie dłużej niż zapytanie o listę,
+        a zerwanie wysyłki w połowie jest gorsze niż czekanie.
+        """
+        adres = f"{self.baza}/api/v1/{sciezka.lstrip('/')}"
+        naglowki = self._naglowki()
+        naglowki["Content-Type"] = typ_tresci
+        zadanie = urllib.request.Request(adres, data=dane, headers=naglowki, method=metoda)
+        try:
+            with urllib.request.urlopen(zadanie, timeout=LIMIT_CZASU_WYSYLKI_S) as odp:
+                tresc = odp.read().decode("utf-8")
+                return json.loads(tresc) if tresc else {}
+        except urllib.error.HTTPError as blad:
+            tresc = ""
+            try:
+                tresc = blad.read().decode("utf-8", errors="replace")[:500]
+            except Exception:                      # noqa: BLE001
+                pass
+            raise self._na_wyjatek(blad.code, metoda, sciezka, tresc) from None
+        except urllib.error.URLError as blad:
+            raise BladAPI(
+                f"nie mogę połączyć się z {self.baza} ({blad.reason}). "
+                f"Sprawdź adres i sieć — to nie jest problem z kluczem.") from None
 
     # ── sprawy ───────────────────────────────────────────────────────────────
 
