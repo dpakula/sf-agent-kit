@@ -12,19 +12,63 @@ i raportować wynik — przez zwykłe API HTTP, jednym poleceniem `sf-kit`.
 - **Administratora SalesForge**, który zakłada konta agentów i nadaje uprawnienia —
   dla niego jest sekcja na końcu.
 
+---
+
+## Start w minutę
+
+Korzystasz z Codexa i chcesz po prostu zacząć? Nie musisz czytać reszty tego dokumentu.
+
+**1. Weź od administratora SalesForge cztery rzeczy:**
+
+| dane | przykład |
+|---|---|
+| adres SalesForge | `https://sf.dpakula.pl` |
+| identyfikator Organizacji | `289cef06-b8b9-…` |
+| twój slug agenta | `codex-formarketing` |
+| **klucz API** | `sk_live_…` — **osobnym kanałem, nie mailem**; to hasło do konta |
+
+**2. Wklej to Codexowi:**
+
+```
+Sklonuj https://github.com/dpakula/sf-agent-kit.git, wejdź do katalogu sf-agent-kit
+i przeczytaj README.md w całości.
+
+Potem poprowadź mnie przez pierwsze uruchomienie:
+1. powiedz mi, co mam przygotować (dane od administratora SalesForge),
+2. poczekaj, aż sam uruchomię `./sf-kit init` — tego NIE rób za mnie, tam wpisuję klucz,
+3. po moim potwierdzeniu uruchom `./sf-kit whoami` i `./sf-kit tasks` i wytłumacz mi wynik
+   zwykłym językiem,
+4. jeśli coś nie zadziała, powiedz mi wprost, o co mam poprosić administratora,
+5. NIE uruchamiaj `./sf-kit worker` ani `--once` bez mojej zgody — pierwszy przebieg
+   chcę zobaczyć sama, na zadaniu testowym.
+
+Nie wpisuj i nie pytaj mnie o klucz API w rozmowie.
+```
+
+**3. Resztę tego dokumentu przeczyta za ciebie agent.** Jeśli chcesz wiedzieć, co robi
+i dlaczego — czytaj dalej; wszystko poniżej jest dla niego i dla ciebie, gdy zechcesz zajrzeć
+głębiej.
+
 Poza tym plikiem jest jeszcze jeden: [`uruchamianie/`](uruchamianie/README.md) — gotowce
 na uruchomienie workera w tle. Potrzebny dopiero wtedy, gdy narzędzie już działa.
 
-### Gdy coś nie działa, a nie ma jeszcze gdzie o tym napisać
+### Gdy coś nie działa
 
-Kanałem zgłoszeń jest wpis na sprawie w SalesForge — ale to wymaga działającego klucza,
-więc **przy kłopotach z pierwszym uruchomieniem nie zadziała**. Wtedy pisz do osoby, od
-której dostałeś klucz: to ona jest w tym dokumencie nazywana **administratorem SalesForge**
-i to ona zakłada konta, nadaje uprawnienia i wydaje klucze. Jeśli nie wiesz, kto to —
-zapytaj tego, kto poprosił cię o uruchomienie Kitu.
+Kanałem zgłoszeń jest **wpis na sprawie w SalesForge**, przy której pracujesz. Gdy jesteś dopiero na
+starcie i klucz jeszcze nie działa, użyj **formularza pomocy**:
 
-**Zanotuj sobie ten kontakt teraz, przed pierwszym uruchomieniem.** Połowa rzeczy, które
-mogą pójść nie tak na starcie, kończy się prośbą właśnie do tej osoby.
+**https://sf.dpakula.pl/pomoc**
+
+Nie wymaga logowania ani klucza. Podaj, co próbowałeś zrobić, co zobaczyłeś (skopiuj komunikat) i adres,
+na który mamy odpowiedzieć. Zgłoszenie od razu trafia do zespołu SalesForge jako sprawa — dostaniesz jej
+numer i odpowiedź na podany adres.
+
+Dane z formularza przetwarza ADVERTpro.co wyłącznie po to, żeby odpowiedzieć na zgłoszenie. Pełna
+informacja o przetwarzaniu jest pod formularzem.
+
+Osoba, która założyła ci konto i wydała klucz, to **administrator SalesForge** — tak nazywamy ją dalej
+w tym dokumencie. To ona nadaje uprawnienia i wystawia nowe klucze, więc część odpowiedzi z formularza
+będzie od niej.
 
 ---
 
@@ -203,27 +247,6 @@ Pętla: co minutę sprawdza, czy jest coś nowego. Działa tak długo, jak otwar
 terminala — **zamknięcie okna zatrzymuje workera i nikt o tym nie informuje**. Żeby przeżył
 zamknięcie terminala i restart komputera, użyj gotowych plików z katalogu
 [`uruchamianie/`](uruchamianie/README.md) (tmux, launchd dla macOS, systemd dla Linuksa).
-
-### Gotowy prompt do wklejenia w Codexa
-
-Jeśli wolisz, żeby model poprowadził cię przez kroki 1, 3 i 4 (klucz z kroku 2 i pierwszy
-przebieg z kroku 5 zostają po twojej stronie):
-
-```
-Sklonuj https://github.com/dpakula/sf-agent-kit.git, wejdź do katalogu sf-agent-kit
-i przeczytaj README.md w całości.
-
-Potem poprowadź mnie przez pierwsze uruchomienie:
-1. powiedz mi, co mam przygotować (dane od administratora SalesForge),
-2. poczekaj, aż sam uruchomię `./sf-kit init` — tego NIE rób za mnie, tam wpisuję klucz,
-3. po moim potwierdzeniu uruchom `./sf-kit whoami` i `./sf-kit tasks` i wytłumacz mi wynik
-   zwykłym językiem,
-4. jeśli coś nie zadziała, powiedz mi wprost, o co mam poprosić administratora,
-5. NIE uruchamiaj `./sf-kit worker` ani `--once` bez mojej zgody — pierwszy przebieg
-   chcę zobaczyć sama, na zadaniu testowym.
-
-Nie wpisuj i nie pytaj mnie o klucz API w rozmowie.
-```
 
 ---
 
@@ -815,5 +838,4 @@ w tym systemie — jej identyfikator podaje administrator i nie musi mieć nic w
 z ADVERTpro.
 
 Pytania i usterki: wpis na sprawie, przy której pracujesz. Gdy Kit jeszcze nie działa —
-do osoby, od której masz klucz — patrz „Gdy coś nie działa, a nie ma jeszcze gdzie
-o tym napisać" na początku dokumentu.
+formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
