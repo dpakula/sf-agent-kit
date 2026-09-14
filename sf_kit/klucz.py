@@ -77,9 +77,18 @@ def _zapisz_keychain(klucz: str) -> str:
     cały ten moduł — wartość wylądowałaby w `ps`. Wariant `-w` bez wartości każe narzędziu
     zapytać, a my odpowiadamy na jego stdin.
     """
+    # `security` przy `-w` bez wartości pyta o hasło DWA razy („password data for new item"
+    # i „retype password"). Podajemy je dwa razy na wejściu, żeby oba pytania dostały odpowiedź
+    # i nie zostały na ekranie jako monity, których człowiek nie rozumie (Damian zobaczył je
+    # przy pierwszym uruchomieniu i nie wiedział, czy ma coś wpisać).
+    #
+    # Ostrzeżenie uczciwe: sprawdzone jest to, że dodatkowa linia niczego nie psuje. NIE jest
+    # sprawdzone na macOS, czy `security` czyta te pytania ze standardowego wejścia, czy prosto
+    # z terminala — w tym drugim przypadku monity zostaną mimo wszystko i dlatego `init`
+    # uprzedza o nich jednym zdaniem PRZED wywołaniem.
     wynik = subprocess.run(
         ["security", "add-generic-password", "-U", "-a", KONTO, "-s", USLUGA, "-w"],
-        input=klucz, text=True, capture_output=True,
+        input=f"{klucz}\n{klucz}\n", text=True, capture_output=True,
     )
     if wynik.returncode != 0:
         # Komunikat `security` nie zawiera klucza — możemy go pokazać w całości.
@@ -140,7 +149,7 @@ def wczytaj() -> str | None:
         return ze_srodowiska.strip()
 
     if czy_macos():
-        z_keychain = _wczytaj_keychain()
+        z_keychain, _ = _wczytaj_keychain()
         if z_keychain:
             return z_keychain
 
@@ -152,14 +161,57 @@ def wczytaj() -> str | None:
     return None
 
 
-def _wczytaj_keychain() -> str | None:
+#: Kod, którym `security` mówi „nie ma takiego wpisu". Każdy inny niezerowy znaczy coś
+#: innego — najczęściej „jest, ale nie mogę go otworzyć" (proces bez dostępu do pęku).
+KOD_BRAK_WPISU = 44
+
+#: Trzy odpowiedzi na pytanie „dlaczego nie mam klucza". Rozróżnienie NIE jest kosmetyczne:
+#: „nie zapisałeś klucza" każe człowiekowi uruchomić `init`, a „nie mam dostępu do pęku"
+#: znaczy, że klucz JEST i wszystko działa poprawnie — tylko pyta o niego proces, który
+#: z założenia nie ma go dostać (model w piaskownicy).
+BRAK_WPISU = "brak_wpisu"
+BRAK_DOSTEPU = "brak_dostepu"
+ZNALEZIONY = "znaleziony"
+
+
+def _wczytaj_keychain() -> tuple[str | None, str]:
+    """`(klucz, powód)`. Powód mówi, CZEGO zabrakło — patrz stałe wyżej."""
     wynik = subprocess.run(
         ["security", "find-generic-password", "-a", KONTO, "-s", USLUGA, "-w"],
         text=True, capture_output=True,
     )
-    if wynik.returncode != 0:
-        return None
-    return wynik.stdout.strip() or None
+    if wynik.returncode == 0:
+        klucz = wynik.stdout.strip()
+        return (klucz or None), (ZNALEZIONY if klucz else BRAK_WPISU)
+    if wynik.returncode == KOD_BRAK_WPISU:
+        return None, BRAK_WPISU
+    return None, BRAK_DOSTEPU
+
+
+def powod_braku_klucza() -> str:
+    """Zdanie tłumaczące, dlaczego `wczytaj()` nic nie oddało. Do pokazania człowiekowi.
+
+    Wołane WYŁĄCZNIE wtedy, gdy klucza nie ma — sprawdza pęk drugi raz, ale tylko na ścieżce
+    błędu, gdzie jedno dodatkowe wywołanie nic nie kosztuje, a zła diagnoza kosztuje wieczór.
+
+    Przypadek, dla którego to powstało: `sf-kit` uruchomiony PRZEZ MODEL w piaskownicy nie ma
+    dostępu do pęku kluczy i dostawał komunikat „Nie mam klucza. Uruchom `sf-kit init`" —
+    czyli instrukcję naprawy czegoś, co nie jest zepsute. Klucz jest zapisany, a brak dostępu
+    to zamierzone zachowanie: klucz należy do workera i do człowieka przy terminalu, nie do
+    modelu (README, sekcja o kluczu).
+    """
+    if czy_macos():
+        _, powod = _wczytaj_keychain()
+        if powod == BRAK_DOSTEPU:
+            return (
+                "Klucz JEST zapisany, ale ten proces nie ma dostępu do pęku kluczy.\n"
+                "Jeśli uruchamiasz `sf-kit` z wnętrza modelu (piaskownica Codexa), to jest\n"
+                "zachowanie zamierzone — klucz należy do człowieka przy terminalu i do workera,\n"
+                "nie do modelu. Uruchom to polecenie sam, w zwykłym terminalu.\n"
+                "Jeśli jesteś przy terminalu i mimo to widzisz ten komunikat, odblokuj pęk\n"
+                "kluczy (`security unlock-keychain`) albo zezwól narzędziu `security` na dostęp."
+            )
+    return "Nie mam klucza. Uruchom `./sf-kit init` — zapyta o niego i zapisze bezpiecznie."
 
 
 def zapytaj_i_zapisz() -> tuple[str, str]:
@@ -169,6 +221,9 @@ def zapytaj_i_zapisz() -> tuple[str, str]:
     znaków byłoby zgadywaniem cudzego formatu — a klucz, którego nie rozpoznajemy, i tak
     odrzuci serwer, i zrobi to wiarygodniej niż my.
     """
+    if czy_macos():
+        print("Klucz trafi do pęku kluczy macOS. System może przy tym wyświetlić własne\n"
+              "pytania o hasło — nic nie wpisuj, one dotyczą tego samego klucza.")
     klucz = getpass.getpass("Klucz API SalesForge (nie będzie widoczny): ").strip()
     if not klucz:
         raise ValueError("nie podałeś klucza")

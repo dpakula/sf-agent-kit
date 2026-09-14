@@ -21,8 +21,7 @@ def _klient(konf: konfiguracja.Konfiguracja) -> Klient:
     """Klient API albo zrozumiały komunikat i wyjście. Nigdy `KeyError` w twarz."""
     kl = magazyn_klucza.wczytaj()
     if not kl:
-        raise SystemExit(
-            "Nie mam klucza. Uruchom `sf-kit init` — zapyta o niego i zapisze bezpiecznie.")
+        raise SystemExit(magazyn_klucza.powod_braku_klucza())
     braki = konf.braki()
     if braki:
         raise SystemExit(
@@ -61,8 +60,21 @@ def polecenie_init(_args) -> int:
 
     print(f"Klucz {skrot} zapisany: {gdzie}")
     _wlacz_ochrone_repozytorium()
-    print("\nSprawdź, czy działa: sf-kit whoami")
+    # `./sf-kit`, nie `sf-kit`: dowiązania w PATH nikt jeszcze nie zakładał, więc krótsza
+    # forma kończy się „command not found" w pierwszej minucie pracy z narzędziem.
+    print(f"\nSprawdź, czy działa: {_jak_wolac()} whoami")
     return 0
+
+
+def _jak_wolac() -> str:
+    """`sf-kit` albo `./sf-kit` — zależnie od tego, czy polecenie jest widoczne w PATH.
+
+    Podpowiedź, która nie działa po wklejeniu, jest gorsza od braku podpowiedzi: człowiek
+    dostaje „command not found" i nie wie, czy zepsuł instalację, czy tak ma być.
+    """
+    import shutil
+
+    return "sf-kit" if shutil.which("sf-kit") else "./sf-kit"
 
 
 def _wlacz_ochrone_repozytorium() -> None:
@@ -106,7 +118,7 @@ def polecenie_whoami(_args) -> int:
     konf = konfiguracja.wczytaj()
     kl = magazyn_klucza.wczytaj()
     if not kl:
-        raise SystemExit("Nie mam klucza. Uruchom `sf-kit init`.")
+        raise SystemExit(magazyn_klucza.powod_braku_klucza())
 
     print(f"klucz:        {magazyn_klucza.skrot(kl)}")
     print(f"adres:        {konf.adres}")
@@ -118,10 +130,18 @@ def polecenie_whoami(_args) -> int:
         print("\nKonfiguracja niepełna — brakuje: " + ", ".join(braki))
         return 1
 
-    wynik = Klient(baza=konf.adres, klucz=kl, organizacja=konf.organizacja).sprawdz_klucz()
+    klient = Klient(baza=konf.adres, klucz=kl, organizacja=konf.organizacja)
+    wynik = klient.sprawdz_klucz()
     print(f"\nodczyt zadań: {wynik.get('odczyt_zadan')}")
-    if wynik.get("zadan_widocznych"):
-        print(f"zadania:      {wynik['zadan_widocznych']}")
+    # „zadania: 524" znaczyło CAŁĄ kolejkę Organizacji i myliło: Codex musiał tłumaczyć
+    # człowiekowi, że to nie są jego zadania. Obie liczby naraz, z nazwami — i ta sama
+    # formuła co w `tasks`, żeby dwa polecenia nie mówiły o tym samym różnymi słowami.
+    if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")):
+        try:
+            moje = klient.moje_zadania(slug=konf.slug)
+            print(f"zadania:      {_licznik(moje)}")
+        except BladAPI as blad:
+            print(f"zadania:      nie udało się policzyć — {blad}")
 
     # Data ważności klucza. SalesForge nie oddaje jej dziś posiadaczowi klucza — i to jest
     # zgłoszona luka, nie nasza niewiedza. Jedna linia: `whoami` ma być odczytem stanu,
@@ -129,6 +149,18 @@ def polecenie_whoami(_args) -> int:
     print("ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.2”.")
     print("\nZmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.")
     return 0 if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")) else 1
+
+
+def _licznik(wynik) -> str:
+    """Jedno zdanie o liczbach, używane przez `whoami` i `tasks`.
+
+    Dwie liczby, obie nazwane: ile zadań jest MOICH i ile pozycji kolejki Organizacji przy tym
+    przejrzano. Jedna liczba bez nazwy („zadania: 524") znaczyła całą kolejkę i regularnie
+    była brana za własną — Codex musiał to człowiekowi tłumaczyć na głos.
+    """
+    return (f"Twoje w kolejce: {len(wynik)} · "
+            f"przejrzano zadań Organizacji: {wynik.przejrzano}"
+            + (f" z {wynik.wszystkich}" if wynik.urwane else ""))
 
 
 def polecenie_tasks(_args) -> int:
@@ -142,13 +174,11 @@ def polecenie_tasks(_args) -> int:
         return 1
 
     if not wynik:
-        print(f'Brak zadań w kolejce dla agenta „{konf.slug}”'
-              f' (przejrzano {wynik.przejrzano} z {wynik.wszystkich} pozycji kolejki).')
+        print(f'Brak zadań dla agenta „{konf.slug}”. {_licznik(wynik)}')
         if wynik.urwane:
             print("UWAGA: przeglądanie urwał bezpiecznik stron — to NIE jest pewne „brak zadań”.")
         return 0
-    print(f'Zadania w kolejce dla „{konf.slug}” ({len(wynik)} '
-          f'z {wynik.wszystkich} pozycji kolejki):\n')
+    print(f"{_licznik(wynik)}\n")
     for z in wynik:
         sprawa = z.get("ticket_ref") or z.get("ticket_id") or "— bez sprawy"
         print(f"  {z.get('external_id')}")
