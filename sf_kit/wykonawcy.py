@@ -40,6 +40,13 @@ class Wykonawca:
 
     nazwa = "?"
 
+    #: Czy ten wykonawca ma dostać treść zadania w RAMCE (kim jesteś, gdzie, co oddać).
+    #:
+    #: Rozróżnienie nie jest kosmetyczne. Model CZYTA to, co dostaje, więc ramka mu pomaga.
+    #: Powłoka WYKONUJE to, co dostaje — ramka po polsku jest dla niej błędem składni i kończy
+    #: się „unexpected EOF" zamiast pracą. Złapały to testy przy pierwszym wpięciu ramki.
+    chce_ramke = False
+
     def dostepny(self) -> tuple[bool, str]:
         """`(czy da się uruchomić, co powiedzieć człowiekowi, gdy nie)`."""
         raise NotImplementedError
@@ -78,6 +85,17 @@ def _uruchom(argumenty: list[str], *, katalog: str, limit_s: int,
     return Wynik(True, wyjscie or blad or "(program nic nie wypisał)")
 
 
+#: Flaga wyłączająca pytania o zgodę. Idzie PRZED podkomendą `exec` — i to nie jest kwestia
+#: gustu: `codex exec --ask-for-approval never` kończy się kodem 2 („unexpected argument"),
+#: mimo że dokumentacja opisuje tę flagę jako globalną (openai/codex#26602). Forma
+#: `codex --ask-for-approval never exec …` działa.
+FLAGA_BEZ_PYTAN = ("--ask-for-approval", "never")
+
+#: Ile czekamy na samą sondę wersji. To jest `--version`, nie praca — jeśli nie odpowie
+#: w pięć sekund, to i tak nie jest sprawny Codex.
+LIMIT_SONDY_S = 5
+
+
 class WykonawcaCodex(Wykonawca):
     """`codex exec` — bezobsługowy przebieg Codexa z promptem na wejściu.
 
@@ -88,9 +106,25 @@ class WykonawcaCodex(Wykonawca):
     Prompt idzie przez **wejście standardowe**, nie przez argument: treść zadania bywa długa
     i wielolinijkowa, a argumenty procesu widzi `ps` (to ta sama zasada, co przy kluczu —
     tyle że tu chodzi o cudzą treść, nie o sekret).
+
+    DLACZEGO SONDUJEMY FLAGĘ ZAMIAST JĄ ZAŁOŻYĆ
+    ═══════════════════════════════════════════
+    Bez wyłączonego pytania o zgodę `codex exec` potrafi CZEKAĆ na zatwierdzenie polecenia.
+    Worker chodzi bez nadzoru, więc nikt tego nie zatwierdzi — przebieg wisi do limitu czasu
+    i kończy się komunikatem „przekroczony limit czasu", który wskazuje na wolny model, a nie
+    na to, co się naprawdę stało. Fałszywa diagnoza gorsza od awarii.
+
+    Ale sama flaga bywa nieprzyjmowana: jej obsługa różni się między wydaniami Codexa, a Kit
+    trafia na cudze maszyny z wersjami, których nie znamy. Dlatego **pytamy Codexa, który stoi
+    u użytkownika**, zamiast zgadywać z numeru wersji: jedno tanie `--version` z flagą mówi
+    prawdę o tej instalacji. Wynik zapamiętujemy na czas życia procesu.
     """
 
     nazwa = "codex"
+    chce_ramke = True
+
+    def __init__(self) -> None:
+        self._flagi: tuple[str, ...] | None = None
 
     def dostepny(self) -> tuple[bool, str]:
         if shutil.which("codex"):
@@ -98,10 +132,44 @@ class WykonawcaCodex(Wykonawca):
         return False, ("nie znalazłem polecenia `codex` w PATH. Zainstaluj Codex CLI albo "
                        "uruchom workera z `--runtime shell`.")
 
+    def flagi_globalne(self) -> tuple[str, ...]:
+        """Flagi przed podkomendą, sprawdzone na TEJ instalacji Codexa."""
+        if self._flagi is not None:
+            return self._flagi
+        try:
+            proba = subprocess.run(
+                ["codex", *FLAGA_BEZ_PYTAN, "exec", "--version"],
+                capture_output=True, text=True, timeout=LIMIT_SONDY_S)
+            self._flagi = FLAGA_BEZ_PYTAN if proba.returncode == 0 else ()
+        except (OSError, subprocess.SubprocessError):
+            # Sonda nie jest warta wywracania pracy. Idziemy bez flagi — najwyżej Codex
+            # o coś zapyta, a to widać w wyjściu.
+            self._flagi = ()
+        return self._flagi
+
     def wykonaj(self, polecenie: str, *, katalog: str, limit_s: int) -> Wynik:
-        return _uruchom(
-            ["codex", "exec", "--sandbox", "workspace-write", "-"],
-            katalog=katalog, limit_s=limit_s, wejscie=polecenie)
+        polecenia = ["codex", *self.flagi_globalne(), "exec",
+                     "--sandbox", "workspace-write"]
+        if not _w_repozytorium_git(katalog):
+            # Codex domyślnie odmawia pracy poza repozytorium git (żeby dało się cofnąć jego
+            # zmiany). Katalog roboczy agenta zwykle repozytorium nie jest, więc bez tej flagi
+            # KAŻDE zadanie kończyłoby się odmową. Mówimy o tym w wyjściu zamiast po cichu
+            # zdejmować cudze zabezpieczenie.
+            polecenia.append("--skip-git-repo-check")
+        polecenia.append("-")
+        return _uruchom(polecenia, katalog=katalog, limit_s=limit_s, wejscie=polecenie)
+
+
+def _w_repozytorium_git(katalog: str) -> bool:
+    """Czy katalog leży w repozytorium git. Po drzewie w górę, bez wołania `git`."""
+    sciezka = os.path.abspath(katalog or ".")
+    while True:
+        if os.path.isdir(os.path.join(sciezka, ".git")):
+            return True
+        rodzic = os.path.dirname(sciezka)
+        if rodzic == sciezka:
+            return False
+        sciezka = rodzic
 
 
 class WykonawcaShell(Wykonawca):

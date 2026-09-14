@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from . import WERSJA
 from . import config as konfiguracja
 from . import klucz as magazyn_klucza
 from .api import BladAPI, Klient
@@ -85,20 +86,11 @@ def polecenie_whoami(_args) -> int:
     if wynik.get("zadan_widocznych"):
         print(f"zadania:      {wynik['zadan_widocznych']}")
 
-    # Data ważności klucza. SalesForge nie oddaje jej dziś posiadaczowi klucza — nie ma trasy,
-    # która powiedziałaby „ten klucz jest ważny do". Mówimy o tym WPROST zamiast pomijać:
-    # klucze agentów mają dostać 30-dniową ważność, a agent, który nie wie, kiedy jego klucz
-    # wygasa, dowie się o tym przez 401 w środku pracy — czyli w najgorszym możliwym momencie.
-    print("ważny do:     nie wiem — SalesForge nie podaje daty ważności posiadaczowi klucza.\n"
-          "              Zapytaj administratora, kiedy wygasa, i ustaw sobie przypomnienie.")
-    print(
-        "\nUWAGA: nie sprawdzam, czy możesz ZMIENIĆ status zadania — sondowanie tego przez\n"
-        "zepsucie cudzego zadania byłoby gorsze niż niewiedza. Jeśli worker dostanie 403 przy\n"
-        "przyjmowaniu zadania, znaczy to jedno z dwojga: brakuje `tasks:own` (nadaje się je\n"
-        "NA TWOIM CZŁONKOSTWIE w Organizacji, nie na kluczu — README §2) albo zadanie NIE JEST\n"
-        "twoje. Odpowiedź serwera mówi które. Klucz agenta ma być osobisty (`scope=user`);\n"
-        "klucz `member` albo `tenant` to błąd konfiguracji."
-    )
+    # Data ważności klucza. SalesForge nie oddaje jej dziś posiadaczowi klucza — i to jest
+    # zgłoszona luka, nie nasza niewiedza. Jedna linia: `whoami` ma być odczytem stanu,
+    # a nie miejscem na wykład (pełne wyjaśnienie → README, „Ograniczenia wersji 0.2").
+    print("ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.2”.")
+    print("\nZmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.")
     return 0 if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")) else 1
 
 
@@ -136,6 +128,16 @@ def polecenie_worker(args) -> int:
         konf.runtime = args.runtime
     if args.interval:
         konf.odstep_s = args.interval
+
+    if konf.runtime == "shell" and not konf.zezwol_shell:
+        raise SystemExit(
+            "Wykonawca `shell` jest wyłączony.\n\n"
+            "`shell` wykonuje treść zadania JAK POLECENIE POWŁOKI na tej maszynie. Służy\n"
+            "wyłącznie do sprawdzenia, czy cała pętla działa bez modelu — nie do pracy.\n\n"
+            "Jeśli naprawdę tego chcesz, dopisz do pliku ustawień\n"
+            f"  {konfiguracja.sciezka()}\n"
+            '  "zezwol_shell": true\n\n'
+            "Do zwykłej pracy użyj `--runtime codex`.")
     return uruchom(klient, konf, raz=args.once)
 
 
@@ -143,6 +145,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sf-kit",
         description="SF Agent Kit — odbieraj zadania z SalesForge, wykonuj je, raportuj.")
+    # `--version` przed podkomendami: pierwsze pytanie przy każdym zgłoszeniu brzmi „która
+    # wersja u ciebie stoi", a odpowiedź „nie wiem" kosztuje rundę korespondencji.
+    parser.add_argument("--version", action="version", version=f"sf-kit {WERSJA}")
     pod = parser.add_subparsers(dest="polecenie", required=True)
 
     pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)

@@ -22,6 +22,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
+from . import WERSJA
+
 #: Ile czekamy na odpowiedź. Minuta: `codex exec` bywa wolny, ale SAMO API nie ma prawa.
 LIMIT_CZASU_S = 60
 
@@ -97,7 +99,7 @@ class Klient:
             "Authorization": f"Bearer {self._klucz}",
             "X-Tenant-Id": self.organizacja,
             "Accept": "application/json",
-            "User-Agent": "sf-agent-kit/0.1",
+            "User-Agent": f"sf-agent-kit/{WERSJA}",
         }
 
     def _wywolaj(self, metoda: str, sciezka: str, *, cialo: dict | None = None) -> dict | list:

@@ -37,6 +37,17 @@ class Konfiguracja:
     odstep_s: int = DOMYSLNY_ODSTEP_S
     limit_zadania_s: int = DOMYSLNY_LIMIT_ZADANIA_S
 
+    #: Czy wolno uruchamiać wykonawcę `shell`. **Domyślnie nie** i tak ma zostać u każdego,
+    #: kto nie wie, po co miałby to zmienić.
+    #:
+    #: `shell` wykonuje treść zadania JAK SKRYPT. To jest narzędzie do sprawdzenia, czy cała
+    #: pętla (odbiór → wykonanie → wpis → zamknięcie) działa BEZ modelu — i do niczego więcej.
+    #: Sama flaga `--runtime shell` wystarczała do 0.1, więc każdy, kto ją zobaczył w pomocy,
+    #: mógł zamienić dowolne zadanie z kolejki w polecenie powłoki na swojej maszynie.
+    #: Teraz trzeba jeszcze świadomie dopisać to pole do pliku ustawień — a dopisuje je
+    #: administrator, nie osoba, która przegląda `--help`.
+    zezwol_shell: bool = False
+
     def braki(self) -> list[str]:
         """Czego brakuje, żeby worker mógł ruszyć. Pusta lista = wszystko jest.
 

@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 
 from .api import BladAPI, BrakUprawnienia, Klient, ZlyKlucz
 from .config import Konfiguracja
+from . import ramka
 from .wykonawcy import katalog_zadania, wybierz
 
 #: Ile znaków wyjścia wykonawcy wchodzi do wpisu. Reszta jest obcinana z jawną adnotacją —
@@ -51,12 +52,47 @@ def _skroc(tekst: str) -> str:
             + f"\n\n[…obcięte — całość miała {len(tekst)} znaków]")
 
 
+#: Nagłówki, po których poznajemy, że wykonawca oddał sprawozdanie w umówionym układzie.
+#: Wystarczy pierwszy — modele bywają kreatywne w interpunkcji, a nie o interpunkcję tu chodzi.
+NAGLOWKI_SPRAWOZDANIA = ("**Sedno**", "**Co zrobiono**")
+
+
+def czy_sprawozdanie(wyjscie: str) -> bool:
+    """Czy wykonawca oddał sprawozdanie po ludzku, czy surowy dziennik pracy.
+
+    Rozstrzyga o tym, czy wpis na sprawie idzie TAK, JAK JEST, czy trzeba go opakować.
+    Sprawdzamy oba nagłówki, nie jeden: „**Sedno**" samo w sobie bywa cytatem z promptu,
+    który model przepisał, nie pisząc sprawozdania.
+    """
+    tekst = wyjscie or ""
+    return all(naglowek in tekst for naglowek in NAGLOWKI_SPRAWOZDANIA)
+
+
 def wpis_sukces(zadanie: dict, wyjscie: str, *, wykonawca: str) -> str:
-    """Sprawozdanie z wykonanego zadania — układ Sedno / Co zrobiono / Szczegóły."""
+    """Sprawozdanie z wykonanego zadania.
+
+    DWIE DROGI, I TO JEST SEDNO ZMIANY 0.2
+    ══════════════════════════════════════
+    Jeśli wykonawca oddał sprawozdanie w umówionym układzie (o który prosi go ramka promptu),
+    **wpis to sprawozdanie** — bez naszej obwódki, bez bloku kodu, bez zdania „poniżej wyjście
+    wykonawcy, bez zmian". Bo wpis na sprawie czyta CZŁOWIEK i ma się z niego dowiedzieć, co
+    zostało zrobione, a nie oglądać dziennik pracy maszyny.
+
+    Jeśli nie oddał — opakowujemy, żeby wpis w ogóle miał jakiś kształt. Ale wtedy mówimy
+    wprost, że układu zabrakło, zamiast udawać sprawozdanie. Zdanie „poniżej wyjście wykonawcy,
+    bez zmian" znikło stąd dlatego, że przy sprawozdaniu było nieprawdą, a przy jego braku —
+    usprawiedliwieniem.
+    """
+    if czy_sprawozdanie(wyjscie):
+        stopka = (f"\n\n---\n*Zadanie `{zadanie.get('external_id', zadanie.get('id'))}` "
+                  f"wykonane przez agenta (`{wykonawca}`).*")
+        return _skroc(wyjscie.strip()) + stopka
+
     return (
         f"**Sedno** — zadanie „{zadanie.get('title', '?')}” wykonane.\n\n"
         f"**Co zrobiono** — zadanie odebrane z kolejki i wykonane przez `{wykonawca}`. "
-        f"Poniżej wyjście wykonawcy, bez zmian.\n\n"
+        f"Wykonawca nie oddał sprawozdania w umówionym układzie, więc poniżej jest to, "
+        f"co wypisał.\n\n"
         f"**Szczegóły techniczne**\n\n"
         f"Zadanie: `{zadanie.get('external_id', zadanie.get('id'))}`\n\n"
         f"```\n{_skroc(wyjscie)}\n```"
@@ -146,9 +182,13 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
         _log(f"   nie udało się przyjąć zadania: {blad}")
         return f"pominięte: {blad}"
 
-    # 3. Wykonaj.
+    # 3. Wykonaj. Wykonawca dostaje treść zadania W RAMCE — kim jest, gdzie pracuje, czego
+    #    nie wolno i co ma oddać na końcu. Samo `body_md` było pisane przez człowieka do
+    #    człowieka i nie mówi modelowi żadnej z tych rzeczy.
     _log(f"   wykonuję przez `{wykonawca.nazwa}` w {katalog} (limit {konf.limit_zadania_s} s)")
-    wynik = wykonawca.wykonaj(tresc, katalog=katalog, limit_s=konf.limit_zadania_s)
+    polecenie = (ramka.zbuduj(zadanie, slug=konf.slug, katalog=katalog)
+                 if wykonawca.chce_ramke else tresc)
+    wynik = wykonawca.wykonaj(polecenie, katalog=katalog, limit_s=konf.limit_zadania_s)
 
     # 4. Sprawozdanie PRZED zmianą statusu — patrz zasada 3 w nagłówku.
     if not wynik.udalo_sie:
