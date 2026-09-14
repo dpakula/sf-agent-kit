@@ -1,0 +1,10 @@
+# Sekrety — NIGDY w repozytorium
+credentials
+*.key
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
