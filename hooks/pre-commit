@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Hak: zatrzymaj commit, w którym jest klucz SalesForge.
+#
+# v0.1 (14.09.2026) - APro Agents / borys-sf
+#
+# Szukamy W TYM, CO WCHODZI DO COMMITA (`git diff --cached`), a nie w drzewie roboczym.
+# Skanowanie drzewa przepuściłoby klucz dodany przez `git add -f` i jednocześnie krzyczałoby
+# na plik, którego nikt nie commituje — czyli myliłoby się w obie strony.
+#
+# `.gitignore` NIE wystarcza: chroni przed przypadkiem, nie przed `git add -f` ani przed
+# kluczem wklejonym w środek pliku z kodem. Ten hak łapie właśnie ten drugi przypadek.
+set -euo pipefail
+
+WZORZEC='sk_live_[A-Za-z0-9_-]{8,}'
+
+# Autotest wzorca — bramka na bramkę. Wywoływany z `hooks/install.sh` i ręcznie.
+if [ "${1:-}" = "--autotest" ]; then
+    # Próbka SKLEJANA z kawałków, żeby w tym pliku NIE BYŁO literału pasującego do wzorca.
+    # Pierwsza wersja miała go wprost — i hak zatrzymywał commit samego siebie. Bramka, która
+    # blokuje własną instalację, jest równie bezużyteczna jak taka, która nic nie blokuje.
+    PROBKA="sk_live""_abcdef1234567890"
+    echo "$PROBKA" | grep -Eq "$WZORZEC" \
+        || { echo "AUTOTEST PADŁ: wzorzec nie łapie prawdziwego klucza" >&2; exit 1; }
+    echo 'sk_live_ i dalej ciąg znaków' | grep -Eq "$WZORZEC" \
+        && { echo "AUTOTEST PADŁ: wzorzec łapie przykład z dokumentacji" >&2; exit 1; }
+    echo "autotest wzorca: OK (łapie klucz, nie łapie przykładu z README)"
+    exit 0
+fi
+
+# UWAGA NA SKŁADNIĘ WZORCA (kosztowała jeden fałszywie zielony hak, 14.09):
+#   · `-G` używa rozszerzonych wyrażeń regularnych, więc klamry pisze się `{8,}`, a NIE
+#     `\{8,\}` — z odwrotnymi ukośnikami wzorzec nie pasuje do niczego i hak MILCZY;
+#   · `-I` w `git diff` to `--ignore-matching-lines=<regex>`, a nie „pomiń binaria" — podane
+#     bez argumentu zjada następny parametr, czyli właśnie nasz wzorzec.
+# Oba błędy dają hak, który przepuszcza wszystko i wygląda na działający. Dlatego niżej jest
+# autotest: `hooks/pre-commit --autotest` sprawdza, że wzorzec ŁAPIE klucz i NIE łapie przykładu.
+if git diff --cached --name-only -G"$WZORZEC" | grep -q .; then
+    echo "════════════════════════════════════════════════════════════════" >&2
+    echo " COMMIT ZATRZYMANY: w zmianach jest coś, co wygląda na klucz SF" >&2
+    echo "════════════════════════════════════════════════════════════════" >&2
+    echo >&2
+    echo "Pliki:" >&2
+    git diff --cached --name-only -G"$WZORZEC" | sed 's/^/  - /' >&2
+    echo >&2
+    echo "Klucz w repozytorium = klucz do rotacji, nawet jeśli commit nigdy nie trafi" >&2
+    echo "na serwer. Usuń go z treści, a klucz trzymaj przez: sf-kit init" >&2
+    echo >&2
+    echo "Jeśli to fałszywy alarm (np. przykład w dokumentacji), zmień zapis na" >&2
+    echo "sk_live_... albo sk_live_XXXX — hak szuka ośmiu znaków po prefiksie." >&2
+    exit 1
+fi

@@ -1,0 +1,161 @@
+"""Przechowywanie klucza API — jedyne miejsce, które go dotyka.
+
+v0.1 (14.09.2026) - APro Agents / borys-sf
+
+TRZY MIEJSCA, W KTÓRYCH KLUCZ WYCIEKA, I CO Z NIMI ROBIMY
+═════════════════════════════════════════════════════════
+1. **Argument procesu.** `ps aux` widzi każdy użytkownik maszyny, a historia powłoki zapisuje
+   polecenie na dysk. Dlatego `init` PYTA o klucz (bez echa) i nie przyjmuje go parametrem.
+   Nie ma flagi `--key`; brak takiej flagi jest funkcją, nie brakiem.
+2. **Log.** Klucz nigdy nie trafia do `print`, do wyjątku ani do komunikatu błędu. Gdy trzeba
+   powiedzieć, którego klucza użyto, mówimy `sk_live_…1a2b` (pierwsze 8 i ostatnie 4 znaki).
+3. **Prompt modelu.** Model nie dostaje klucza — z SF rozmawia worker. To jest granica, przez
+   którą nic nie przechodzi, i dlatego ten moduł nie ma żadnej funkcji „podaj klucz jako tekst
+   do wstawienia gdziekolwiek".
+
+macOS → pęk kluczy (`security`). Linux → plik `600`. Różnica jest w tym, co system oferuje,
+nie w tym, jak bardzo się staramy: pęk kluczy jest szyfrowany i pyta o zgodę, plik `600` broni
+tylko przed innym użytkownikiem tej maszyny — i tak jest napisane w README.
+"""
+from __future__ import annotations
+
+import getpass
+import os
+import platform
+import subprocess
+from pathlib import Path
+
+#: Nazwa usługi w pęku kluczy macOS. Stała, bo `security` szuka dokładnie po niej.
+USLUGA = "sf-agent-kit"
+KONTO = "api-key"
+
+#: Prefiks kluczy SalesForge. Po nim rozpoznajemy pomyłkę („wkleiłeś nie to") i po nim
+#: szuka hak gita.
+PREFIKS_KLUCZA = "sk_live_"
+
+
+def sciezka_konfiguracji() -> Path:
+    """Katalog konfiguracji. `XDG_CONFIG_HOME` uszanowany, bo tak działa reszta narzędzi."""
+    baza = os.environ.get("XDG_CONFIG_HOME")
+    return Path(baza) / "sf-kit" if baza else Path.home() / ".config" / "sf-kit"
+
+
+def _plik_klucza() -> Path:
+    return sciezka_konfiguracji() / "credentials"
+
+
+def czy_macos() -> bool:
+    return platform.system() == "Darwin"
+
+
+def skrot(klucz: str) -> str:
+    """Klucz w postaci nadającej się do pokazania człowiekowi. NIGDY całość.
+
+    Osiem znaków z przodu (czyli `sk_live_` plus nic) i cztery z tyłu wystarczą, żeby odróżnić
+    dwa klucze od siebie, a nie wystarczą, żeby któregokolwiek użyć.
+    """
+    if not klucz:
+        return "(brak)"
+    if len(klucz) <= 14:
+        return klucz[:4] + "…"
+    return f"{klucz[:8]}…{klucz[-4:]}"
+
+
+# ── zapis ────────────────────────────────────────────────────────────────────
+
+def zapisz(klucz: str) -> str:
+    """Zapisz klucz. Zwraca opis miejsca zapisu (do pokazania człowiekowi)."""
+    if czy_macos():
+        return _zapisz_keychain(klucz)
+    return _zapisz_plik(klucz)
+
+
+def _zapisz_keychain(klucz: str) -> str:
+    """Pęk kluczy macOS. Klucz idzie przez STDIN narzędzia `security`, nie przez argument.
+
+    `security add-generic-password -w <klucz>` byłoby dokładnie tym błędem, przed którym broni
+    cały ten moduł — wartość wylądowałaby w `ps`. Wariant `-w` bez wartości każe narzędziu
+    zapytać, a my odpowiadamy na jego stdin.
+    """
+    wynik = subprocess.run(
+        ["security", "add-generic-password", "-U", "-a", KONTO, "-s", USLUGA, "-w"],
+        input=klucz, text=True, capture_output=True,
+    )
+    if wynik.returncode != 0:
+        # Komunikat `security` nie zawiera klucza — możemy go pokazać w całości.
+        raise RuntimeError(f"nie udało się zapisać w pęku kluczy: {wynik.stderr.strip()}")
+    return f'pęk kluczy macOS (usługa „{USLUGA}”, konto „{KONTO}”)'
+
+
+def _zapisz_plik(klucz: str) -> str:
+    """Plik `600` w katalogu `700`.
+
+    Prawa nadajemy PRZED zapisem treści (`os.open` z `mode`), a nie po. Zapis jawnym plikiem
+    i poprawienie praw w drugim kroku zostawia okno, w którym klucz leży z prawami domyślnymi
+    — krótkie, ale wystarczające dla procesu, który akurat czyta katalog.
+    """
+    katalog = sciezka_konfiguracji()
+    katalog.mkdir(parents=True, exist_ok=True)
+    os.chmod(katalog, 0o700)
+
+    plik = _plik_klucza()
+    deskryptor = os.open(plik, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(deskryptor, "w") as f:
+        f.write(klucz + "\n")
+    os.chmod(plik, 0o600)
+    return f"{plik} (prawa 600)"
+
+
+# ── odczyt ───────────────────────────────────────────────────────────────────
+
+def wczytaj() -> str | None:
+    """Klucz albo `None`. Kolejność: zmienna środowiskowa → pęk kluczy → plik.
+
+    `SF_KIT_KEY` jest pierwsza, bo tak uruchamia się to w CI i w kontenerze, gdzie nie ma ani
+    pęku kluczy, ani katalogu domowego wartego zapisu. Uwaga dla wołającego: zmienna
+    środowiskowa jest widoczna w `/proc/<pid>/environ` dla właściciela procesu — to wygoda
+    z ceną, nie zalecany domyślny sposób.
+    """
+    ze_srodowiska = os.environ.get("SF_KIT_KEY")
+    if ze_srodowiska:
+        return ze_srodowiska.strip()
+
+    if czy_macos():
+        z_keychain = _wczytaj_keychain()
+        if z_keychain:
+            return z_keychain
+
+    plik = _plik_klucza()
+    if plik.exists():
+        tresc = plik.read_text(encoding="utf-8").strip()
+        if tresc:
+            return tresc
+    return None
+
+
+def _wczytaj_keychain() -> str | None:
+    wynik = subprocess.run(
+        ["security", "find-generic-password", "-a", KONTO, "-s", USLUGA, "-w"],
+        text=True, capture_output=True,
+    )
+    if wynik.returncode != 0:
+        return None
+    return wynik.stdout.strip() or None
+
+
+def zapytaj_i_zapisz() -> tuple[str, str]:
+    """Zapytaj człowieka o klucz (bez echa) i zapisz. Zwraca `(skrót, gdzie zapisano)`.
+
+    Walidujemy WYŁĄCZNIE prefiks i to, czy cokolwiek podano. Sprawdzanie długości albo
+    znaków byłoby zgadywaniem cudzego formatu — a klucz, którego nie rozpoznajemy, i tak
+    odrzuci serwer, i zrobi to wiarygodniej niż my.
+    """
+    klucz = getpass.getpass("Klucz API SalesForge (nie będzie widoczny): ").strip()
+    if not klucz:
+        raise ValueError("nie podałeś klucza")
+    if not klucz.startswith(PREFIKS_KLUCZA):
+        raise ValueError(
+            f'to nie wygląda na klucz SalesForge — powinien zaczynać się od „{PREFIKS_KLUCZA}”. '
+            f"Jeśli wkleiłeś coś innego (np. token GitHuba), zacznij od nowa.")
+    gdzie = zapisz(klucz)
+    return skrot(klucz), gdzie
