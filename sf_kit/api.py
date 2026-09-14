@@ -12,7 +12,7 @@ brzydota siedzi w tym jednym pliku, żeby reszta Kitu jej nie widziała.
 CO TEN MODUŁ ROBI Z BŁĘDAMI
 Zamienia kody HTTP na wyjątki, które **mówią człowiekowi, co zrobić** — nie na `HTTPError:
 403`. Worker chodzi bez nadzoru; komunikat „403" w logu o trzeciej w nocy nie pomoże nikomu,
-a „brakuje uprawnienia plans:write, poproś administratora" pomoże.
+a „brakuje uprawnienia tasks:own, poproś administratora" pomoże.
 """
 from __future__ import annotations
 
@@ -104,8 +104,12 @@ class Klient:
         if kod == 403:
             podpowiedz = ""
             if "/tasks/" in gdzie and metoda == "PATCH":
-                podpowiedz = (" Przy zmianie statusu zadania to prawie zawsze brak uprawnienia "
-                              "`plans:write` — poproś o nie administratora (patrz README §2).")
+                # Dwie możliwe przyczyny i obie warto wymienić: „brak uprawnienia" i „to nie
+                # twoje zadanie" wyglądają tak samo w kodzie odpowiedzi, a naprawia się je
+                # zupełnie inaczej — jedną prosi się administratora, drugą sprawdza u siebie.
+                podpowiedz = (" Przy zmianie statusu zadania znaczy to jedno z dwojga: brak "
+                              "uprawnienia `tasks:own` (nadawanego na członkostwie — README §2) "
+                              "albo to zadanie nie jest przypisane do ciebie.")
             return BrakUprawnienia(
                 f"nie wolno ci tej operacji ({gdzie}, 403).{podpowiedz}", kod=kod, szczegoly=tresc)
         if kod == 404:
@@ -154,7 +158,11 @@ class Klient:
         return self._wywolaj("GET", f"tasks/{task_id}")
 
     def ustaw_status(self, task_id: str, status: str, *, wersja: int | None = None) -> dict:
-        """Zmiana statusu zadania. **Wymaga `plans:write`** — bez niego 403.
+        """Zmiana statusu zadania. **Wymaga `tasks:own`** (ADVERTPR-778) — bez niego 403.
+
+        `tasks:own` działa wyłącznie na zadaniu, którego jesteś wykonawcą, i wyłącznie na
+        statusie. Prowadzący pracę ma szersze `plans:write`; worker go nie potrzebuje i nie
+        powinien dostać, bo niesie kasowanie cudzych zadań.
 
         `wersja` (OCC) podawana, gdy ją znamy: serwer odrzuci zmianę, jeśli ktoś ruszył zadanie
         w międzyczasie. Lepszy konflikt niż ciche nadpisanie cudzej decyzji.
