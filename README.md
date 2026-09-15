@@ -233,17 +233,30 @@ dotychczasową wartość, więc można zmienić sam klucz.
 Spodziewany wynik:
 
 ```
+agent:        codex-formarketing   profil: worker
+ustawienia:   ~/.config/sf-kit/codex-formarketing.json
 klucz:        sk_live_…a7f2
 adres:        https://sf.dpakula.pl
-Organizacja:  289cef06-b8b9-4a0c-967f-2533b08e82c4
-mój slug:     codex-formarketing
+konto:        Codex (FORmarketing) · agent
+klucz w SF:   sk_live_a1b2 · scope user
+
+Organizacje:
+  formarketing         FORmarketing sp. z o.o.      (3 nadań)
+  advertpro-co         ADVERTpro                    (bez nadań)
+
+pracuję w:    formarketing (FORmarketing sp. z o.o.)
+uprawnienia:  tickets:read, tickets:comment, tasks:own
 
 odczyt zadań: działa
-zadania:      518
-ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.3”.
+zadania:      Twoje w kolejce: 3 · przejrzano zadań Organizacji: 100 z 518
+ważny do:     2026-10-15T09:00:00+00:00
 
 Zmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.
 ```
+
+Wszystko poniżej linii `konto:` przychodzi **z SalesForge**, nie z Twojego pliku. To jest cała
+zmiana v0.4: do v0.3 `whoami` wypisywał zawartość konfiguracji i sondował klucz próbą odczytu,
+więc odebrane członkostwo wyglądało dokładnie tak samo jak działające.
 
 Gdy klucz nie działa, ostatnia ważna linia wygląda tak:
 
@@ -838,7 +851,13 @@ sf-kit --version                # która wersja Kitu jest zainstalowana
 sf-kit init                     # zapisz klucz (bez echa) i ustawienia
 sf-kit whoami                   # kim jesteś, czy klucz działa, gdzie leżą ustawienia
 sf-kit --agent <slug> …         # gdy na tej maszynie jest kilku agentów
+sf-kit --org <slug|uuid> …      # w której Organizacji ma działać TO polecenie
 ```
+
+`--org` jest **globalne** — stoi przed nazwą polecenia i działa przy każdym z nich. Bez niego
+obowiązuje domyślna z ustawień, a gdy domyślnej nie ma i Organizacji z nadaniami jest więcej
+niż jedna, Kit **odmawia i wypisuje kandydatki**. Nie zgaduje: wpis dopisany do sprawy w cudzej
+Organizacji wygląda dokładnie jak poprawna praca.
 
 **Profil `worker` — ciągniesz zadania z kolejki:**
 
@@ -857,6 +876,21 @@ sf-kit wpis <sprawa> [--opis plik.md|-] [--zalacz plik…] [--widocznosc interna
 sf-kit zalacz <sprawa> <plik…> [--notka "…"]
 sf-kit sprawy [--limit 50]
 ```
+
+**Profil `koordynator` — rozdajesz pracę flocie i odbierasz ją:**
+
+```bash
+sf-kit flota                                    # kto w tej Organizacji może dostać zadanie
+sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md \
+            [--priorytet low|medium|high|urgent] [--termin 2026-09-20T18:00:00Z]
+sf-kit kolejka [--agent-slug kodeks] [--status in_progress]
+sf-kit odbierz <id-zadania>                     # zamknij PO sprawdzeniu, że wynik jest na sprawie
+sf-kit status                                   # whoami + kolejka floty
+```
+
+Te polecenia pokazują się tylko wtedy, gdy klucz ma `plans:write` **w wybranej Organizacji** —
+sprawdzane przez `GET /me`, nie przez pole `profil` w pliku. Polecenie, które widać w pomocy,
+a kończy się `403` w środku pracy, jest gorsze od polecenia, którego nie ma.
 
 `<sprawa>` to **numer** (`FM-12`, `fm-12`, samo `12`) albo identyfikator. Sam numer działa,
 dopóki jest jednoznaczny — gdy pasuje do kilku spraw, Kit odmówi i wypisze kandydatów,
@@ -878,7 +912,7 @@ cd sf-agent-kit && git pull
 
 Klucz i ustawienia leżą **poza** katalogiem Kitu, więc `git pull` ich nie dotyka. Wydania
 są oznaczane tagami (`v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`); żeby stanąć na konkretnym:
-`git fetch --tags && git checkout v0.3.0`.
+`git fetch --tags && git checkout v0.4.0`.
 
 ### Co Codex dostaje do wykonania
 
@@ -998,20 +1032,37 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.3
+## 11. Ograniczenia wersji 0.4
 
-- **Nie ma endpointu „kim jestem"** dla klucza API. `sf-kit whoami` sprawdza klucz, próbując
-  odczytu — powie, czy działa, ale nie poda nazwy konta ani uprawnień efektywnych.
-  *(zgłoszone w SalesForge)*
-- **Data ważności klucza nie jest widoczna dla jego posiadacza.** Klucze agentów mają mieć
-  ważność 30-dniową; do czasu udostępnienia tej daty o wygaśnięciu informuje `401` w środku
-  pracy. `sf-kit whoami` mówi o tym wprost zamiast pokazywać puste pole. *(zgłoszone)*
+Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
+tu coś, co dziś jest nieprawdą:
+
+- ~~Nie ma endpointu „kim jestem"~~ → **jest**. `whoami` czyta konto, Organizacje i uprawnienia
+  efektywne z `GET /me`, zamiast wnioskować o kluczu z udanego odczytu.
+- ~~Jeden klucz, jedna Organizacja~~ → **`--org` przy każdym poleceniu**. Kit zna wszystkie
+  Organizacje z nadaniami i przy niejednoznaczności **odmawia**, zamiast wziąć pierwszą z brzegu.
+- ~~Worker odmawia wykonania zadania bez sprawy~~ → **wykonuje**, a wynik odkłada jako komentarz
+  zadania i mówi wprost, że nie ma go na żadnej osi (§„Zadanie bez sprawy").
+- ~~Wynik pracy to ścieżki w sprawozdaniu~~ → **pliki wiszą przy wpisie** jako załączniki.
+- ~~Data ważności klucza niewidoczna dla posiadacza~~ → **`whoami` ją pokazuje**, też z `/me`.
+  Pusta wartość znaczy teraz „bezterminowy", a nie „nie wiem" — to dwie różne rzeczy i przez
+  cztery dni README twierdził pierwszą, mając na myśli drugą.
+
+Co ogranicza nadal:
+
 - **Nie ma filtru zadań po slugu agenta** po stronie serwera. Kit przegląda kolejkę stronami
-  i odsiewa u siebie (§3). *(zgłoszone)*
+  i odsiewa u siebie (§3). Dlatego `kolejka` mówi, gdy widzi tylko część („widzę 100 z 340") —
+  licznik pokazujący 12 zadań, gdy jest ich 130, kłamie w jedyną stronę, która przy planowaniu
+  pracy ma znaczenie. *(zgłoszone)*
 - **Nie ma powiadomienia o nowym zadaniu.** Worker odpytuje co minutę; zadanie dodane
   o 12:00 zostanie zauważone najpóźniej o 12:01.
-- **Załączniki** (pobieranie plików ze sprawy) — nieobsługiwane.
-- **Praca w kilku Organizacjach naraz** — jeden klucz, jedna Organizacja.
+- **Pobieranie** plików ze sprawy — nieobsługiwane. Wysyłka działa (v0.4); w drugą stronę nie.
+- **`odbierz` potrafi powiedzieć „nie wiem", nie tylko „nie ma".** Wpisy poza poziomem
+  widoczności klucza są dla niego niewidoczne, więc brak dowodu na wynik nie jest dowodem
+  jego braku — i Kit nazywa to wprost, zamiast zamknąć zadanie albo odmówić bez wyjaśnienia.
+- **Agent bez sluga jest niezlecalny.** `flota` **pokazuje** takiego agenta z adnotacją, zamiast
+  go ukryć — ukryty wygląda jak nieistniejący i nikt nie wie, że jest co naprawić. Na produkcji
+  jest dziś jeden taki.
 - **Windows poza WSL** — nieobsługiwany, patrz „System" w §1.
 - **SalesForge nie przyjmuje plików `.html`** (ani `.css`, ani `.js`) jako załączników.
   Dozwolone są obrazy, PDF, dokumenty Office, `.txt`, `.csv`, `.md` oraz **`.zip`**. Makietę
@@ -1061,11 +1112,22 @@ nieodróżnialnie od stanu, w którym nic jeszcze nie przypisano.
 |---|---|---|
 | **worker** | `tickets:read`, `tickets:comment`, `tasks:own` | czyta zadania, pisze sprawozdania, zmienia status SWOICH zadań |
 | **autor** | `tickets:read`, `tickets:comment`, **`tickets:write`**, `context:read` | jak wyżej plus **zakładanie spraw** |
-| koordynator | — | profil zapowiedziany, bez poleceń (czeka na trasę „kim jestem") |
+| **koordynator** | jak autor plus **`plans:write`** | **zleca zadania flocie**, przegląda kolejkę, odbiera wyniki |
 
 **`tickets:write` to jedyna różnica** między workerem a autorem i jedyne, co trzeba dodać
 istniejącemu agentowi, żeby mógł zgłaszać. Zestaw domyślny konta zakładanego z panelu
 **go nie zawiera** — dodaje się go jednym kliknięciem na członkostwie, bez wymiany klucza.
+
+**`plans:write` nazywa się myląco**, bo bramkuje zakładanie ZADAŃ, nie planów: `POST /tasks`
+przechodzi przez `_require_manager`, a ten pyta o `PERM_PLANS_WRITE`. Uprawnień `tasks:write`
+ani `tasks:assign` w SalesForge **nie ma** — gdyby Kit bramkował po nich, polecenia koordynatora
+byłyby ukryte przed wszystkimi, łącznie z osobami mającymi pełne prawo je wydawać. Nazwa jest
+sprawdzona w kodzie SF, nie wzięta z nazewnictwa, które wydaje się sensowne.
+
+**Uprawnienie rozstrzyga o widoczności poleceń, nie pole `profil` w konfiguracji.** Profil
+w pliku jest deklaracją człowieka; o tym, co wolno, rozstrzyga klucz. Kit sprawdza to przez
+`GET /me` w **wybranej Organizacji** — ta sama osoba bywa koordynatorem w jednej i workerem
+w drugiej.
 
 **Załączniki nie mają własnego uprawnienia.** Wysyłka plików idzie tą samą trasą co wpis
 i bramkuje ją `tickets:comment`. Kto może napisać wpis, może dołączyć do niego pliki.
