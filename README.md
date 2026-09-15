@@ -850,6 +850,8 @@ razu", a nie odtwarzać historię edycji — od tego jest repozytorium, nie spra
 sf-kit --version                # która wersja Kitu jest zainstalowana
 sf-kit init                     # zapisz klucz (bez echa) i ustawienia
 sf-kit whoami                   # kim jesteś, czy klucz działa, gdzie leżą ustawienia
+sf-kit heartbeat                # czy worker tego agenta żyje (0/1 — pod czujkę)
+sf-kit usluga [--pokaz]         # jednostka systemd dla workera
 sf-kit --agent <slug> …         # gdy na tej maszynie jest kilku agentów
 sf-kit --org <slug|uuid> …      # w której Organizacji ma działać TO polecenie
 ```
@@ -912,8 +914,8 @@ cd sf-agent-kit && git pull
 ```
 
 Klucz i ustawienia leżą **poza** katalogiem Kitu, więc `git pull` ich nie dotyka. Wydania
-są oznaczane tagami (`v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`); żeby stanąć na konkretnym:
-`git fetch --tags && git checkout v0.4.0`.
+są oznaczane tagami (`v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, `v0.5.0`); żeby stanąć na konkretnym:
+`git fetch --tags && git checkout v0.5.0`.
 
 ### Co Codex dostaje do wykonania
 
@@ -1030,6 +1032,61 @@ Ważne przy zostawianiu go bez nadzoru — i inne dla każdego rodzaju kłopotu:
 Workera uruchomionego w terminalu zatrzymuje **Ctrl+C**. Uruchomionego w tle — sposobem
 właściwym dla wybranego mechanizmu ([`uruchamianie/`](uruchamianie/README.md)).
 
+### Worker jako usługa — żeby nie znikał razem z terminalem
+
+Worker uruchomiony ręcznie żyje tak długo, jak sesja SSH. Po rozłączeniu, po restarcie maszyny
+albo po jednym nieobsłużonym wyjątku po prostu znika — i **nikt się o tym nie dowiaduje**, bo
+brak workera wygląda z zewnątrz dokładnie tak samo jak brak zadań w kolejce.
+
+Od v0.5 Kit generuje jednostkę systemd:
+
+```bash
+sf-kit usluga --pokaz     # zobacz, co powstanie, zanim cokolwiek zapiszesz
+sf-kit usluga             # zapisz jednostkę i dostań instrukcję włączenia
+```
+
+Kit **pisze plik i mówi, co dalej** — nie włącza usługi sam. Polecenie, które z własnej woli
+uruchamia usługę na cudzej maszynie, jest trudne do cofnięcia przez kogoś, kto nie wiedział,
+że je uruchamia.
+
+Włączenie (usługa użytkownika, bez `sudo`):
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now sf-kit-worker@<twój-slug>.service
+systemctl --user status sf-kit-worker@<twój-slug>.service
+sudo loginctl enable-linger $USER    # żeby chodził też, gdy nie jesteś zalogowany
+```
+
+Jednostka ma `Restart=always` i `RestartSec=30`, a limit startów jest **zdjęty**: worker pada
+najczęściej na sieci, a domyślny limit wyłączyłby go na dobre dokładnie wtedy, gdy sieć wraca
+za dziesięć minut.
+
+**Klucza w jednostce nie ma.** Idzie przez `EnvironmentFile`, bo plik jednostki czyta się
+szerzej niż katalog agenta — `systemctl cat` pokaże go każdemu na maszynie, a sekret raz tam
+przepisany zostaje na zawsze.
+
+#### Tętno — skąd wiadomo, że worker naprawdę chodzi
+
+Worker przy każdym takcie pętli zapisuje `~/.sf-kit/heartbeat`. Sprawdzenie:
+
+```bash
+sf-kit heartbeat          # kod wyjścia 0 = żyje, 1 = nie
+```
+
+Do czujki (np. w tic) jest gotowy skrypt `scripts/collect/worker-heartbeat.sh <slug>`.
+Bez `--restartuj` tylko raportuje — tak się to sprawdza na żywej maszynie, zanim wpuści się
+czujkę z prawem do restartu.
+
+Dwie rzeczy, które warto wiedzieć, zanim ustawisz własny próg:
+
+- **Worker sam mówi, jak długo bieżący stan może trwać.** Zadanie z limitem trzydziestu minut
+  nie odświeża tętna w trakcie wykonania; stały próg dwóch minut kazałby czujce zrestartować
+  workera w połowie pracy modelu, czyli zrobić dokładnie tę szkodę, przed którą ma chronić.
+- **Tętno jest plikiem, nie zapytaniem do SF** — i to jest wybór, nie brak. Worker bez
+  łączności z SalesForge nadal je zapisuje, więc da się odróżnić „worker padł" od „worker żyje,
+  ale nie ma jak tego powiedzieć". To dwie różne awarie i wymagają czego innego.
+
 ### Kilku agentów na jednej maszynie
 
 Jeden człowiek może prowadzić kilku agentów — po jednym na profil albo na Organizację.
@@ -1097,7 +1154,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.4
+## 11. Ograniczenia wersji 0.5
 
 Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
 tu coś, co dziś jest nieprawdą:
@@ -1112,6 +1169,12 @@ tu coś, co dziś jest nieprawdą:
 - ~~Data ważności klucza niewidoczna dla posiadacza~~ → **`whoami` ją pokazuje**, też z `/me`.
   Pusta wartość znaczy teraz „bezterminowy", a nie „nie wiem" — to dwie różne rzeczy i przez
   cztery dni README twierdził pierwszą, mając na myśli drugą.
+
+- ~~Zadanie atomowe: w trakcie nie da się nic powiedzieć~~ → **worker czyta komentarze**
+  (`przerwij`, `doprecyzuj:`, `kontekst:`) między krokami, a o sobie mówi „krok N z M".
+- ~~Worker znika razem z terminalem~~ → **jednostka systemd** (`sf-kit usluga`) z tętnem
+  w `~/.sf-kit/heartbeat` i gotową czujką.
+- ~~Jeden model (Codex)~~ → **`--runtime kimi`** obok `codex` i `shell`.
 
 Co ogranicza nadal:
 
