@@ -1,4 +1,4 @@
-"""Wykonawcy zadań — `codex`, `shell`. Jeden interfejs, żeby dołożenie kolejnego był plikiem.
+"""Wykonawcy zadań — `codex`, `kimi`, `shell`. Jeden interfejs, żeby dołożenie kolejnego było plikiem.
 
 v0.1 (14.09.2026) - APro Agents / borys-sf
 
@@ -190,7 +190,80 @@ class WykonawcaShell(Wykonawca):
         return _uruchom(["bash", "-lc", polecenie], katalog=katalog, limit_s=limit_s)
 
 
-_WYKONAWCY = {w.nazwa: w for w in (WykonawcaCodex(), WykonawcaShell())}
+class WykonawcaKimi(Wykonawca):
+    """Kimi Code CLI w trybie bezobsługowym (ADVERTPR-807 C3, składnia z wpisu `1c831e48` na 803).
+
+    `--print` to tryb nieinteraktywny (włącza `--afk`, czyli bez pytań do człowieka), `--yolo`
+    daje automatyczną zgodę na polecenia i edycje — razem odpowiednik `codex --ask-for-approval
+    never exec`. Bez obu worker chodzący bez nadzoru wisiałby do limitu czasu na pytaniu,
+    którego nikt nie zatwierdzi, i meldował „przekroczony limit czasu": diagnoza wskazująca
+    na wolny model zamiast na to, co się naprawdę stało.
+
+    PROMPT IDZIE ARGUMENTEM I TO JEST RÓŻNICA WZGLĘDEM CODEXA — ŚWIADOMA, NIE PRZEOCZONA
+    ═════════════════════════════════════════════════════════════════════════════════════
+    `WykonawcaCodex` podaje treść zadania przez wejście standardowe, bo **argumenty procesu
+    widzi `ps` każdy użytkownik maszyny**, a na serwerach agentów wszyscy chodzą jako `ubuntu`.
+    Kimi w udokumentowanej składni przyjmuje prompt wyłącznie jako `--prompt` / `--command`,
+    więc treść zadania — cudza, czasem klienta — jest tu przez czas przebiegu widoczna w `ps`.
+
+    Nie udaję, że tego nie ma, i nie zdejmuję tego po cichu: zgłoszone wpisem na 807 z prośbą
+    o jedno sprawdzenie na maszynie z Kimi (`kimi --prompt -`, czy czyta stdin). Gdy odpowiedź
+    będzie twierdząca, ten adapter przechodzi na stdin jedną linią, tak jak Codex.
+
+    `--output-format text`: wynik czytamy ze stdout. `stream-json` dałby strukturę, ale worker
+    i tak przekazuje dalej całe wyjście — struktura bez odbiorcy to koszt bez pożytku.
+    """
+
+    nazwa = "kimi"
+    chce_ramke = True
+
+    def __init__(self) -> None:
+        self._sprawdzony: tuple[bool, str] | None = None
+
+    def dostepny(self) -> tuple[bool, str]:
+        """Obecność w `PATH` **i** faktyczne uruchomienie.
+
+        Sam `which` mówi tylko, że plik jest. Zepsuta albo niedokończona instalacja przechodzi
+        ten test i wywraca się dopiero na pierwszym zadaniu — czyli po tym, jak worker zdążył
+        je sobie przypisać. Jedno `--version` kosztuje ułamek sekundy i zamienia awarię
+        w środku pracy na czytelną odmowę przed jej rozpoczęciem. Wynik pamiętamy na czas
+        życia procesu, żeby nie sondować przy każdym takcie pętli.
+        """
+        if self._sprawdzony is not None:
+            return self._sprawdzony
+
+        if not shutil.which("kimi"):
+            self._sprawdzony = (False, (
+                "nie znalazłem polecenia `kimi` w PATH. Zainstaluj Kimi Code CLI "
+                "(MoonshotAI/kimi-cli) i zaloguj się przez `kimi login`, albo uruchom workera "
+                "z `--runtime codex` lub `--runtime shell`."))
+            return self._sprawdzony
+
+        try:
+            proba = subprocess.run(["kimi", "--version"],
+                                   capture_output=True, text=True, timeout=LIMIT_SONDY_S)
+        except (OSError, subprocess.SubprocessError) as blad:
+            self._sprawdzony = (False, f"`kimi` jest w PATH, ale nie daje się uruchomić: {blad}")
+            return self._sprawdzony
+
+        if proba.returncode != 0:
+            # Pierwsza linia błędu wystarcza: pełny ślad stosu w komunikacie dla człowieka
+            # ukrywa zdanie, które ma przeczytać.
+            powod = (proba.stderr or proba.stdout or "").strip().splitlines()
+            self._sprawdzony = (False, (
+                "`kimi --version` kończy się błędem — instalacja jest niesprawna"
+                + (f": {powod[0]}" if powod else ".")))
+            return self._sprawdzony
+
+        self._sprawdzony = (True, "")
+        return self._sprawdzony
+
+    def wykonaj(self, polecenie: str, *, katalog: str, limit_s: int) -> Wynik:
+        return _uruchom(
+            ["kimi", "--prompt", polecenie, "--print", "--output-format", "text", "--yolo"],
+            katalog=katalog, limit_s=limit_s)
+
+_WYKONAWCY = {w.nazwa: w for w in (WykonawcaCodex(), WykonawcaKimi(), WykonawcaShell())}
 
 
 def wybierz(nazwa: str) -> Wykonawca:
