@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from .api import BladAPI, BrakUprawnienia, Klient, ZlyKlucz
 from .config import Konfiguracja
 from . import ramka
+from . import wyniki
 from .wykonawcy import katalog_zadania, wybierz
 
 #: Ile znaków wyjścia wykonawcy wchodzi do wpisu. Reszta jest obcinana z jawną adnotacją —
@@ -124,22 +125,59 @@ def wpis_odrzucenie(zadanie: dict, powod: str) -> str:
     )
 
 
-def _zdaj_sprawozdanie(klient: Klient, zadanie: dict, tresc: str) -> bool:
-    """Wpis na sprawie. `False` = nie udało się (i wtedy NIE zamykamy zadania).
+#: Zdanie dopisywane do sprawozdania zadania BEZ sprawy. Jawne i niewygodne celowo — wynik,
+#: którego nie ma na żadnej osi, jest wynikiem, którego nikt nie znajdzie za tydzień.
+OSTRZEZENIE_BEZ_SPRAWY = (
+    "⚠ To zadanie nie ma powiązanej sprawy, więc **ten wynik nie trafił na żadną oś** — "
+    "został tylko tutaj, w komentarzu zadania. Jeśli ma być widoczny dla klienta albo "
+    "dla zespołu, przepnij zadanie do sprawy i poproś o powtórzenie."
+)
 
-    Zadanie bez sprawy nie ma gdzie dostać sprawozdania. Mówimy o tym w logu i traktujemy jak
-    niepowodzenie wpisu — bo zamknięcie zadania, o którym nigdzie nie ma śladu, jest gorsze
-    niż zadanie niezamknięte.
+
+def _zdaj_sprawozdanie(klient: Klient, zadanie: dict, tresc: str,
+                       *, pliki: list | None = None) -> bool:
+    """Sprawozdanie — na sprawie, a gdy sprawy nie ma, w komentarzu zadania. `False` = nigdzie.
+
+    POLITYKA ZADAŃ BEZ SPRAWY ZMIENIŁA SIĘ W v0.4 (decyzja Damiana 15.09: „twarda przy
+    zakładaniu, miękka przy wykonaniu"). Do v0.3 worker odmawiał — a zadanie bywa już wykonane
+    i wtedy odmowa znaczyła, że praca przepada. Teraz wynik ląduje w komentarzu zadania razem
+    ze zdaniem mówiącym wprost, że **nie ma go na żadnej osi**. Twardo ma być przy ZAKŁADANIU
+    zadania (422 po stronie API — osobne zgłoszenie pod 796), nie po wykonanej robocie.
+
+    Załączniki idą TĄ SAMĄ drogą co `sf-kit zalacz` — jednym wpisem, więc jednym powiadomieniem.
     """
     ticket_id = zadanie.get("ticket_id")
     if not ticket_id:
-        _log("   zadanie nie ma przypiętej sprawy — nie mam gdzie zdać sprawozdania")
-        return False
+        return _sprawozdanie_do_komentarza(klient, zadanie, tresc)
     try:
-        klient.wpis(str(ticket_id), tresc)
+        if pliki:
+            klient.wpis_z_plikami(str(ticket_id), tresc, [str(p) for p in pliki])
+        else:
+            klient.wpis(str(ticket_id), tresc)
         return True
     except BladAPI as blad:
         _log(f"   nie udało się zapisać wpisu: {blad}")
+        if pliki:
+            # Wpis z plikami padł — próbujemy jeszcze raz BEZ nich. Sprawozdanie bez
+            # załącznika jest gorsze od sprawozdania z załącznikiem, ale nieporównanie
+            # lepsze od pracy, po której nie ma żadnego śladu.
+            _log("   próbuję zapisać samo sprawozdanie, bez załączników")
+            try:
+                klient.wpis(str(ticket_id), tresc + "\n\n_(załączników nie udało się wysłać)_")
+                return True
+            except BladAPI as drugi:
+                _log(f"   to też się nie udało: {drugi}")
+        return False
+
+
+def _sprawozdanie_do_komentarza(klient: Klient, zadanie: dict, tresc: str) -> bool:
+    """Zadanie bez sprawy: wynik do komentarza zadania, z ostrzeżeniem. `False` = nie wyszło."""
+    _log("   zadanie NIE MA sprawy — wynik idzie do komentarza zadania, nie na oś")
+    try:
+        klient.komentarz_zadania(str(zadanie.get("id")), f"{tresc}\n\n{OSTRZEZENIE_BEZ_SPRAWY}")
+        return True
+    except BladAPI as blad:
+        _log(f"   nie udało się nawet zapisać komentarza zadania: {blad}")
         return False
 
 
@@ -185,6 +223,9 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     # 3. Wykonaj. Wykonawca dostaje treść zadania W RAMCE — kim jest, gdzie pracuje, czego
     #    nie wolno i co ma oddać na końcu. Samo `body_md` było pisane przez człowieka do
     #    człowieka i nie mówi modelowi żadnej z tych rzeczy.
+    # Znacznik startu — po nim poznamy, co w `outgoing/` jest wynikiem TEGO zadania, a co
+    # zostało z poprzedniego. Bez tego pliki jednego klienta trafiłyby do sprawy drugiego.
+    start = time.time()
     _log(f"   wykonuję przez `{wykonawca.nazwa}` w {katalog} (limit {konf.limit_zadania_s} s)")
     polecenie = (ramka.zbuduj(zadanie, slug=konf.slug, katalog=katalog)
                  if wykonawca.chce_ramke else tresc)
@@ -198,8 +239,21 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
         _wroc_do_kolejki(klient, zid)
         return f"niepowodzenie: {wynik.powod_niepowodzenia[:120]}"
 
-    zapisano = _zdaj_sprawozdanie(
-        klient, zadanie, wpis_sukces(zadanie, wynik.wyjscie, wykonawca=wykonawca.nazwa))
+    # 4b. WYNIK JAKO ZAŁĄCZNIK (v0.4, ADVERTPR-799). Ścieżka pliku na maszynie workera jest
+    #     bezużyteczna dla każdego, kto tej maszyny nie ma — plik do kliknięcia w sprawie nie.
+    zebrane = wyniki.zbierz(tresc, katalog=katalog, od_czasu=start)
+    if zebrane.pliki:
+        _log(f"   załączam wynik: {', '.join(p.name for p in zebrane.pliki)}")
+    for powod in zebrane.pominiete:
+        _log(f"   nie załączam — {powod}")
+
+    sprawozdanie = wpis_sukces(zadanie, wynik.wyjscie, wykonawca=wykonawca.nazwa)
+    opis_plikow = wyniki.opis_dla_wpisu(zebrane)
+    if opis_plikow:
+        sprawozdanie = f"{sprawozdanie}\n\n{opis_plikow}"
+
+    zapisano = _zdaj_sprawozdanie(klient, zadanie, sprawozdanie, pliki=zebrane.pliki)
+    wyniki.posprzataj(zebrane)
     if not zapisano:
         # Praca wykonana, sprawozdania nie ma. NIE zamykamy: zadanie zamknięte bez śladu
         # wygląda jak zrobione i nikt nie wie, co się stało.

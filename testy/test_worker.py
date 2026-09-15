@@ -27,17 +27,34 @@ from sf_kit.worker import obsluz_zadanie  # noqa: E402
 class AtrapaKlienta:
     """Zapamiętuje, co worker wywołał. Może udawać awarię wybranej operacji."""
 
-    def __init__(self, *, wpis_pada=False, status_pada_na=None, brak_uprawnienia=False):
+    def __init__(self, *, wpis_pada=False, status_pada_na=None, brak_uprawnienia=False,
+                 komentarz_pada=False):
         self.wpisy: list[tuple[str, str]] = []
+        self.wpisy_z_plikami: list[tuple[str, str, list]] = []
+        self.komentarze: list[tuple[str, str]] = []
         self.statusy: list[tuple[str, str]] = []
         self._wpis_pada = wpis_pada
         self._status_pada_na = status_pada_na
         self._brak_uprawnienia = brak_uprawnienia
+        self._komentarz_pada = komentarz_pada
 
     def wpis(self, ticket_id, tresc, *, widocznosc="internal"):
         if self._wpis_pada:
             raise BladAPI("atrapa: wpis nie przeszedł")
         self.wpisy.append((str(ticket_id), tresc))
+        return {}
+
+    def wpis_z_plikami(self, ticket_id, tresc, pliki, **_):
+        if self._wpis_pada:
+            raise BladAPI("atrapa: wpis z plikami nie przeszedł")
+        self.wpisy_z_plikami.append((str(ticket_id), tresc, list(pliki)))
+        self.wpisy.append((str(ticket_id), tresc))
+        return {}
+
+    def komentarz_zadania(self, task_id, tresc, *, wewnetrzny=True):
+        if self._komentarz_pada:
+            raise BladAPI("atrapa: komentarz nie przeszedł")
+        self.komentarze.append((str(task_id), tresc))
         return {}
 
     def ustaw_status(self, task_id, status, *, wersja=None):
@@ -142,9 +159,34 @@ class TestNiepowodzenia(unittest.TestCase):
         self.assertIn("bez sprawozdania", wynik)
         self.assertEqual([s for _, s in klient.statusy], ["in_progress", "queued"])
 
-    def test_zadanie_bez_sprawy_nie_jest_zamykane(self):
-        """Nie ma sprawy = nie ma gdzie zdać sprawozdania = nie zamykamy."""
+    def test_zadanie_bez_sprawy_idzie_do_komentarza_i_JEST_zamykane(self):
+        """POLITYKA ZMIENIONA W v0.4 — świadomie, decyzją Damiana z 15.09.
+
+        Do v0.3 worker odmawiał: „nie ma sprawy = nie ma gdzie zdać sprawozdania = nie
+        zamykamy". Problem w tym, że odmowa przychodziła PO wykonaniu pracy — więc praca
+        przepadała, a zadanie wracało do kolejki, żeby wykonać ją jeszcze raz i znowu stracić.
+
+        Damian: „twarda przy zakładaniu, miękka przy wykonaniu". Twardość ma być w API (422
+        przy zakładaniu zadania bez sprawy — osobne zgłoszenie pod 796), a nie w workerze nad
+        gotowym wynikiem. Wynik ląduje więc w komentarzu zadania, z jawnym zdaniem, że NIE MA
+        GO NA ŻADNEJ OSI — bo cisza o tym byłaby gorsza niż brak wyniku.
+        """
         klient = AtrapaKlienta()
+        wynik = obsluz_zadanie(klient, konfiguracja(), zadanie(ticket_id=None))
+
+        self.assertEqual(len(klient.komentarze), 1)
+        self.assertIn("nie trafił na żadną oś", klient.komentarze[0][1])
+        self.assertIn("completed", [s for _, s in klient.statusy])
+        self.assertEqual(wynik, "zrobione")
+        self.assertEqual(klient.wpisy, [], "wpis na sprawie, której nie ma")
+
+    def test_gdy_nawet_komentarz_nie_przejdzie_zadanie_wraca_do_kolejki(self):
+        """Ostatnia deska ratunku też może się złamać — wtedy NIE zamykamy.
+
+        Zadanie zamknięte bez śladu gdziekolwiek wygląda jak zrobione i nikt nie wie, co
+        z niego wyszło. Lepiej, żeby wróciło do kolejki.
+        """
+        klient = AtrapaKlienta(komentarz_pada=True)
         wynik = obsluz_zadanie(klient, konfiguracja(), zadanie(ticket_id=None))
 
         self.assertNotIn("completed", [s for _, s in klient.statusy])

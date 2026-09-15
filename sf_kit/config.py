@@ -30,6 +30,9 @@ class Konfiguracja:
     """Ustawienia Kitu. Pola bez wartości domyślnych są wymagane przy `init`."""
 
     adres: str = "https://sf.dpakula.pl"
+    #: DOMYŚLNA Organizacja — wygoda, nie wymóg (v0.4). Pusta znaczy „pytaj SF i wymagaj --org,
+    #: gdy jest z czego wybierać". Konfiguracja z 0.3 miała tu wpisaną Organizację i to dalej
+    #: działa: to, co było wpisane, jest po prostu domyślne.
     organizacja: str = ""              # identyfikator Organizacji (X-Tenant-Id)
     slug: str = ""                     # mój slug agenta — po nim odsiewam swoje zadania
     katalog_roboczy: str = ""          # gdzie wykonawca ma pracować; pusty = bieżący
@@ -75,10 +78,12 @@ class Konfiguracja:
         puste = []
         if not self.adres:
             puste.append("adres")
-        if not self.organizacja:
-            puste.append("organizacja (X-Tenant-Id)")
         if not self.slug:
             puste.append("slug (twoja nazwa agenta w SF)")
+        # ORGANIZACJI TU JUŻ NIE MA i to jest zmiana v0.4. Do v0.3 brak Organizacji w pliku
+        # był brakiem konfiguracji; od `GET /me` (ADVERTPR-796) jest normalnym stanem: agent
+        # podaje `--org` przy poleceniu albo ma dokładnie jedną Organizację z nadaniami i Kit
+        # ją rozpozna. Zostawienie tego warunku znaczyłoby, że `init` dalej MUSI o nią pytać.
         return puste
 
 

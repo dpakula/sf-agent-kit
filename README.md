@@ -18,14 +18,22 @@ i raportować wynik — przez zwykłe API HTTP, jednym poleceniem `sf-kit`.
 
 Korzystasz z Codexa i chcesz po prostu zacząć? Nie musisz czytać reszty tego dokumentu.
 
-**1. Weź od administratora SalesForge cztery rzeczy:**
+**1. Weź od administratora SalesForge trzy rzeczy:**
 
 | dane | przykład |
 |---|---|
 | adres SalesForge | `https://sf.dpakula.pl` |
-| identyfikator Organizacji | `289cef06-b8b9-…` |
 | twój slug agenta | `codex-formarketing` |
 | **klucz API** | `sk_live_…` — **osobnym kanałem, nie mailem**; to hasło do konta |
+
+> **Od v0.4 nie potrzebujesz identyfikatora Organizacji.** Kit pyta o niego SalesForge sam
+> (`GET /me`) i pokazuje listę Organizacji, do których należysz, razem z tym, co w każdej
+> wolno ci robić. Jeśli uprawnienia masz tylko w jednej — ustawi ją jako domyślną i powie
+> o tym. Jeśli w kilku — zapyta, a przy każdym poleceniu możesz wskazać inną przez `--org`.
+>
+> **Kit nigdy nie wybiera „pierwszej z brzegu".** Gdy nie da się wskazać jednoznacznie,
+> odmówi i pokaże listę — bo wpis, który wyląduje w cudzej Organizacji, jest wyciekiem
+> do klienta, a nie niedogodnością.
 
 **2. Wklej to Codexowi:**
 
@@ -135,12 +143,19 @@ przy pierwszym uruchomieniu tam warto zerknąć na wynik `sf-kit whoami` uważni
 | dane | przykład | uwaga |
 |---|---|---|
 | adres SalesForge | `https://sf.dpakula.pl` | Kit ma ten adres wpisany jako domyślny — potwierdź go mimo to |
-| identyfikator Organizacji | `289cef06-b8b9-…` | długi ciąg znaków; trafia do każdego żądania |
 | twój slug agenta | `codex-formarketing` | po nim rozpoznawane są twoje zadania |
 | **klucz API** | `sk_live_…` | **osobnym kanałem, nie mailem** — to hasło do konta |
 
-Jeśli któregoś z tych czterech brakuje, nie ma sensu zaczynać. Poproś administratora
-o komplet.
+Jeśli któregoś z tych trzech brakuje, nie ma sensu zaczynać. Poproś administratora o komplet.
+
+**Identyfikatora Organizacji już nie potrzebujesz** (zmiana v0.4). Kit odczytuje go z SalesForge
+sam — razem z listą wszystkich Organizacji, do których należysz, i z tym, co w każdej wolno ci
+robić. Do v0.3 trzeba go było przepisać skądś ręcznie, zwykle z cudzej wiadomości.
+
+Czego administrator musi natomiast dopilnować: **nadań na twoim członkostwie**. Konto może
+należeć do Organizacji i nie mieć w niej żadnych uprawnień — Kit pokaże ją wtedy na liście
+z adnotacją „bez nadań" i odmówi w niej pracy, zamiast pozwolić ci dojść do połowy i dostać
+odmowę z serwera.
 
 ### Sześć poleceń
 
@@ -482,8 +497,21 @@ Authorization: Bearer sk_live_...
 X-Tenant-Id: <identyfikator Organizacji>
 ```
 
-**`X-Tenant-Id` podaje się zawsze.** Identyfikator Organizacji dostaje się od administratora
-razem z kluczem; bez niego SalesForge nie wie, o czyje dane chodzi.
+**`X-Tenant-Id` podaje się zawsze — poza jednym wyjątkiem.** Bez niego SalesForge nie wie,
+o czyje dane chodzi.
+
+Wyjątkiem jest `GET /api/v1/me` (od 15.09, ADVERTPR-796): działa **bez** tego nagłówka i po to
+istnieje — agent czyta go, ZANIM wie, co miałby w nim wpisać. Oddaje konto, klucz (prefiks,
+zasięg, czy jest zawężony, termin ważności) i wszystkie Organizacje z rolą oraz uprawnieniami
+**efektywnymi**, czyli dokładnie tymi, które policzy bramka przy żądaniu.
+
+```bash
+curl -s -H "Authorization: Bearer $SF_KEY" \
+  "$SF_URL/api/v1/me"
+```
+
+To jest jedyne wiarygodne źródło odpowiedzi na „kim jestem i co mi wolno". Wcześniej Kit
+zgadywał to po skutku — próbował odczytu zadań i wnioskował z tego, czy klucz żyje.
 
 > W przykładach klucz jest w zmiennej `$SF_KEY`, a nie wpisany wprost — patrz §4.
 
@@ -625,6 +653,41 @@ Wynik to **wpis na sprawie** w SalesForge i tam trzeba po niego pójść — nie
 mailem ani powiadomieniem. Drugim śladem jest samo zadanie: zmienia status na `completed`
 i znika z kolejki.
 
+**Od v0.4 przy wpisie wiszą PLIKI, a nie ścieżki.** Do v0.3 worker pisał w sprawozdaniu, gdzie
+na jego maszynie leży wynik — co dla każdego, kto tej maszyny nie ma, znaczyło dokładnie nic.
+Teraz plik jest do kliknięcia w sprawie. Worker bierze:
+
+1. **to, co zadanie nazwało wynikiem** — linia `WYNIK: <ścieżka>` w treści zadania (może ich
+   być kilka). Jawne wskazanie zawsze wygrywa: autor zadania wie, co ma z niego wyjść;
+2. **albo wszystko nowe w `outgoing/`** — tylko to, co powstało PO rozpoczęciu tego zadania.
+   Pliki z poprzednich zadań zostają na miejscu: doklejenie ich znaczyłoby wynik jednego
+   klienta w sprawie drugiego.
+
+Czego SalesForge nie przyjmuje (`.json`, `.html`), Kit **pakuje do `.zip`** zamiast pomijać —
+praca jest zrobiona, więc nie może przepaść przez rozszerzenie. Archiwum powstaje poza katalogiem
+roboczym i znika po wysłaniu; oryginał zostaje tam, gdzie był.
+
+W sprawozdaniu wymienione są też pliki, których **nie** załączono, razem z powodem („nie ma
+takiego pliku", „poza katalogiem roboczym", „powyżej limitu"). Cisza o nich byłaby stratą.
+
+### Zadanie bez sprawy — co się wtedy dzieje
+
+Zadanie może nie mieć przypiętej sprawy. Wtedy **nie ma osi, na której dałoby się zostawić
+ślad** — a praca bywa już wykonana.
+
+`sf-kit tasks` oznacza takie zadanie z góry:
+
+```
+  zadanie-bez-sprawy-20260915
+    Przygotuj zestawienie
+    ⚠ bez sprawy — wynik trafi tylko do komentarza zadania
+```
+
+Worker takie zadanie **wykona** (do v0.3 odmawiał — i praca przepadała po fakcie), a wynik
+odłoży w komentarzu zadania razem ze zdaniem mówiącym wprost, że nie ma go na żadnej osi.
+Jeśli wynik ma być widoczny dla klienta albo dla zespołu — zadanie trzeba przepiąć do sprawy
+i poprosić o powtórzenie.
+
 **Do panelu SalesForge człowiek potrzebuje własnego dostępu.** Klucz wpisany w `sf-kit init`
 należy do **konta agenta** — to nie jest login człowieka i nie otworzy nim przeglądarki.
 To osobna rzecz do poproszenia administratora, obok czterech danych z §1:
@@ -759,8 +822,9 @@ Opis idzie **plikiem** (`--opis notatka.md`) albo standardowym wejściem (`--opi
 nigdy argumentem: opisy są długie i wielolinijkowe, a argumenty procesu widzi każdy
 na maszynie.
 
-Ustawienia leżą w `~/.config/sf-kit/config.json` — wszystko poza kluczem: adres SF,
-identyfikator Organizacji, slug agenta, katalog roboczy, limit czasu na zadanie.
+Ustawienia leżą w `~/.config/sf-kit/<slug>/config.json` — wszystko poza kluczem: adres SF,
+slug agenta, katalog roboczy, limit czasu na zadanie i **domyślna** Organizacja (pusta znaczy
+„pytaj SF i wymagaj `--org`, gdy jest z czego wybierać").
 
 Aktualizacja Kitu:
 
@@ -769,7 +833,7 @@ cd sf-agent-kit && git pull
 ```
 
 Klucz i ustawienia leżą **poza** katalogiem Kitu, więc `git pull` ich nie dotyka. Wydania
-są oznaczane tagami (`v0.1.0`, `v0.2.0`, `v0.3.0`); żeby stanąć na konkretnym:
+są oznaczane tagami (`v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`); żeby stanąć na konkretnym:
 `git fetch --tags && git checkout v0.3.0`.
 
 ### Co Codex dostaje do wykonania

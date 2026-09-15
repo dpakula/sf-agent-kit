@@ -16,17 +16,18 @@ from . import config as konfiguracja
 
 #: Trzy profile w JEDNYM narzędziu (decyzja Damiana 15.09). Profil nie ogranicza uprawnień —
 #: te są po stronie SalesForge — tylko POKAZUJE to, co do danej roli należy, i chowa resztę.
-#: Docelowo rozstrzygnie to `GET /me`; dopóki go nie ma, profil jest deklaracją człowieka,
-#: a README mówi wprost, czego każdy z nich potrzebuje.
+#: Od v0.4 uprawnienia widać naprawdę: `GET /me` oddaje je per Organizacja (ADVERTPR-796),
+#: więc profil przestał być wyłącznie deklaracją człowieka.
 PROFILE = ("worker", "autor", "koordynator")
 PROFIL_DOMYSLNY = "worker"
 from . import klucz as magazyn_klucza
 from . import autor
+from . import tozsamosc
 from .api import BladAPI, Klient
 
 
-def _klient(konf: konfiguracja.Konfiguracja) -> Klient:
-    """Klient API albo zrozumiały komunikat i wyjście. Nigdy `KeyError` w twarz."""
+def _klient_bez_organizacji(konf: konfiguracja.Konfiguracja) -> Klient:
+    """Klient do `GET /me` — jedynej trasy, która działa, zanim wiadomo, w której Organizacji."""
     kl = magazyn_klucza.wczytaj()
     if not kl:
         raise SystemExit(magazyn_klucza.powod_braku_klucza())
@@ -35,7 +36,39 @@ def _klient(konf: konfiguracja.Konfiguracja) -> Klient:
         raise SystemExit(
             "Konfiguracja jest niepełna — brakuje: " + ", ".join(braki) + ".\n"
             f"Popraw {konfiguracja.sciezka()} albo uruchom `sf-kit init` jeszcze raz.")
-    return Klient(baza=konf.adres, klucz=kl, organizacja=konf.organizacja)
+    return Klient(baza=konf.adres, klucz=kl)
+
+
+def _tozsamosc(klient: Klient) -> tozsamosc.Tozsamosc:
+    """`GET /me` albo zrozumiała odmowa. Jedno miejsce, w którym Kit pyta „kim jestem"."""
+    try:
+        return tozsamosc.z_odpowiedzi(klient.kim_jestem())
+    except BladAPI as blad:
+        raise SystemExit(
+            f"Nie udało się odczytać, kim jesteś ({blad}).\n"
+            f"Sprawdź adres ({klient.baza}) i klucz — `sf-kit init` zapisze go od nowa.") from None
+
+
+def _klient(konf: konfiguracja.Konfiguracja, args=None) -> Klient:
+    """Klient z USTALONĄ Organizacją. Nigdy „pierwsza z brzegu" — patrz `tozsamosc.wybierz`.
+
+    Kosztuje jedno dodatkowe żądanie (`GET /me`) na wywołanie polecenia i to jest świadoma
+    cena: bez niego Kit nie wie, czy w Organizacji z pliku agent ma jeszcze jakiekolwiek
+    nadania, a praca bez nadań kończy się odmową serwera W POŁOWIE — po założeniu sprawy,
+    przed dołożeniem załącznika. `worker` płaci ją raz, przy starcie pętli, nie co takt.
+    """
+    klient = _klient_bez_organizacji(konf)
+    toz = _tozsamosc(klient)
+    try:
+        org = tozsamosc.wybierz(
+            toz,
+            wskazana=(getattr(args, "org", None) or ""),
+            z_pliku=konf.organizacja,
+        )
+    except tozsamosc.BrakWyboru as brak:
+        raise SystemExit(str(brak)) from None
+    klient.organizacja = org.uuid
+    return klient
 
 
 def polecenie_init(args) -> int:
@@ -70,30 +103,87 @@ def polecenie_init(args) -> int:
         return 2
 
     konf.adres = pytaj("Adres SalesForge", konf.adres)
-    konf.organizacja = pytaj("Identyfikator Organizacji (X-Tenant-Id)", konf.organizacja)
     if konf.profil == "worker":
         konf.katalog_roboczy = pytaj("Katalog roboczy (pusty = bieżący)", konf.katalog_roboczy)
         konf.runtime = pytaj("Wykonawca: codex albo shell", konf.runtime)
 
-    plik = konfiguracja.zapisz(konf)
-    print(f"\nUstawienia zapisane: {plik}")
-
+    # KLUCZ PRZED ORGANIZACJĄ — i to jest cała zmiana v0.4. Do v0.3 `init` kazał wpisać
+    # identyfikator Organizacji, którego agent skądś nie ma: dostaje klucz, nie UUID, więc
+    # przepisywał go z cudzej wiadomości. Od 15.09 `GET /me` działa bez nagłówka Organizacji
+    # (ADVERTPR-796), więc możemy zapytać SF, zamiast pytać człowieka o coś, czego nie wie.
     print()
     try:
         skrot, gdzie = magazyn_klucza.zapytaj_i_zapisz()
-    except ValueError as blad:
-        print(f"Klucz NIE został zapisany: {blad}", file=sys.stderr)
-        return 1
-    except RuntimeError as blad:
+    except (ValueError, RuntimeError) as blad:
         print(f"Klucz NIE został zapisany: {blad}", file=sys.stderr)
         return 1
 
     print(f"Klucz {skrot} zapisany: {gdzie}")
+    konf.organizacja = _wybierz_organizacje_w_init(konf, pytaj)
+
+    plik = konfiguracja.zapisz(konf)
+    print(f"\nUstawienia zapisane: {plik}")
     _wlacz_ochrone_repozytorium()
     # `./sf-kit`, nie `sf-kit`: dowiązania w PATH nikt jeszcze nie zakładał, więc krótsza
     # forma kończy się „command not found" w pierwszej minucie pracy z narzędziem.
     print(f"\nSprawdź, czy działa: {_jak_wolac()} whoami")
     return 0
+
+
+def _wybierz_organizacje_w_init(konf: konfiguracja.Konfiguracja, pytaj) -> str:
+    """Pokaż Organizacje z SF i ustal DOMYŚLNĄ. Zwraca uuid albo pusty napis.
+
+    Domyślna Organizacja jest WYGODĄ, nie wyborem podejmowanym za człowieka:
+    · dokładnie jedna z nadaniami → ustawiamy ją i mówimy o tym wprost;
+    · kilka → pytamy, a puste Enter znaczy „nie ustawiaj, będę podawał --org";
+    · zero → nie ustawiamy nic i mówimy, czego brakuje.
+
+    Nieudane `GET /me` NIE przerywa `init`: klucz jest już zapisany, a ustawienia bez domyślnej
+    Organizacji są poprawnym stanem (`--org` działa zawsze). Przerwanie tutaj kazałoby zaczynać
+    od początku z powodu, który może być chwilową awarią sieci.
+    """
+    print("\nPytam SalesForge, do jakich Organizacji należysz…")
+    try:
+        toz = tozsamosc.z_odpowiedzi(
+            Klient(baza=konf.adres, klucz=magazyn_klucza.wczytaj()).kim_jestem())
+    except (BladAPI, SystemExit) as blad:
+        print(f"  nie udało się ({blad}). Ustawienia zapiszę bez domyślnej Organizacji —\n"
+              f"  podawaj --org <slug> przy poleceniach albo uruchom `init` ponownie.",
+              file=sys.stderr)
+        return konf.organizacja
+
+    print(f"  konto: {toz.konto_nazwa or '(bez nazwy)'}"
+          f"{' · agent' if toz.konto_kind == 'agent' else ''}")
+    print(f"\nTwoje Organizacje:\n{tozsamosc.lista_do_pokazania(toz.organizacje)}\n")
+
+    z_nadaniami = toz.z_nadaniami
+    if not z_nadaniami:
+        print("W żadnej nie masz jeszcze nadanych uprawnień — poproś administratora.\n"
+              "Ustawienia zapiszę bez domyślnej Organizacji.")
+        return ""
+
+    if len(z_nadaniami) == 1:
+        jedyna = z_nadaniami[0]
+        print(f"Uprawnienia masz tylko w „{jedyna.slug}” — ustawiam ją jako domyślną.")
+        return jedyna.uuid
+
+    # Kilka do wyboru: podpowiadamy tę z pliku (migracja z 0.3), ale nie wybieramy za człowieka.
+    teraz = toz.znajdz(konf.organizacja) if konf.organizacja else None
+    podane = pytaj("Domyślna Organizacja (slug; Enter = brak, będę podawał --org)",
+                   teraz.slug if teraz else "")
+    if not podane:
+        print("Dobrze — każde polecenie będzie wymagało --org <slug>.")
+        return ""
+    wybrana = toz.znajdz(podane)
+    if wybrana is None:
+        print(f"Nie znam Organizacji „{podane}” na Twojej liście — zapisuję bez domyślnej.",
+              file=sys.stderr)
+        return ""
+    if not wybrana.ma_nadania:
+        print(f"W „{wybrana.slug}” nie masz nadań — zapisuję bez domyślnej, "
+              f"żeby polecenia nie kończyły się odmową w połowie.", file=sys.stderr)
+        return ""
+    return wybrana.uuid
 
 
 def _jak_wolac() -> str:
@@ -143,8 +233,14 @@ def _wlacz_ochrone_repozytorium() -> None:
               f"Włącz ją ręcznie: ./hooks/install.sh", file=sys.stderr)
 
 
-def polecenie_whoami(_args) -> int:
-    """Sonda klucza. SalesForge nie ma endpointu „kim jestem" — więc próbujemy odczytu."""
+def polecenie_whoami(args) -> int:
+    """Kim jestem — Z SALESFORGE, nie z pliku ustawień.
+
+    Do v0.3 `whoami` wypisywał to, co stało w konfiguracji, i sondował klucz próbą odczytu
+    zadań. Czytało się to jak odpowiedź serwera, a było odczytem WŁASNEGO pliku: Organizacja
+    mogła być nieaktualna, odebrane członkostwo wyglądało tak samo jak działające.
+    Od v0.4 pyta `GET /me` (ADVERTPR-796) — a plik służy już tylko do wskazania domyślnej.
+    """
     konf = konfiguracja.wczytaj()
     kl = magazyn_klucza.wczytaj()
     if not kl:
@@ -155,14 +251,29 @@ def polecenie_whoami(_args) -> int:
     print(f"ustawienia:   {konfiguracja.sciezka()}")
     print(f"klucz:        {magazyn_klucza.skrot(kl)}")
     print(f"adres:        {konf.adres}")
-    print(f"Organizacja:  {konf.organizacja or '(nie ustawiona)'}")
 
-    braki = konf.braki()
-    if braki:
-        print("\nKonfiguracja niepełna — brakuje: " + ", ".join(braki))
+    toz = _tozsamosc(Klient(baza=konf.adres, klucz=kl))
+    print(f"konto:        {toz.konto_nazwa or '(bez nazwy)'}"
+          f"{' · agent' if toz.konto_kind == 'agent' else ''}")
+    if toz.klucz_prefiks:
+        zaw = " · ZAWĘŻONY" if toz.klucz_zawezony else ""
+        print(f"klucz w SF:   {toz.klucz_prefiks} · scope {toz.klucz_scope}{zaw}")
+    print(f"\nOrganizacje:\n{tozsamosc.lista_do_pokazania(toz.organizacje)}")
+
+    try:
+        org = tozsamosc.wybierz(toz, wskazana=(getattr(args, "org", None) or ""),
+                                z_pliku=konf.organizacja)
+    except tozsamosc.BrakWyboru as brak:
+        # To NIE jest awaria: `whoami` ma pokazać stan także wtedy (zwłaszcza wtedy), gdy
+        # praca nie ruszy. Kod wyjścia mówi „nie da się pracować", treść mówi dlaczego.
+        print(f"\n{brak}")
         return 1
 
-    klient = Klient(baza=konf.adres, klucz=kl, organizacja=konf.organizacja)
+    print(f"\npracuję w:    {org.slug} ({org.nazwa})"
+          f"{'  ← z --org' if getattr(args, 'org', None) else ''}")
+    print(f"uprawnienia:  {', '.join(org.uprawnienia) or '(brak)'}")
+
+    klient = Klient(baza=konf.adres, klucz=kl, organizacja=org.uuid)
     wynik = klient.sprawdz_klucz()
     print(f"\nodczyt zadań: {wynik.get('odczyt_zadan')}")
     # „zadania: 524" znaczyło CAŁĄ kolejkę Organizacji i myliło: Codex musiał tłumaczyć
@@ -175,12 +286,19 @@ def polecenie_whoami(_args) -> int:
         except BladAPI as blad:
             print(f"zadania:      nie udało się policzyć — {blad}")
 
-    # Data ważności klucza. SalesForge nie oddaje jej dziś posiadaczowi klucza — i to jest
-    # zgłoszona luka, nie nasza niewiedza. Jedna linia: `whoami` ma być odczytem stanu,
-    # a nie miejscem na wykład (pełne wyjaśnienie → README, „Ograniczenia wersji 0.2").
-    print("ważny do:     brak danych z API — patrz README, „Ograniczenia wersji 0.3”.")
+    # Data ważności klucza — od v0.4 czytana z `GET /me`. Do v0.3 była tu „luka SF"; okazała
+    # się nią przez cztery dni, bo trasa, która ją oddaje, powstała 15.09.
+    print(f"ważny do:     {_waznosc_klucza(toz)}")
     print("\nZmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.")
     return 0 if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")) else 1
+
+
+def _waznosc_klucza(toz: tozsamosc.Tozsamosc) -> str:
+    """Data ważności albo „bezterminowy". Pusta wartość z SF znaczy brak terminu, nie brak wiedzy."""
+    wygasa = getattr(toz, "klucz_wygasa", None)
+    if wygasa:
+        return str(wygasa)
+    return "bezterminowy (SF nie ma ustawionego terminu)"
 
 
 def _licznik(wynik) -> str:
@@ -195,10 +313,10 @@ def _licznik(wynik) -> str:
             + (f" z {wynik.wszystkich}" if wynik.urwane else ""))
 
 
-def polecenie_tasks(_args) -> int:
+def polecenie_tasks(args) -> int:
     """Moje zadania w kolejce."""
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf)
+    klient = _klient(konf, args)
     try:
         wynik = klient.moje_zadania(slug=konf.slug)
     except BladAPI as blad:
@@ -212,17 +330,25 @@ def polecenie_tasks(_args) -> int:
         return 0
     print(f"{_licznik(wynik)}\n")
     for z in wynik:
-        sprawa = z.get("ticket_ref") or z.get("ticket_id") or "— bez sprawy"
+        sprawa = z.get("ticket_ref") or z.get("ticket_id")
         print(f"  {z.get('external_id')}")
         print(f"    {z.get('title')}")
-        print(f"    sprawa: {sprawa}   id: {z.get('id')}")
+        if sprawa:
+            print(f"    sprawa: {sprawa}   id: {z.get('id')}")
+        else:
+            # Zadanie bez sprawy WYKONAMY (polityka v0.4: twarda przy zakładaniu, miękka przy
+            # wykonaniu), ale człowiek ma wiedzieć O TYM WCZEŚNIEJ, a nie dowiadywać się po
+            # fakcie, że wyniku nie ma na żadnej osi. Neutralne „— bez sprawy" z v0.3 tego
+            # nie mówiło: wyglądało jak brakujące pole, a nie jak konsekwencja.
+            print(f"    ⚠ bez sprawy — wynik trafi tylko do komentarza zadania")
+            print(f"    id: {z.get('id')}")
     return 0
 
 
 def polecenie_worker(args) -> int:
     from .worker import uruchom
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf)
+    klient = _klient(konf, args)
     if args.runtime:
         konf.runtime = args.runtime
     if args.interval:
@@ -275,7 +401,7 @@ def _pokaz_sprawe(konf, sprawa_id: str, numer: str, *, co_dalej: str) -> None:
 def polecenie_zglos(args) -> int:
     """Nowa sprawa z gotową pracą — z załącznikami, obserwującymi i numerem na wyjściu."""
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf)
+    klient = _klient(konf, args)
 
     opis = _opis_z_wejscia(args) or autor.opis_domyslny(args.tytul)
     try:
@@ -313,7 +439,7 @@ def polecenie_zglos(args) -> int:
 def polecenie_wpis(args) -> int:
     """Wpis na istniejącej sprawie — postęp, kolejna wersja, odpowiedź."""
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf)
+    klient = _klient(konf, args)
     try:
         sprawa = autor.znajdz_sprawe(klient, args.sprawa)
     except (ValueError, BladAPI) as blad:
@@ -345,7 +471,7 @@ def polecenie_wpis(args) -> int:
 def polecenie_zalacz(args) -> int:
     """Same pliki do istniejącej sprawy — jednym wpisem, więc jednym powiadomieniem."""
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf)
+    klient = _klient(konf, args)
     try:
         sprawa = autor.znajdz_sprawe(klient, args.sprawa)
         klient.wpis_z_plikami(str(sprawa["id"]), args.notka or "Załączniki.", args.pliki)
@@ -360,7 +486,7 @@ def polecenie_zalacz(args) -> int:
 def polecenie_sprawy(args) -> int:
     """Sprawy w Organizacji tego klucza — żeby wiedzieć, do czego dopisywać."""
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf)
+    klient = _klient(konf, args)
     try:
         lista = klient.sprawy(limit=args.limit)
     except BladAPI as blad:
@@ -390,6 +516,13 @@ def main(argv: list[str] | None = None) -> int:
     # i czyj klucz wziąć. Przy jednym agencie na maszynie nie trzeba go podawać nigdy.
     parser.add_argument("--agent", default=None, metavar="SLUG",
                         help="którym agentem jesteś (gdy na tej maszynie jest ich kilku)")
+    # `--org` jest GLOBALNE, a nie flagą wybranych poleceń: agent bywa członkiem kilku
+    # Organizacji i musi móc wskazać właściwą przy KAŻDYM poleceniu. Flaga na części poleceń
+    # znaczyłaby, że reszta cicho używa domyślnej — czyli dokładnie to, przed czym broni
+    # zasada „nigdy pierwsza z brzegu".
+    parser.add_argument("--org", default=None, metavar="SLUG|UUID",
+                        help="w której Organizacji wykonać to polecenie "
+                             "(domyślna jest wygodą, nie regułą)")
     pod = parser.add_subparsers(dest="polecenie", required=True)
 
     pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)

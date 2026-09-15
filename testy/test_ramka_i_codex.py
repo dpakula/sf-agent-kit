@@ -42,6 +42,14 @@ class _KlientNiemowa:
     def wpis(self, *_a, **_k):
         return {}
 
+    # Dołożone w v0.4: worker sprawozdaje też załącznikami i — przy zadaniu bez sprawy —
+    # komentarzem zadania. Ta atrapa mierzy WYŁĄCZNIE prompt, więc przyjmuje wszystko.
+    def wpis_z_plikami(self, *_a, **_k):
+        return {}
+
+    def komentarz_zadania(self, *_a, **_k):
+        return {}
+
 
 class TestRamka(unittest.TestCase):
 
@@ -303,7 +311,10 @@ class TestBramkiWersjiIShell(unittest.TestCase):
         a.once = True
 
         self._cli.konfiguracja.wczytaj = lambda: konf
-        self._cli._klient = lambda _k: object()
+        # `*_` zamiast jednego parametru: od v0.4 `_klient` przyjmuje też `args` (stamtąd
+        # bierze `--org`). Atrapa o sztywnej liczbie parametrów wywracała się na zmianie
+        # sygnatury, choć mierzy coś zupełnie innego — bramkę wykonawcy `shell`.
+        self._cli._klient = lambda *_a, **_k: object()
         self._worker.uruchom = _podniesc
         return a
 

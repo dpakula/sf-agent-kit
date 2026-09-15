@@ -93,18 +93,24 @@ class Konflikt(BladAPI):
 class Klient:
     """Cienka warstwa nad `urllib`. Trzyma klucz i Organizację; nic nie zapisuje na dysk."""
 
-    def __init__(self, *, baza: str, klucz: str, organizacja: str):
+    def __init__(self, *, baza: str, klucz: str, organizacja: str = ""):
         self.baza = baza.rstrip("/")
         self._klucz = klucz                  # podkreślenie: nie jest częścią interfejsu
         self.organizacja = organizacja
 
     def _naglowki(self) -> dict[str, str]:
-        return {
+        naglowki = {
             "Authorization": f"Bearer {self._klucz}",
-            "X-Tenant-Id": self.organizacja,
             "Accept": "application/json",
             "User-Agent": f"sf-agent-kit/{WERSJA}",
         }
+        # Nagłówek POMIJAMY, gdy Organizacji jeszcze nie znamy — a nie wysyłamy pustego.
+        # `GET /me` działa bez niego od 15.09 (ADVERTPR-796) i to jest jedyny moment, w którym
+        # Kit czyta cokolwiek przed wyborem Organizacji: pusty nagłówek znaczyłby dla serwera
+        # „podaję Organizację i jest nią pustka", czyli 403 zamiast odpowiedzi.
+        if self.organizacja:
+            naglowki["X-Tenant-Id"] = self.organizacja
+        return naglowki
 
     def _wywolaj(self, metoda: str, sciezka: str, *, cialo: dict | None = None) -> dict | list:
         adres = f"{self.baza}/api/v1/{sciezka.lstrip('/')}"
@@ -345,6 +351,31 @@ class Klient:
             cialo={"entry_type": "note", "content": tresc, "visibility": widocznosc})
 
     # ── sonda ────────────────────────────────────────────────────────────────
+
+    def komentarz_zadania(self, task_id: str, tresc: str, *, wewnetrzny: bool = True) -> dict:
+        """Komentarz pod ZADANIEM (nie pod sprawą). Ostatnia deska ratunku dla wyniku.
+
+        Zadanie bez sprawy nie ma osi, na której dałoby się zdać sprawozdanie — a praca bywa
+        już zrobiona. Komentarz jest wtedy jedynym miejscem, gdzie wynik zostaje; worker mówi
+        wprost, że to NIE jest ślad na żadnej sprawie, żeby nikt nie szukał go później na osi.
+        """
+        return self._wywolaj(
+            "POST", f"tasks/{task_id}/comments",
+            cialo={"content": tresc, "is_internal": wewnetrzny})
+
+    def kim_jestem(self) -> dict:
+        """`GET /me` — konto, klucz i WSZYSTKIE Organizacje z efektywnymi uprawnieniami.
+
+        Działa BEZ nagłówka Organizacji (ADVERTPR-796) i to jest cała wartość tej trasy dla
+        Kitu: agent czyta ją, **zanim** wie, co miałby w tym nagłówku wpisać. Do 15.09 jedyną
+        odpowiedzią na „kim jestem" była próba odczytu zadań — czyli zgadywanie po skutku.
+
+        Uprawnienia liczy po tamtej stronie ta sama funkcja, co bramka żądań, więc to, co tu
+        widać, jest tym, co naprawdę przejdzie. Kit ma prawo na tym polegać przy ukrywaniu
+        poleceń; nie ma prawa polegać na tym przy decyzjach o bezpieczeństwie — te zapadają
+        po stronie serwera i tak.
+        """
+        return self._wywolaj("GET", "me")
 
     def sprawdz_klucz(self) -> dict:
         """Czy klucz żyje i co nim wolno. Namiastka „kim jestem", którego SF nie ma.
