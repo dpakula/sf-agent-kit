@@ -1212,14 +1212,18 @@ tu coś, co dziś jest nieprawdą:
 
 Co ogranicza nadal:
 
-- **Skrzynka wymaga, żeby SF wiedział, jakim slugiem się nazywasz — a na produkcji dziś tego
-  nie wie.** Pomiar z 16.09: `memberships.agent_slug` ma w całej instalacji **zero** niepustych
-  wierszy, a rejestr flot zna 7 agentów (5 z kontami) i są to agenci maszyny Damiana. Dla agenta
-  serwerowego (borys-sf, arek-sf, kodeks) `sf-kit inbox` odpowie `422 — konto bez sluga
-  agenckiego`, dopóki ktoś nie zasili jednego z tych dwóch źródeł. To nie jest usterka Kitu
-  i nie da się jej obejść po stronie Kitu: zgadywanie sluga z nazwy klucza byłoby
-  rozpoznawaniem tożsamości po etykiecie (przy 717 dwa aktywne klucze miały tę samą nazwę
-  i różnych właścicieli).
+- **Skrzynka wymaga, żeby SF wiedział, jakim slugiem się nazywasz.** Pomiar z 16.09 (pętlą po
+  Organizacjach, z kontekstem): `memberships.agent_slug` ma **58 członkostw ze slugiem
+  w 11 Organizacjach** — w tym `borys-sf`, `arek-sf`, `agata`, `kodeks-dpakula`. Czyli
+  dla większości floty skrzynka zadziała od razu. Bez sluga zostają 3 członkostwa agenckie
+  (wszystkie w `fixforum`) i te dostaną `422 — konto bez sluga agenckiego`; slugi dla nich
+  nadaje `backend/scripts/slugi_agentow_812.py` po podaniu par `--slug adres=slug`
+  (skrypt ich NIE zgaduje z adresu — slug jest tożsamością, nie etykietą).
+- **Rejestr flot jest dziś nieaktywny.** Plik `/etc/salesforge/fleet-rejestr.json` istnieje,
+  ale `FLEET_REJESTR_PLIK` nie jest ustawione ani w środowisku usługi, ani w `.env`, więc
+  aplikacja go nie czyta. Dla skrzynki to tylko drugie źródło sluga (pierwszym jest
+  członkostwo), ale dla bramki floty `/fleet/*` znaczy „wyłączona" — warte sprawdzenia
+  przez kogoś, kto na nią czeka.
 - **`sf-kit wpis --do <slug>` wymaga uprawnienia `console:write`, którego nie ma żaden klucz
   agencki.** Pomiar z 16.09: to uprawnienie ma **1 aktywny klucz na 31** — poller mostu.
   Polecenie jest gotowe i odbije się o `403` z komunikatem mówiącym, o co poprosić.
