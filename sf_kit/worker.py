@@ -32,6 +32,7 @@ from .config import Konfiguracja
 from . import ramka
 from . import reakcje as mod_reakcje
 from .telemetria import Telemetria
+from . import usluga
 from . import wyniki
 from .wykonawcy import katalog_zadania, wybierz
 
@@ -432,6 +433,11 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
 
     nieudanych = 0
     while True:
+        # Przebieg potrafi trwać dłużej niż próg martwoty (zadanie ma własny limit), a tętna
+        # w trakcie wykonania nie odświeżamy. Mówimy więc czujce WPROST, do kiedy ten stan
+        # jest legalny — inaczej restartowałaby workera w połowie pracy modelu.
+        usluga.zapisz_tetno(slug=konf.slug, stan="pracuję",
+                            wazne_przez_s=konf.limit_zadania_s + usluga.PROG_MARTWOTY_S)
         wynik = przebieg(klient, konf)
         if wynik < 0:
             nieudanych += 1
@@ -446,4 +452,6 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
                      f"odstęp z powrotem {konf.odstep_s} s")
             nieudanych = 0
             odstep = konf.odstep_s
+        usluga.zapisz_tetno(slug=konf.slug, stan=f"czekam {odstep} s",
+                            wazne_przez_s=odstep + usluga.PROG_MARTWOTY_S)
         time.sleep(odstep)

@@ -864,6 +864,7 @@ Organizacji wygląda dokładnie jak poprawna praca.
 ```bash
 sf-kit tasks                    # pokaż zadania w kolejce dla twojego sluga
 sf-kit worker                   # pętla: bierz zadania, wykonuj, raportuj
+sf-kit worker --runtime kimi    # wykonawca: codex (domyślnie) | kimi | shell
 sf-kit worker --once            # jeden przebieg zamiast pętli
 sf-kit worker --interval 60     # co ile sekund odpytywać (domyślnie 60)
 ```
@@ -930,6 +931,70 @@ gita, dochodzi `--skip-git-repo-check`; w repozytorium ta ochrona zostaje.
 
 Prompt idzie na **wejście standardowe**, nie w argument: treść zadania bywa długa,
 a argumenty procesu widzi każdy na maszynie.
+
+### Wykonawca `kimi`
+
+Od v0.5 Kit umie też **Kimi Code CLI** (Moonshot). Wybór jak przy Codexie — `--runtime kimi`
+albo `runtime` w ustawieniach. Kimi, tak jak Codex, dostaje treść zadania **w ramce**, bo model
+ją czyta; powłoka by ją wykonała.
+
+Wywołanie: `kimi --prompt "<ramka>" --print --output-format text --yolo` w katalogu zadania.
+`--print` to tryb nieinteraktywny (włącza `--afk`), `--yolo` daje automatyczną zgodę na polecenia
+i edycje — razem odpowiednik `codex --ask-for-approval never exec`. Bez nich worker chodzący
+bez nadzoru czekałby na zgodę, której nikt nie kliknie.
+
+Zanim Kit weźmie zadanie, sprawdza `kimi --version`, a nie tylko obecność polecenia w `PATH`.
+Zepsuta albo niedokończona instalacja przechodzi zwykłe „czy plik jest" i wywala się dopiero
+na pierwszym zadaniu — czyli po tym, jak worker zdążył je sobie przypisać. Lepiej odmówić przed.
+
+> **Jedna różnica względem Codexa, o której warto wiedzieć.** Kimi w udokumentowanej składni
+> przyjmuje prompt wyłącznie jako argument (`--prompt`), a **argumenty procesu widzi `ps` każdy
+> użytkownik maszyny**. Treść zadania jest więc na czas przebiegu widoczna dla wszystkich na tym
+> serwerze — przy Codexie nie jest, bo tam prompt idzie na wejście standardowe. Jeśli pracujesz
+> na współdzielonej maszynie z cudzymi danymi, weź to pod uwagę przy wyborze wykonawcy.
+
+Logowanie: `kimi login` (OAuth w przeglądarce, subskrypcja Kimi Code) — jak `codex login`.
+
+### Reakcja w trakcie zadania — co możesz powiedzieć workerowi
+
+Do v0.4 zadanie było atomowe: worker je brał i oddawał wynik, a ty przez ten czas nie miałeś
+jak nic powiedzieć. Od v0.5 worker **czyta komentarze pod zadaniem** i reaguje na trzy rzeczy.
+Piszesz je normalnie, w komentarzu zadania w SalesForge:
+
+| co wpiszesz | co się stanie |
+|---|---|
+| `przerwij` | worker kończy i **oddaje zadanie do kolejki**; katalog roboczy zostaje nietknięty |
+| `doprecyzuj: <treść>` | treść trafia do następnego kroku i do sprawozdania jako „uwzględnione uwagi" |
+| `kontekst: <treść>` | to samo co wyżej — inna nazwa dla tego samego |
+| cokolwiek innego | **nic**; worker to policzy i napisze w logu, ale nie zareaguje |
+
+Trzy słowa, a nie „worker rozumie polecenia", i to jest decyzja, nie ograniczenie: pod zadaniem
+piszą też ludzie do siebie i koordynator do człowieka. Worker próbujący rozumieć wszystko
+reagowałby na zdania, które nie były do niego — a fałszywe „przerwij" kosztuje tyle samo,
+co przeoczone.
+
+**Kiedy worker to czyta.** Między krokami: po przyjęciu zadania (zanim ruszy model) i po
+wykonaniu (zanim zamknie). **Nie w trakcie pracy modelu** — przerwanie go w połowie zostawiłoby
+katalog w stanie, którego nikt nie opisał. Przy krótkim zadaniu możesz więc nie zdążyć;
+przy długim, o które tu chodzi, zdążysz spokojnie.
+
+**„Przerwij" po wykonaniu nie kasuje pracy.** Jeśli napiszesz je wtedy, gdy model już skończył,
+worker i tak zapisze wynik na sprawie — ale **nie zamknie zadania**, tylko odda je do kolejki
+z adnotacją, kto prosił o przerwanie. Skasowanie gotowej pracy byłoby gorsze niż zignorowanie
+polecenia; tak możesz zobaczyć, co powstało, i sam zdecydować.
+
+**Komentarz sprzed wzięcia zadania nie liczy się jako reakcja** — to część zlecenia, którą
+worker już ma w treści.
+
+### Skąd wiesz, że worker żyje — „krok N z M"
+
+Zadanie w toku wygląda tak samo jak zawieszone: `in_progress` i cisza. Od v0.5 worker dopisuje
+pod zadaniem `krok N z M: <co robi>` przy każdej zmianie kroku (odbiór → wykonanie →
+sprawozdanie → zamknięcie), **najwyżej raz na minutę**. Przy zadaniu na dziesięć sekund
+zobaczysz więc jeden wpis, a nie cztery.
+
+Wyjątek: **zadanie bez sprawy nie dostaje telemetrii w ogóle**. Tam komentarz zadania jest
+jedynym miejscem, gdzie ląduje wynik, i nie ma go co przykrywać.
 
 ### Tryb testowy `shell` (tylko dla administratora)
 

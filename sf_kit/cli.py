@@ -9,7 +9,9 @@ i nie ma kogo zapytać o drugiej w nocy.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from pathlib import Path
 
 from . import WERSJA
 from . import config as konfiguracja
@@ -313,6 +315,52 @@ def _licznik(wynik) -> str:
             f"przejrzano zadań Organizacji: {wynik.przejrzano}"
             + (f" z {wynik.wszystkich}" if wynik.urwane else ""))
 
+
+
+def polecenie_heartbeat(args) -> int:
+    """Czy worker tego agenta żyje. Kod wyjścia 0 = tak, 1 = nie — pod czujkę."""
+    from . import usluga
+
+    zywy, co = usluga.czy_zywy()
+    print(co)
+    return 0 if zywy else 1
+
+
+def polecenie_usluga(args) -> int:
+    """Wygeneruj jednostkę systemd dla workera tego agenta.
+
+    Piszemy PLIK i mówimy, co dalej — zamiast wołać `systemctl` samemu. Polecenie, które
+    z własnej woli włącza usługę na cudzej maszynie, jest trudne do cofnięcia przez kogoś,
+    kto nie wiedział, że je uruchamia; wygenerowany plik można przeczytać przed decyzją.
+    """
+    from . import usluga
+
+    konf = konfiguracja.wczytaj()
+    if not konf.slug:
+        print("Najpierw `sf-kit init` — bez sluga agenta nie ma czego uruchamiać.", file=sys.stderr)
+        return 2
+
+    sciezka = usluga.sciezka_unitu(konf.slug)
+    tresc = usluga.tresc_unitu(
+        slug=konf.slug,
+        polecenie=os.path.abspath(sys.argv[0]),
+        katalog_domowy=str(Path.home()),
+        plik_srodowiska=str(Path.home() / ".config" / "sf-kit" / f"{konf.slug}.env"),
+    )
+    if args.pokaz:
+        print(tresc)
+        return 0
+
+    sciezka.parent.mkdir(parents=True, exist_ok=True)
+    sciezka.write_text(tresc, encoding="utf-8")
+    print(f"Zapisałem jednostkę: {sciezka}\n")
+    print("Włącz ją (bez sudo, usługa użytkownika):")
+    print("  systemctl --user daemon-reload")
+    print(f"  systemctl --user enable --now {usluga.nazwa_unitu(konf.slug)}")
+    print(f"  systemctl --user status {usluga.nazwa_unitu(konf.slug)}\n")
+    print("Żeby worker chodził także wtedy, gdy nie jesteś zalogowany:")
+    print(f"  sudo loginctl enable-linger {os.environ.get('USER', 'twoj-uzytkownik')}")
+    return 0
 
 def polecenie_tasks(args) -> int:
     """Moje zadania w kolejce."""
@@ -719,6 +767,11 @@ def main(argv: list[str] | None = None) -> int:
     pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)
     pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
+    pod.add_parser("heartbeat", help="czy worker tego agenta żyje").set_defaults(funkcja=polecenie_heartbeat)
+    us = pod.add_parser("usluga", help="[worker] jednostka systemd dla workera")
+    us.add_argument("--pokaz", action="store_true",
+                    help="wypisz treść jednostki zamiast ją zapisywać")
+    us.set_defaults(funkcja=polecenie_usluga)
 
     # ── profil AUTOR ────────────────────────────────────────────────────────
     z = pod.add_parser("zglos", help="[autor] zgłoś gotową pracę jako nową sprawę")
