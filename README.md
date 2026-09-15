@@ -844,6 +844,36 @@ razu", a nie odtwarzać historię edycji — od tego jest repozytorium, nie spra
 
 ## 10. `sf-kit` — polecenia
 
+### `sf-kit inbox` — moje wiadomości (v0.5.1)
+
+```bash
+sf-kit inbox                 # pokaż i POTWIERDŹ odbiór (domyślnie)
+sf-kit inbox --podejrzyj     # pokaż, nie potwierdzaj — wiadomości zostają w kolejce
+sf-kit inbox --limit 10 --dni 30
+```
+
+Potwierdzanie jest domyślne, bo skrzynka bez potwierdzania to czwarty półkanał: wygląda jak
+dostarczone i nikt nie wie, czy ktokolwiek to przeczytał.
+
+Co przychodzi tą drogą: przypisanie sprawy, dodanie Cię jako obserwatora, odpowiedź na Twojego
+boxa, sprawa z formularza bez prowadzącego, wpis konsoli z adresatem. **Nie budzi sesji** —
+to kolejka do odebrania w swoim takcie, nie wstrzyknięcie do tmuxa.
+
+Kody: `3` = skrzynka niedostępna (503 przed rewizją bazy albo `422` — klucz bez właściciela
+lub konto bez sluga agenckiego), `1` = pokazano, ale nie udało się potwierdzić odbioru
+(wiadomości wrócą w następnym takcie).
+
+### `sf-kit outbox` — czy to, co wysłałem, doszło (v0.5.1)
+
+```bash
+sf-kit outbox                # moje wysyłki z okna, z rozbiciem na adresatów
+sf-kit outbox --zalegle      # tylko te, których ktoś nie odebrał po progu
+```
+
+Pokazuje `2/3 odebrało` zamiast listy stanów: pytanie jest jedno („doszło?"), więc odpowiedź
+też ma być jedna.
+
+
 **Wspólne:**
 
 ```bash
@@ -1175,8 +1205,24 @@ tu coś, co dziś jest nieprawdą:
 - ~~Worker znika razem z terminalem~~ → **jednostka systemd** (`sf-kit usluga`) z tętnem
   w `~/.sf-kit/heartbeat` i gotową czujką.
 - ~~Jeden model (Codex)~~ → **`--runtime kimi`** obok `codex` i `shell`.
+- ~~O rzeczach dotyczących własnej pracy dowiadujesz się, gdy sam zajrzysz~~ → **skrzynka
+  wiadomości** (v0.5.1, ADVERTPR-812): `sf-kit inbox` pokazuje i potwierdza odbiór, `outbox`
+  mówi, czy to, co wysłałeś, doszło, a worker zagląda do skrzynki w tym samym punkcie
+  kontrolnym, w którym czyta komentarze.
 
 Co ogranicza nadal:
+
+- **Skrzynka wymaga, żeby SF wiedział, jakim slugiem się nazywasz — a na produkcji dziś tego
+  nie wie.** Pomiar z 16.09: `memberships.agent_slug` ma w całej instalacji **zero** niepustych
+  wierszy, a rejestr flot zna 7 agentów (5 z kontami) i są to agenci maszyny Damiana. Dla agenta
+  serwerowego (borys-sf, arek-sf, kodeks) `sf-kit inbox` odpowie `422 — konto bez sluga
+  agenckiego`, dopóki ktoś nie zasili jednego z tych dwóch źródeł. To nie jest usterka Kitu
+  i nie da się jej obejść po stronie Kitu: zgadywanie sluga z nazwy klucza byłoby
+  rozpoznawaniem tożsamości po etykiecie (przy 717 dwa aktywne klucze miały tę samą nazwę
+  i różnych właścicieli).
+- **`sf-kit wpis --do <slug>` wymaga uprawnienia `console:write`, którego nie ma żaden klucz
+  agencki.** Pomiar z 16.09: to uprawnienie ma **1 aktywny klucz na 31** — poller mostu.
+  Polecenie jest gotowe i odbije się o `403` z komunikatem mówiącym, o co poprosić.
 
 - **Nie ma filtru zadań po slugu agenta** po stronie serwera. Kit przegląda kolejkę stronami
   i odsiewa u siebie (§3). Dlatego `kolejka` mówi, gdy widzi tylko część („widzę 100 z 340") —

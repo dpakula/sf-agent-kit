@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from . import WERSJA
+from . import skrzynka
 from . import config as konfiguracja
 
 #: Trzy profile w JEDNYM narzędziu (decyzja Damiana 15.09). Profil nie ogranicza uprawnień —
@@ -637,6 +638,81 @@ def _pokaz_sprawe(konf, sprawa_id: str, numer: str, *, co_dalej: str) -> None:
     print(f"\n{co_dalej}")
 
 
+# ══ SKRZYNKA WIADOMOŚCI (ADVERTPR-812) ═══════════════════════════════════════
+#
+# Odbiór przez PULL: agent pobiera swoje wiadomości tak, jak bierze zadania. Most tic zostaje
+# budzikiem dla sesji, które akurat nic nie robią — nie jedynym sposobem dowiedzenia się
+# czegokolwiek. Kontrakt: `backend/docs/API-SKRZYNKA-WIADOMOSCI-812.md`.
+
+
+def polecenie_inbox(args) -> int:
+    """Moje wiadomości. Domyślnie POKAZUJE i POTWIERDZA odbiór; `--podejrzyj` tylko pokazuje.
+
+    Potwierdzenie jest domyślne, bo skrzynka bez potwierdzania to czwarty półkanał: wygląda
+    jak dostarczone i nikt nie wie, czy ktokolwiek to przeczytał. `--podejrzyj` istnieje dla
+    człowieka, który chce zerknąć cudzym... to znaczy WŁASNYM kluczem, nie zabierając sobie
+    wiadomości z kolejki przed właściwym taktem pętli.
+    """
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+
+    odebrane = skrzynka.pobierz(klient, limit=args.limit, dni=args.dni)
+    if odebrane.powod_braku:
+        # 503 przed rewizją, 422 przy kluczu bez właściciela albo koncie bez sluga agenckiego.
+        # Oba są stanem konfiguracji, nie awarią Kitu — i mają brzmieć jak stan.
+        print(f"Skrzynka niedostępna: {odebrane.powod_braku}", file=sys.stderr)
+        return 3
+    if not odebrane.cos_jest:
+        print("Skrzynka pusta.")
+        return 0
+
+    print(skrzynka.opis(odebrane))
+    if odebrane.zalegle:
+        print(f"\nZALEGŁE (dłużej niż próg): {odebrane.zalegle}")
+
+    if args.podejrzyj:
+        print("\n(--podejrzyj: odbioru NIE potwierdzono — wiadomości zostają w kolejce)")
+        return 0
+
+    skrzynka.potwierdz(klient, odebrane)
+    if odebrane.niepotwierdzone:
+        print(f"\nUWAGA: {len(odebrane.niepotwierdzone)} wiadomości pokazano, ale NIE udało się "
+              f"potwierdzić ich odbioru — wrócą w następnym takcie.", file=sys.stderr)
+        return 1
+    print(f"\nOdbiór potwierdzony ({len(odebrane.wiadomosci)}).")
+    return 0
+
+
+def polecenie_outbox(args) -> int:
+    """Czy to, co wysłałem, doszło. Odpowiedź na to jedno pytanie, nie druga skrzynka."""
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        dane = klient.nadane(dni=args.dni, tylko_zalegle=args.zalegle)
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać wysłanych: {blad}", file=sys.stderr)
+        return 3
+
+    pozycje = dane.get("wiadomosci") or []
+    if not pozycje:
+        print("Nic nie wysłałeś w tym oknie." if not args.zalegle
+              else "Nic nie zalega — wszystko odebrane.")
+        return 0
+    print(f"{len(pozycje)} z {dane.get('razem', 0)} · zalega: {dane.get('zalegle', 0)}\n")
+    for w in pozycje:
+        znacznik = (w.get("utworzono") or "")[:16].replace("T", " ")
+        stan = f"{w.get('odebrali', 0)}/{w.get('adresatow', 0)} odebrało"
+        if w.get("odpowiedzieli"):
+            stan += f", {w['odpowiedzieli']} odpowiedziało"
+        if w.get("nieudanych"):
+            stan += f", {w['nieudanych']} nieudanych"
+        flaga = " ⚠ ZALEGA" if w.get("zalega") else ""
+        print(f"  [{znacznik}] → {', '.join(w.get('adresaci') or ['?'])}{flaga}")
+        print(f"    {stan}   ({w.get('status')})")
+        print(f"    {(w.get('body') or '')[:100]}")
+    return 0
+
+
 def polecenie_zglos(args) -> int:
     """Nowa sprawa z gotową pracą — z załącznikami, obserwującymi i numerem na wyjściu."""
     konf = konfiguracja.wczytaj()
@@ -676,9 +752,23 @@ def polecenie_zglos(args) -> int:
 
 
 def polecenie_wpis(args) -> int:
-    """Wpis na istniejącej sprawie — postęp, kolejna wersja, odpowiedź."""
+    """Wpis na istniejącej sprawie — postęp, kolejna wersja, odpowiedź.
+
+    `--do <slug>` (ADVERTPR-812) wysyła to samo jako WIADOMOŚĆ do sesji agenta. Bez `--sprawa`
+    jest to samodzielna wiadomość; razem ze sprawą — wpis na sprawie ORAZ wiadomość, żeby
+    adresat nie musiał jej zauważyć sam.
+    """
     konf = konfiguracja.wczytaj()
     klient = _klient(konf, args)
+
+    if args.do and not args.sprawa:
+        tresc = _opis_z_wejscia(args)
+        if not tresc:
+            print("Wiadomość bez treści nie niesie niczego. Podaj `--opis plik.md`.",
+                  file=sys.stderr)
+            return 2
+        return _wyslij_wiadomosc(klient, args.do, tresc)
+
     try:
         sprawa = autor.znajdz_sprawe(klient, args.sprawa)
     except (ValueError, BladAPI) as blad:
@@ -702,8 +792,36 @@ def polecenie_wpis(args) -> int:
         print(f"Nie udało się dopisać: {blad}", file=sys.stderr)
         return 1
 
+    if args.do:
+        # Wpis JEST zapisany — wiadomość jest dodatkiem. Porażka wysyłki nie ma prawa
+        # przedstawić zapisanego wpisu jako nieudanego.
+        _wyslij_wiadomosc(klient, args.do, tresc or "(wpis z załącznikami)")
+
     _pokaz_sprawe(konf, sprawa_id, autor.numer_sprawy(sprawa),
                   co_dalej="Wpis dodany.")
+    return 0
+
+
+def _wyslij_wiadomosc(klient, slug: str, tresc: str) -> int:
+    """Wiadomość do sesji agenta. Odmowę uprawnienia tłumaczymy WPROST.
+
+    POMIAR Z 16.09, ŻEBY NIKT NIE SZUKAŁ USTERKI W KICIE: uprawnienie `console:write` ma
+    w całej instalacji **jeden aktywny klucz na 31** — poller mostu (`iris-console-bridge`).
+    Żaden klucz agencki go nie ma, więc ta droga odbije się o 403 do czasu, aż ktoś nada
+    to uprawnienie. To decyzja o dostępie, nie usterka: komunikat mówi, o co poprosić.
+    """
+    try:
+        klient.wiadomosc_do(slug, tresc)
+    except BladAPI as blad:
+        if getattr(blad, "kod", None) == 403:
+            print(f"Twój klucz nie ma uprawnienia `console:write`, więc nie może wysłać "
+                  f"wiadomości do „{slug}”. Wpis (jeśli był) ZOSTAŁ zapisany.\n"
+                  f"Pomiar z 16.09: to uprawnienie ma 1 aktywny klucz na 31 (poller mostu). "
+                  f"Poproś Agatę o `console:write` dla swojego klucza.", file=sys.stderr)
+            return 4
+        print(f"Nie udało się wysłać wiadomości do „{slug}”: {blad}", file=sys.stderr)
+        return 1
+    print(f"Wiadomość wysłana do „{slug}”.")
     return 0
 
 
@@ -783,7 +901,23 @@ def main(argv: list[str] | None = None) -> int:
                    help="pliki do dołączenia (idą JEDNYM wpisem)")
     z.set_defaults(funkcja=polecenie_zglos)
 
+    ib = pod.add_parser("inbox", help="[agent] moje wiadomości — pokaż i potwierdź odbiór")
+    ib.add_argument("--limit", type=int, default=skrzynka.LIMIT_TAKTU,
+                    help=f"ile wziąć w tym takcie (domyślnie {skrzynka.LIMIT_TAKTU})")
+    ib.add_argument("--dni", type=int, default=None, help="okno skrzynki w dniach")
+    ib.add_argument("--podejrzyj", action="store_true",
+                    help="pokaż BEZ potwierdzania odbioru (wiadomości zostają w kolejce)")
+    ib.set_defaults(funkcja=polecenie_inbox)
+
+    ob = pod.add_parser("outbox", help="[agent] czy to, co wysłałem, doszło")
+    ob.add_argument("--dni", type=int, default=None, help="okno w dniach")
+    ob.add_argument("--zalegle", action="store_true", help="tylko nieodebrane po progu")
+    ob.set_defaults(funkcja=polecenie_outbox)
+
     wp = pod.add_parser("wpis", help="[autor] dopisz postęp albo odpowiedź do sprawy")
+    wp.add_argument("--do", dest="do", default=None, metavar="SLUG",
+                    help="wyślij to TAKŻE jako wiadomość do sesji agenta (bez --sprawa: "
+                         "samodzielna wiadomość)")
     wp.add_argument("sprawa", help="numer (FM-12) albo identyfikator sprawy")
     wp.add_argument("--opis", default=None, metavar="PLIK",
                     help="plik z treścią (albo `-` = ze standardowego wejścia)")

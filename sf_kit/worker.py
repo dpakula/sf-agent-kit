@@ -31,6 +31,7 @@ from .api import BladAPI, BrakUprawnienia, Klient, ZlyKlucz
 from .config import Konfiguracja
 from . import ramka
 from . import reakcje as mod_reakcje
+from . import skrzynka as mod_skrzynka
 from .telemetria import Telemetria
 from . import usluga
 from . import wyniki
@@ -291,6 +292,30 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     if reakcje.nierozpoznane:
         _log(f"   {reakcje.nierozpoznane} komentarzy, których nie rozumiem — pomijam")
 
+    # 3b. SKRZYNKA WIADOMOŚCI (ADVERTPR-812 D) — W TYM SAMYM PUNKCIE KONTROLNYM.
+    #
+    # Ta sama droga, którą worker czyta komentarze, i to jest cała decyzja: jedno miejsce
+    # w takcie, w którym zagląda po informacje od ludzi. Drugie miejsce znaczyłoby drugi
+    # moment, w którym można przerwać pracę — a przerwanie w trakcie wywołania modelu
+    # zostawia katalog w stanie, którego nikt nie opisał.
+    #
+    # KOLEJNOŚĆ: pokazujemy (doklejamy do polecenia) DOPIERO POTEM potwierdzamy odbiór.
+    # Potwierdzenie przy samym odczycie znaczyłoby „odebrane" dla treści, która poszła
+    # w powietrze razem z procesem — ta sama zasada, co przy bramce floty (`write` + `fsync`,
+    # dopiero potem ack).
+    #
+    # Wiadomości NIE PRZERYWAJĄ zadania, nawet gdy ktoś napisze w nich „przerwij": poleceniom
+    # służy kanał komentarzy pod zadaniem (807 C1), który ma na to jedno słowo i własne reguły.
+    # Skrzynka niesie kontekst („przypisano Cię", „odpowiedź na boxa"), a mieszanie tych dwóch
+    # znaczeń dałoby dwa kanały poleceń i żadnego pewnego.
+    poczta = mod_skrzynka.pobierz(klient, limit=mod_skrzynka.LIMIT_TAKTU)
+    if poczta.powod_braku:
+        _log(f"   skrzynka niedostępna: {poczta.powod_braku}")
+    elif poczta.cos_jest:
+        _log(f"   skrzynka: {len(poczta.wiadomosci)} nowych"
+             + (f", zalega {poczta.zalegle}" if poczta.zalegle else "")
+             + (f", {poczta.ile_dalej} zostaje na potem" if poczta.ile_dalej else ""))
+
     _log(f"   wykonuję przez `{wykonawca.nazwa}` w {katalog} (limit {konf.limit_zadania_s} s)")
     puls.krok(2, f"wykonuję w katalogu roboczym (limit {konf.limit_zadania_s} s)")
     polecenie = (ramka.zbuduj(zadanie, slug=konf.slug, katalog=katalog)
@@ -300,8 +325,29 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
         # doklejony do skryptu jest dla niej błędem składni, a nie wskazówką.
         _log(f"   uwzględniam {len(reakcje.uwagi)} uwag(i) od człowieka")
         polecenie += mod_reakcje.opis_uwag(reakcje.uwagi)
+    poczta_poszla = poczta.cos_jest and wykonawca.chce_ramke
+    if poczta_poszla:
+        # Też tylko do ramki, z tego samego powodu co uwagi. Wykonawca powłokowy dostaje
+        # skrypt — akapit po polsku byłby dla niego błędem składni. Skutek uboczny jest
+        # zamierzony: skoro treść NIE dotarła do agenta, odbioru też nie potwierdzamy.
+        polecenie += "\n\n" + mod_skrzynka.opis(poczta)
 
     wynik = wykonawca.wykonaj(polecenie, katalog=katalog, limit_s=konf.limit_zadania_s)
+
+    # POTWIERDZENIE ODBIORU DOPIERO TUTAJ — PO wywołaniu wykonawcy, nie przed nim.
+    #
+    # Pierwsza wersja potwierdzała zaraz po doklejeniu treści do polecenia i to było o jedną
+    # szczelinę za wcześnie: proces ubity między ack a wywołaniem modelu zostawiał wiadomość
+    # oznaczoną „odebrana", której nikt nigdy nie przeczytał — czyli dokładnie ten stan,
+    # który ta sprawa likwiduje. Złapał to test kolejności, nie przegląd.
+    #
+    # Potwierdzamy TAKŻE gdy wykonanie się nie udało: treść dotarła do wykonawcy, a to jest
+    # fakt, o którym mówi „odebrana". Niepowodzenie zadania ma własny ślad i własną drogę.
+    if poczta_poszla:
+        mod_skrzynka.potwierdz(klient, poczta)
+        if poczta.niepotwierdzone:
+            _log(f"   {len(poczta.niepotwierdzone)} wiadomości bez potwierdzenia odbioru "
+                 f"— wrócą w następnym takcie")
 
     # 4. Sprawozdanie PRZED zmianą statusu — patrz zasada 3 w nagłówku.
     if not wynik.udalo_sie:

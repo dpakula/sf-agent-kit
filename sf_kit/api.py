@@ -350,6 +350,67 @@ class Klient:
             "POST", f"tickets/{ticket_id}/entries",
             cialo={"entry_type": "note", "content": tresc, "visibility": widocznosc})
 
+    # ── SKRZYNKA WIADOMOŚCI (ADVERTPR-812) ───────────────────────────────────
+    #
+    # Kontrakt: `backend/docs/API-SKRZYNKA-WIADOMOSCI-812.md`. Trzy trasy, bo skrzynka odpowiada
+    # na trzy różne pytania: „co mam do odebrania", „czy to, co wysłałem, doszło" i „odebrałem".
+    #
+    # DLACZEGO 503 MA TU WŁASNE ZNACZENIE: tabela adresatów wchodzi rewizją, której Kit nie
+    # kontroluje. Do jej wykonania trasy oddają 503 — i to jest odpowiedź „jeszcze nie",
+    # nie awaria. Wołający ma ją rozpoznać i zachować się jak przed 812, zamiast pokazywać
+    # agentowi błąd, na który nie ma wpływu.
+
+    def skrzynka(self, *, dni: int | None = None, limit: int | None = None,
+                 tylko_nieodebrane: bool = False) -> dict:
+        """Moje wiadomości — jako adresata. Najstarsze pierwsze (to kolejka, nie feed)."""
+        parametry = []
+        if dni is not None:
+            parametry.append(f"dni={int(dni)}")
+        if limit is not None:
+            parametry.append(f"limit={int(limit)}")
+        if tylko_nieodebrane:
+            parametry.append("tylko_nieodebrane=true")
+        ogon = ("?" + "&".join(parametry)) if parametry else ""
+        wynik = self._wywolaj("GET", f"console/messages/inbox{ogon}")
+        return wynik if isinstance(wynik, dict) else {}
+
+    def nadane(self, *, dni: int | None = None, tylko_zalegle: bool = False) -> dict:
+        """Moje wysłane, z rozbiciem na adresatów. Najnowsze pierwsze."""
+        parametry = []
+        if dni is not None:
+            parametry.append(f"dni={int(dni)}")
+        if tylko_zalegle:
+            parametry.append("tylko_zalegle=true")
+        ogon = ("?" + "&".join(parametry)) if parametry else ""
+        wynik = self._wywolaj("GET", f"console/messages/outbox{ogon}")
+        return wynik if isinstance(wynik, dict) else {}
+
+    def potwierdz_odbior(self, message_id: str, *, status: str = "consumed",
+                         powod: str | None = None) -> dict:
+        """Potwierdź odbiór ZA SIEBIE. Adresata ustala serwer z tożsamości klucza.
+
+        Nie ma tu parametru „za kogo" i nie będzie: trasa nazywa się `/recipients/me`, a Kit
+        nie ma jak wiedzieć lepiej od serwera, kim jest właściciel jego klucza.
+        """
+        cialo: dict = {"status": status}
+        if powod:
+            cialo["powod"] = powod
+        wynik = self._wywolaj(
+            "PATCH", f"console/messages/{message_id}/recipients/me", cialo=cialo)
+        return wynik if isinstance(wynik, dict) else {}
+
+    def wiadomosc_do(self, slug: str, tresc: str, *, rodzaj: str = "inject") -> dict:
+        """Wiadomość do sesji agenta (`sf-kit wpis --do <slug>`).
+
+        `inject` domyślnie, bo tą drogą pisze CZŁOWIEK albo agent do agenta i chce, żeby doszło
+        teraz. Producenci automatyczni mają własny rodzaj (pull-first) i własną drogę po stronie
+        SF — Kit go nie udaje.
+        """
+        wynik = self._wywolaj(
+            "POST", "console/messages",
+            cialo={"session_target": slug, "kind": rodzaj, "body": tresc})
+        return wynik if isinstance(wynik, dict) else {}
+
     # ── sonda ────────────────────────────────────────────────────────────────
 
     # ── profil KOORDYNATOR (v0.4) ────────────────────────────────────────────
