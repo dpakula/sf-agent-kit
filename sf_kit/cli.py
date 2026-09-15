@@ -488,10 +488,14 @@ def polecenie_odbierz(args) -> int:
     klient, _org = _koordynator(konf, args)
 
     try:
-        zadanie = _znajdz_zadanie(klient, args.zadanie)
+        znalezione = koordynator.znajdz_zadanie(klient, args.zadanie)
     except (koordynator.Odmowa, BladAPI) as blad:
         print(str(blad), file=sys.stderr)
         return 2
+    if znalezione.zadanie is None:
+        print(znalezione.powod_braku(args.zadanie), file=sys.stderr)
+        return 2
+    zadanie = znalezione.zadanie
 
     ticket_id = zadanie.get("ticket_id")
     external_id = zadanie.get("external_id") or ""
@@ -518,21 +522,6 @@ def polecenie_odbierz(args) -> int:
         return 1
     print(f"Odebrane: {external_id} — {co}.")
     return 0
-
-
-def _znajdz_zadanie(klient, wskazanie: str) -> dict:
-    """Zadanie po `external_id` albo identyfikatorze. Rzuca `koordynator.Odmowa`."""
-    w = (wskazanie or "").strip()
-    if not w:
-        raise koordynator.Odmowa("Podaj identyfikator zadania.")
-    for status in ("in_progress", "completed", "queued", "on_hold"):
-        strona = klient.zadania(status=status, limit=100)
-        for z in (strona.get("items") or strona.get("pozycje") or []):
-            if w in {str(z.get("external_id") or ""), str(z.get("id") or "")}:
-                return z
-    raise koordynator.Odmowa(
-        f"Nie znalazłem zadania „{w}” w tej Organizacji. Sprawdź identyfikator "
-        f"({_jak_wolac()} kolejka) albo wskaż inną Organizację przez --org.")
 
 
 def polecenie_status(args) -> int:

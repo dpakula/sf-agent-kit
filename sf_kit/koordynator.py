@@ -122,6 +122,66 @@ def sprawdz_sprawe_dla_wykonawcy(klient, *, ticket_id: str, agent: Agent) -> Non
         ) from None
 
 
+#: Statusy przeszukiwane przy szukaniu zadania po identyfikatorze — w kolejności od
+#: najbardziej prawdopodobnego. Odbiera się zwykle to, co właśnie się skończyło.
+STATUSY_SZUKANIA = ("in_progress", "completed", "queued", "on_hold")
+
+
+@dataclass(frozen=True)
+class Znalezione:
+    """Wynik szukania zadania. `urwane` znaczy, że NIE przejrzeliśmy wszystkiego."""
+    zadanie: dict | None
+    przejrzano: int
+    urwane: bool
+
+    def powod_braku(self, wskazanie: str) -> str:
+        """Zdanie do pokazania, gdy nie znaleziono — rozróżnia „nie ma" od „nie doszedłem"."""
+        if self.urwane:
+            return (f"Nie znalazłem zadania „{wskazanie}” wśród {self.przejrzano} "
+                    f"przejrzanych — ale kolejka jest dłuższa, więc to NIE znaczy, że go nie ma. "
+                    f"Podaj pełny identyfikator albo sprawdź w panelu.")
+        return (f"Nie znalazłem zadania „{wskazanie}” w tej Organizacji "
+                f"(przejrzanych: {self.przejrzano}). Sprawdź identyfikator albo wskaż inną "
+                f"Organizację przez --org.")
+
+
+def znajdz_zadanie(klient, wskazanie: str) -> Znalezione:
+    """Zadanie po `external_id` albo identyfikatorze — przez CAŁĄ kolejkę, nie pierwszą stronę.
+
+    Pierwsza wersja `odbierz` brała jedną stronę na status. Przy dłuższej kolejce znaczyłoby to
+    „nie znalazłem zadania", choć zadanie istnieje — czyli odmowę odbioru pracy, która JEST
+    zrobiona, z komunikatem sugerującym literówkę. Ta sama pułapka, którą worker miał w 0.1
+    (zadanie na pozycji 51 nie istniało dla agenta) i która wygląda na spokój, nie na usterkę.
+
+    Gdy bezpiecznik stron przerwie przeglądanie, mówimy to wprost — brak dowodu nie jest
+    dowodem braku.
+    """
+    from .api import NA_STRONE, STRON_NAJWYZEJ
+
+    w = (wskazanie or "").strip()
+    if not w:
+        raise Odmowa("Podaj identyfikator zadania.")
+
+    przejrzano_razem = 0
+    urwane = False
+    for status in STATUSY_SZUKANIA:
+        przejrzano = 0
+        for _ in range(STRON_NAJWYZEJ):
+            strona = klient.zadania(status=status, limit=NA_STRONE, offset=przejrzano)
+            pozycje = strona.get("items") or []
+            wszystkich = int(strona.get("total") or 0)
+            przejrzano += len(pozycje)
+            przejrzano_razem += len(pozycje)
+            for z in pozycje:
+                if w in {str(z.get("external_id") or ""), str(z.get("id") or "")}:
+                    return Znalezione(zadanie=z, przejrzano=przejrzano_razem, urwane=False)
+            if not pozycje or przejrzano >= wszystkich:
+                break
+        else:
+            urwane = True
+    return Znalezione(zadanie=None, przejrzano=przejrzano_razem, urwane=urwane)
+
+
 def wynik_jest_na_sprawie(klient, *, ticket_id: str, external_id: str) -> tuple[bool, str]:
     """Czy na sprawie widać ślad po tym zadaniu. Zwraca `(jest, co_znaleziono)`.
 

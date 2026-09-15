@@ -119,6 +119,51 @@ class TestOdmowPrzyZlecaniu(unittest.TestCase):
             AtrapaKlienta(), ticket_id="t-1", agent=agent)     # brak wyjątku = zdane
 
 
+class AtrapaKolejki:
+    """Stronicowana kolejka zadań — do sprawdzenia, czy szukanie idzie DALEJ niż pierwsza strona."""
+
+    def __init__(self, zadania_po_statusie: dict):
+        self._dane = zadania_po_statusie
+        self.zapytania: list[tuple[str, int]] = []
+
+    def zadania(self, *, status="queued", limit=200, offset=0):
+        self.zapytania.append((status, offset))
+        wszystkie = self._dane.get(status, [])
+        return {"items": wszystkie[offset:offset + limit], "total": len(wszystkie)}
+
+
+class TestSzukaniaZadania(unittest.TestCase):
+    """Zadanie spoza pierwszej strony MUSI być znalezione.
+
+    Pierwsza wersja `odbierz` brała jedną stronę na status — więc przy dłuższej kolejce mówiła
+    „nie znalazłem zadania" o zadaniu, które istnieje. Czyli odmowa odbioru pracy, która JEST
+    zrobiona, z komunikatem sugerującym literówkę. Ta sama pułapka, którą worker miał w 0.1.
+    """
+
+    def test_znajduje_zadanie_z_dalszej_strony(self):
+        duzo = [{"external_id": f"z-{n}", "id": f"id-{n}"} for n in range(450)]
+        klient = AtrapaKolejki({"in_progress": duzo})
+        wynik = koordynator.znajdz_zadanie(klient, "z-400")
+        self.assertIsNotNone(wynik.zadanie)
+        self.assertEqual(wynik.zadanie["external_id"], "z-400")
+        self.assertGreater(len(klient.zapytania), 1, "nie zajrzał poza pierwszą stronę")
+
+    def test_znajduje_takze_po_uuid(self):
+        klient = AtrapaKolejki({"queued": [{"external_id": "z-1", "id": "uuid-1"}]})
+        self.assertIsNotNone(koordynator.znajdz_zadanie(klient, "uuid-1").zadanie)
+
+    def test_brak_zadania_mowi_ile_przejrzano(self):
+        klient = AtrapaKolejki({"queued": [{"external_id": "z-1", "id": "i-1"}]})
+        wynik = koordynator.znajdz_zadanie(klient, "z-nieistniejace")
+        self.assertIsNone(wynik.zadanie)
+        self.assertFalse(wynik.urwane)
+        self.assertIn("przejrzanych: 1", wynik.powod_braku("z-nieistniejace"))
+
+    def test_puste_wskazanie_to_odmowa(self):
+        with self.assertRaises(koordynator.Odmowa):
+            koordynator.znajdz_zadanie(AtrapaKolejki({}), "  ")
+
+
 class TestOdbioru(unittest.TestCase):
     """`odbierz` sprawdza, czy wynik JEST — zamknięcie na słowo unieważnia status `completed`."""
 
