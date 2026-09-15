@@ -28,7 +28,10 @@ class AtrapaKlienta:
     """Zapamiętuje, co worker wywołał. Może udawać awarię wybranej operacji."""
 
     def __init__(self, *, wpis_pada=False, status_pada_na=None, brak_uprawnienia=False,
-                 komentarz_pada=False):
+                 komentarz_pada=False, komentarze_zadania=None):
+        #: Komentarze, ktore `zadanie()` odda workerowi (807 C1). Domyslnie brak — czyli
+        #: zachowanie sprzed kanalu reakcji.
+        self._komentarze_zadania = list(komentarze_zadania or [])
         self.wpisy: list[tuple[str, str]] = []
         self.wpisy_z_plikami: list[tuple[str, str, list]] = []
         self.komentarze: list[tuple[str, str]] = []
@@ -56,6 +59,13 @@ class AtrapaKlienta:
             raise BladAPI("atrapa: komentarz nie przeszedł")
         self.komentarze.append((str(task_id), tresc))
         return {}
+
+    def zadanie(self, task_id):
+        """Szczegoly zadania — worker czyta stad komentarze miedzy krokami (807 C1)."""
+        return {"id": str(task_id), "comments": self._komentarze_zadania}
+
+    def kim_jestem(self):
+        return {"user": {"email": "kodeks@advertpro.co"}}
 
     def ustaw_status(self, task_id, status, *, wersja=None):
         if self._brak_uprawnienia:

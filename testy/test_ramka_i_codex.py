@@ -47,6 +47,12 @@ class _KlientNiemowa:
     def wpis_z_plikami(self, *_a, **_k):
         return {}
 
+    def zadanie(self, *_a, **_k):
+        return {"comments": []}
+
+    def kim_jestem(self, *_a, **_k):
+        return {"user": {"email": "codex-fm@advertpro.co"}}
+
     def komentarz_zadania(self, *_a, **_k):
         return {}
 

@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from .api import BladAPI, BrakUprawnienia, Klient, ZlyKlucz
 from .config import Konfiguracja
 from . import ramka
+from . import reakcje as mod_reakcje
 from . import wyniki
 from .wykonawcy import katalog_zadania, wybierz
 
@@ -181,6 +182,47 @@ def _sprawozdanie_do_komentarza(klient: Klient, zadanie: dict, tresc: str) -> bo
         return False
 
 
+
+def _moj_mail(klient: Klient) -> str | None:
+    """E-mail konta, którym chodzi worker — do pomijania WŁASNYCH komentarzy.
+
+    Pytamy `GET /me` raz i pamiętamy **na obiekcie klienta**, nie w zmiennej modułu. Pamięć
+    modułowa przeżywa proces, więc w pakiecie testów jeden przypadek podawałby odpowiedź
+    następnemu — a to jest ten rodzaj zależności między testami, który ujawnia się dopiero
+    przy zmianie kolejności i wygląda wtedy na błąd w kodzie.
+
+    Awaria tego zapytania nie może wywrócić pracy: najwyżej policzymy własne komentarze
+    jako nierozpoznane, co jest brzydkie, ale niegroźne.
+    """
+    zapamietany = getattr(klient, "_sf_kit_moj_mail", None)
+    if zapamietany is None:
+        try:
+            odpowiedz = klient.kim_jestem()
+            zapamietany = ((odpowiedz.get("user") or {}).get("email")
+                           or odpowiedz.get("email") or "")
+        except Exception:                      # noqa: BLE001 — diagnostyka nie może blokować pracy
+            zapamietany = ""
+        try:
+            klient._sf_kit_moj_mail = zapamietany
+        except AttributeError:                 # atrapa bez __dict__ — trudno, zapytamy znowu
+            pass
+    return zapamietany or None
+
+
+def _zajrzyj_do_komentarzy(klient: Klient, zid: str, *, po: datetime) -> "mod_reakcje.Reakcje":
+    """Co człowiek powiedział od chwili `po`. Błąd odczytu = brak reakcji, nie awaria.
+
+    Kanał reakcji jest dodatkiem do pracy, nie jej warunkiem: zadanie ma się wykonać także
+    wtedy, gdy akurat nie da się pobrać komentarzy.
+    """
+    try:
+        szczegoly = klient.zadanie(zid)
+    except BladAPI as blad:
+        _log(f"   nie udało się sprawdzić komentarzy: {blad}")
+        return mod_reakcje.Reakcje()
+    return mod_reakcje.rozpoznaj(
+        szczegoly.get("comments") or [], po=po, autor_wlasny=_moj_mail(klient))
+
 def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     """Jedno zadanie od początku do końca. Zwraca krótki opis wyniku (do logu)."""
     tytul = zadanie.get("title", "?")
@@ -226,9 +268,29 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     # Znacznik startu — po nim poznamy, co w `outgoing/` jest wynikiem TEGO zadania, a co
     # zostało z poprzedniego. Bez tego pliki jednego klienta trafiłyby do sprawy drugiego.
     start = time.time()
+    wziete_o = datetime.now(timezone.utc)
+
+    # 3a. PUNKT KONTROLNY: co człowiek powiedział, odkąd wziąłem zadanie (807 C1).
+    #     Tutaj, a NIE w trakcie wywołania modelu: przerwanie go w połowie zostawiłoby
+    #     katalog w stanie, którego nikt nie opisał.
+    reakcje = _zajrzyj_do_komentarzy(klient, zid, po=wziete_o)
+    if reakcje.przerwal:
+        _zdaj_sprawozdanie(klient, zadanie, mod_reakcje.wpis_przerwania(
+            zadanie, reakcje.przerwal, stan="po odbiorze, przed wykonaniem — nic nie zdążyło powstać"))
+        _wroc_do_kolejki(klient, zid)
+        return f"przerwane przez {reakcje.przerwal} (przed wykonaniem)"
+    if reakcje.nierozpoznane:
+        _log(f"   {reakcje.nierozpoznane} komentarzy, których nie rozumiem — pomijam")
+
     _log(f"   wykonuję przez `{wykonawca.nazwa}` w {katalog} (limit {konf.limit_zadania_s} s)")
     polecenie = (ramka.zbuduj(zadanie, slug=konf.slug, katalog=katalog)
                  if wykonawca.chce_ramke else tresc)
+    if reakcje.uwagi and wykonawca.chce_ramke:
+        # Uwagi doklejamy TYLKO do ramki. Powłoka wykonuje to, co dostaje, więc polski akapit
+        # doklejony do skryptu jest dla niej błędem składni, a nie wskazówką.
+        _log(f"   uwzględniam {len(reakcje.uwagi)} uwag(i) od człowieka")
+        polecenie += mod_reakcje.opis_uwag(reakcje.uwagi)
+
     wynik = wykonawca.wykonaj(polecenie, katalog=katalog, limit_s=konf.limit_zadania_s)
 
     # 4. Sprawozdanie PRZED zmianą statusu — patrz zasada 3 w nagłówku.
@@ -247,10 +309,24 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     for powod in zebrane.pominiete:
         _log(f"   nie załączam — {powod}")
 
+    # 4c. PUNKT KONTROLNY: człowiek mógł się odezwać W TRAKCIE wykonania (807 C1).
+    #     „Przerwij" po fakcie NIE kasuje pracy — praca już jest i skasowanie jej byłoby
+    #     gorsze niż zignorowanie polecenia. Znaczy tyle: nie zamykaj, oddaj do kolejki
+    #     z opisem, żeby człowiek zobaczył wynik i sam zdecydował, co dalej.
+    po_wykonaniu = _zajrzyj_do_komentarzy(klient, zid, po=wziete_o)
+    uwagi_razem = reakcje.uwagi + po_wykonaniu.uwagi
+
     sprawozdanie = wpis_sukces(zadanie, wynik.wyjscie, wykonawca=wykonawca.nazwa)
+    opis_uwag = mod_reakcje.opis_do_wpisu(uwagi_razem)
+    if opis_uwag:
+        sprawozdanie = f"{sprawozdanie}\n\n{opis_uwag}"
     opis_plikow = wyniki.opis_dla_wpisu(zebrane)
     if opis_plikow:
         sprawozdanie = f"{sprawozdanie}\n\n{opis_plikow}"
+    if po_wykonaniu.przerwal:
+        sprawozdanie = (f"{sprawozdanie}\n\n**{po_wykonaniu.przerwal} poprosił(a) o przerwanie "
+                        f"w trakcie wykonania.** Praca była już zrobiona, więc jej nie kasuję — "
+                        f"oddaję zadanie do kolejki zamiast je zamykać.")
 
     zapisano = _zdaj_sprawozdanie(klient, zadanie, sprawozdanie, pliki=zebrane.pliki)
     wyniki.posprzataj(zebrane)
@@ -260,7 +336,10 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
         _wroc_do_kolejki(klient, zid)
         return "wykonane, ale bez sprawozdania — zadanie wróciło do kolejki"
 
-    # 5. Zamknij.
+    # 5. Zamknij — chyba że w trakcie padło „przerwij" (patrz 4c).
+    if po_wykonaniu.przerwal:
+        _wroc_do_kolejki(klient, zid)
+        return f"wykonane i opisane, ale {po_wykonaniu.przerwal} przerwał(a) — wróciło do kolejki"
     try:
         klient.ustaw_status(zid, "completed")
     except BladAPI as blad:
