@@ -31,6 +31,7 @@ from .api import BladAPI, BrakUprawnienia, Klient, ZlyKlucz
 from .config import Konfiguracja
 from . import ramka
 from . import reakcje as mod_reakcje
+from .telemetria import Telemetria
 from . import wyniki
 from .wykonawcy import katalog_zadania, wybierz
 
@@ -270,6 +271,13 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     start = time.time()
     wziete_o = datetime.now(timezone.utc)
 
+    # Telemetria (807 C2): cztery kroki — odbiór, wykonanie, sprawozdanie, zamknięcie.
+    # Pierwszy idzie zawsze: „wziąłem i zaczynam" mówi, że worker żyje i że to on to wziął.
+    # Wyłączona przy zadaniu BEZ SPRAWY: tam komentarz zadania jest jedynym miejscem, w którym
+    # zostaje wynik, a telemetria dopisana obok przykryłaby właśnie jego.
+    puls = Telemetria(klient, zid, krokow=4, wlaczona=bool(zadanie.get("ticket_id")))
+    puls.krok(1, f"zadanie przyjęte, przygotowuję wykonanie przez `{wykonawca.nazwa}`")
+
     # 3a. PUNKT KONTROLNY: co człowiek powiedział, odkąd wziąłem zadanie (807 C1).
     #     Tutaj, a NIE w trakcie wywołania modelu: przerwanie go w połowie zostawiłoby
     #     katalog w stanie, którego nikt nie opisał.
@@ -283,6 +291,7 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
         _log(f"   {reakcje.nierozpoznane} komentarzy, których nie rozumiem — pomijam")
 
     _log(f"   wykonuję przez `{wykonawca.nazwa}` w {katalog} (limit {konf.limit_zadania_s} s)")
+    puls.krok(2, f"wykonuję w katalogu roboczym (limit {konf.limit_zadania_s} s)")
     polecenie = (ramka.zbuduj(zadanie, slug=konf.slug, katalog=katalog)
                  if wykonawca.chce_ramke else tresc)
     if reakcje.uwagi and wykonawca.chce_ramke:
@@ -328,6 +337,7 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
                         f"w trakcie wykonania.** Praca była już zrobiona, więc jej nie kasuję — "
                         f"oddaję zadanie do kolejki zamiast je zamykać.")
 
+    puls.krok(3, "wykonane, zdaję sprawozdanie na sprawie")
     zapisano = _zdaj_sprawozdanie(klient, zadanie, sprawozdanie, pliki=zebrane.pliki)
     wyniki.posprzataj(zebrane)
     if not zapisano:
@@ -340,6 +350,7 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     if po_wykonaniu.przerwal:
         _wroc_do_kolejki(klient, zid)
         return f"wykonane i opisane, ale {po_wykonaniu.przerwal} przerwał(a) — wróciło do kolejki"
+    puls.krok(4, "zamykam zadanie")
     try:
         klient.ustaw_status(zid, "completed")
     except BladAPI as blad:
