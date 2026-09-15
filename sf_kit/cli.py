@@ -22,6 +22,7 @@ PROFILE = ("worker", "autor", "koordynator")
 PROFIL_DOMYSLNY = "worker"
 from . import klucz as magazyn_klucza
 from . import autor
+from . import koordynator
 from . import tozsamosc
 from .api import BladAPI, Klient
 
@@ -345,6 +346,207 @@ def polecenie_tasks(args) -> int:
     return 0
 
 
+# ══ profil KOORDYNATOR (v0.4) ════════════════════════════════════════════════
+#
+# Pięć poleceń, którymi człowiek rozdaje pracę flocie i ją odbiera. Wszystkie przechodzą przez
+# `_koordynator()` — jedno miejsce, w którym sprawdzamy, czy klucz ma do tego prawo W TEJ
+# Organizacji. Sprawdzenie idzie po `GET /me`, nie po polu `profil` w pliku ustawień: profil
+# jest deklaracją człowieka, a uprawnienia mieszkają po stronie SF.
+
+def _koordynator(konf: konfiguracja.Konfiguracja, args):
+    """`(klient, organizacja)` albo odmowa mówiąca, czego brakuje. Nigdy 403 w twarz."""
+    klient = _klient_bez_organizacji(konf)
+    toz = _tozsamosc(klient)
+    try:
+        org = tozsamosc.wybierz(toz, wskazana=(getattr(args, "org", None) or ""),
+                                z_pliku=konf.organizacja)
+    except tozsamosc.BrakWyboru as brak:
+        raise SystemExit(str(brak)) from None
+
+    if not koordynator.czy_wolno_zlecac(org.uprawnienia):
+        gdzie = [o.slug for o in toz.organizacje
+                 if koordynator.czy_wolno_zlecac(o.uprawnienia)]
+        podpowiedz = (f"Możesz zlecać w: {', '.join(gdzie)} — dodaj --org <slug>."
+                      if gdzie else
+                      f"W żadnej ze swoich Organizacji nie masz uprawnienia "
+                      f"`{koordynator.UPRAWNIENIE_ZLECANIA}`. Poproś administratora.")
+        raise SystemExit(
+            f"Polecenia koordynatora wymagają uprawnienia "
+            f"`{koordynator.UPRAWNIENIE_ZLECANIA}`, a w „{org.slug}” go nie masz.\n{podpowiedz}"
+        )
+    klient.organizacja = org.uuid
+    return klient, org
+
+
+def polecenie_flota(args) -> int:
+    """Agenci Organizacji — kto w ogóle może dostać zadanie."""
+    konf = konfiguracja.wczytaj()
+    klient, org = _koordynator(konf, args)
+    try:
+        agenci = koordynator.flota(klient)
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać listy agentów: {blad}", file=sys.stderr)
+        return 1
+
+    if not agenci:
+        print(f"W „{org.slug}” nie ma zarejestrowanych agentów.")
+        return 0
+    print(f"Flota w „{org.slug}” ({len(agenci)}):\n")
+    for a in agenci:
+        print(f"  {a.opis()}")
+    bez_sluga = [a for a in agenci if not a.wolalny]
+    if bez_sluga:
+        print(f"\n{len(bez_sluga)} członkostw agenta bez sluga — takiego agenta widać, ale nie "
+              f"da się do niego zlecić. To błąd konfiguracji po stronie administratora.")
+    return 0
+
+
+def polecenie_zlec(args) -> int:
+    """Zadanie dla agenta — ZAWSZE na sprawie."""
+    konf = konfiguracja.wczytaj()
+    klient, org = _koordynator(konf, args)
+
+    tresc = _opis_z_wejscia(args)
+    try:
+        agenci = koordynator.flota(klient)
+        agent = koordynator.znajdz_agenta(agenci, args.agent_slug)
+        sprawa = autor.znajdz_sprawe(klient, args.sprawa)
+        koordynator.sprawdz_sprawe_dla_wykonawcy(
+            klient, ticket_id=str(sprawa["id"]), agent=agent)
+    except koordynator.Odmowa as odmowa:
+        print(str(odmowa), file=sys.stderr)
+        return 2
+    except (ValueError, BladAPI) as blad:
+        print(f"Nie udało się zlecić: {blad}", file=sys.stderr)
+        return 1
+
+    try:
+        zadanie = klient.zaloz_zadanie(
+            tytul=args.tytul, agent_id=agent.user_id, ticket_id=str(sprawa["id"]),
+            tresc=tresc, priorytet=args.priorytet, termin=args.termin,
+            projekt=args.projekt, kategoria=args.kategoria,
+        )
+    except BladAPI as blad:
+        print(f"Nie udało się zlecić: {blad}", file=sys.stderr)
+        return 1
+
+    print(f"Zlecone: {zadanie.get('external_id')} → {agent.slug}")
+    print(f"  sprawa: {autor.numer_sprawy(sprawa)}")
+    print(f"  {autor.adres_sprawy(str(sprawa['id']), baza=konf.adres)}")
+    print(f"\nWynik pojawi się na tej sprawie. Sprawdź: "
+          f"{_jak_wolac()} odbierz {zadanie.get('external_id')}")
+    return 0
+
+
+def polecenie_kolejka(args) -> int:
+    """Co flota ma na głowie — zadania w toku, per agent."""
+    konf = konfiguracja.wczytaj()
+    klient, org = _koordynator(konf, args)
+    statusy = [args.status] if args.status else list(koordynator.W_TOKU)
+    try:
+        zadania = []
+        urwane: list[str] = []
+        for status in statusy:
+            strona = klient.zadania(status=status, limit=100)
+            pozycje = strona.get("items") or strona.get("pozycje") or []
+            zadania.extend(pozycje)
+            # Jedna strona na status. Gdy kolejka jest dłuższa, MÓWIMY o tym — licznik, który
+            # pokazuje „12 zadań", gdy jest ich 130, kłamie w jedyną stronę, która ma znaczenie
+            # dla kogoś planującego pracę floty.
+            razem = int(strona.get("total") or 0)
+            if razem > len(pozycje):
+                urwane.append(f"{status}: widzę {len(pozycje)} z {razem}")
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać kolejki: {blad}", file=sys.stderr)
+        return 1
+
+    if args.agent_slug:
+        zadania = [z for z in zadania
+                   if (z.get("assigned_agent_slug") or "") == args.agent_slug]
+    if not zadania:
+        print(f"Nic w toku w „{org.slug}”"
+              f"{f' dla {args.agent_slug}' if args.agent_slug else ''}.")
+        return 0
+
+    print(f"Kolejka floty w „{org.slug}” ({len(zadania)}):\n")
+    for z in sorted(zadania, key=lambda z: (z.get("assigned_agent_slug") or "~", z.get("status"))):
+        sprawa = z.get("ticket_ref") or z.get("ticket_id")
+        print(f"  [{z.get('status'):<12}] {z.get('external_id')} → "
+              f"{z.get('assigned_agent_slug') or '(nikt)'}")
+        print(f"      {z.get('title')}")
+        if not sprawa:
+            print("      ⚠ bez sprawy — wynik trafi tylko do komentarza zadania")
+    if urwane:
+        print(f"\nUWAGA: to nie jest cała kolejka — {'; '.join(urwane)}. "
+              f"Zawęź przez --agent-slug albo --status.")
+    return 0
+
+
+def polecenie_odbierz(args) -> int:
+    """Zamknij zadanie — ale dopiero po sprawdzeniu, że wynik naprawdę jest na sprawie."""
+    konf = konfiguracja.wczytaj()
+    klient, _org = _koordynator(konf, args)
+
+    try:
+        zadanie = _znajdz_zadanie(klient, args.zadanie)
+    except (koordynator.Odmowa, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 2
+
+    ticket_id = zadanie.get("ticket_id")
+    external_id = zadanie.get("external_id") or ""
+    if not ticket_id:
+        print(f"Zadanie {external_id} nie ma sprawy, więc wyniku nie ma gdzie sprawdzić.\n"
+              f"Jego wynik (jeśli powstał) jest w komentarzu zadania — obejrzyj go w panelu "
+              f"i zamknij zadanie ręcznie, świadomie.", file=sys.stderr)
+        return 2
+
+    jest, co = koordynator.wynik_jest_na_sprawie(
+        klient, ticket_id=str(ticket_id), external_id=external_id)
+    if not jest:
+        # ODMOWA, nie ostrzeżenie. Zamknięcie „na słowo" znaczy, że `completed` przestaje
+        # cokolwiek znaczyć — zadania schodzą z tablicy niezależnie od tego, co po nich zostało.
+        print(f"Nie zamykam {external_id}: {co}.\n"
+              f"Sprawdź sprawę w panelu. Jeśli wynik naprawdę jest, a ja go nie widzę — "
+              f"zamknij zadanie w panelu, świadomie.", file=sys.stderr)
+        return 2
+
+    try:
+        klient.ustaw_status(str(zadanie.get("id")), "completed")
+    except BladAPI as blad:
+        print(f"Wynik jest na sprawie, ale nie mogę zamknąć zadania: {blad}", file=sys.stderr)
+        return 1
+    print(f"Odebrane: {external_id} — {co}.")
+    return 0
+
+
+def _znajdz_zadanie(klient, wskazanie: str) -> dict:
+    """Zadanie po `external_id` albo identyfikatorze. Rzuca `koordynator.Odmowa`."""
+    w = (wskazanie or "").strip()
+    if not w:
+        raise koordynator.Odmowa("Podaj identyfikator zadania.")
+    for status in ("in_progress", "completed", "queued", "on_hold"):
+        strona = klient.zadania(status=status, limit=100)
+        for z in (strona.get("items") or strona.get("pozycje") or []):
+            if w in {str(z.get("external_id") or ""), str(z.get("id") or "")}:
+                return z
+    raise koordynator.Odmowa(
+        f"Nie znalazłem zadania „{w}” w tej Organizacji. Sprawdź identyfikator "
+        f"({_jak_wolac()} kolejka) albo wskaż inną Organizację przez --org.")
+
+
+def polecenie_status(args) -> int:
+    """`whoami` koordynatora: kim jestem, gdzie pracuję i co flota ma na głowie."""
+    kod = polecenie_whoami(args)
+    print()
+    try:
+        polecenie_kolejka(args)
+    except SystemExit as stop:
+        # Brak uprawnień koordynatora nie ma unieważniać tego, co `whoami` już pokazał.
+        print(str(stop), file=sys.stderr)
+    return kod
+
+
 def polecenie_worker(args) -> int:
     from .worker import uruchom
     konf = konfiguracja.wczytaj()
@@ -557,6 +759,41 @@ def main(argv: list[str] | None = None) -> int:
     sp = pod.add_parser("sprawy", help="[autor] sprawy w tej Organizacji")
     sp.add_argument("--limit", type=int, default=50)
     sp.set_defaults(funkcja=polecenie_sprawy)
+
+    # ── profil KOORDYNATOR ────────────────────────────────────────────────────
+    pod.add_parser("flota", help="[koordynator] agenci tej Organizacji"
+                   ).set_defaults(funkcja=polecenie_flota)
+
+    zl = pod.add_parser("zlec", help="[koordynator] zleć zadanie agentowi (zawsze na sprawie)")
+    zl.add_argument("--tytul", required=True, help="jednym zdaniem: co ma powstać")
+    zl.add_argument("--agent-slug", required=True, dest="agent_slug",
+                    help="komu zlecasz (slug z `flota`)")
+    zl.add_argument("--sprawa", required=True,
+                    help="numer (AUT-12) albo identyfikator sprawy — WYMAGANE")
+    zl.add_argument("--opis", default=None, metavar="PLIK",
+                    help="treść zadania z pliku albo `-` dla standardowego wejścia")
+    zl.add_argument("--priorytet", default="medium",
+                    choices=["low", "medium", "high", "urgent"])
+    zl.add_argument("--termin", default=None, metavar="DATA", help="np. 2026-09-20T18:00:00Z")
+    zl.add_argument("--projekt", default=None, help="kod projektu")
+    zl.add_argument("--kategoria", default=None)
+    zl.set_defaults(funkcja=polecenie_zlec)
+
+    ko = pod.add_parser("kolejka", help="[koordynator] co flota ma w toku")
+    ko.add_argument("--agent-slug", default=None, dest="agent_slug", help="zawęź do agenta")
+    ko.add_argument("--status", default=None,
+                    choices=["queued", "in_progress", "on_hold", "completed"])
+    ko.set_defaults(funkcja=polecenie_kolejka)
+
+    od = pod.add_parser("odbierz", help="[koordynator] zamknij zadanie po sprawdzeniu wyniku")
+    od.add_argument("zadanie", help="identyfikator zadania (`external_id` albo uuid)")
+    od.set_defaults(funkcja=polecenie_odbierz)
+
+    st = pod.add_parser("status", help="[koordynator] kim jestem + kolejka floty")
+    st.add_argument("--agent-slug", default=None, dest="agent_slug")
+    st.add_argument("--status", default=None,
+                    choices=["queued", "in_progress", "on_hold", "completed"])
+    st.set_defaults(funkcja=polecenie_status)
 
     w = pod.add_parser("worker", help="[worker] pętla: bierz zadania, wykonuj, raportuj")
     w.add_argument("--runtime", choices=["codex", "shell"], default=None,

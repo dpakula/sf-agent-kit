@@ -352,6 +352,44 @@ class Klient:
 
     # ── sonda ────────────────────────────────────────────────────────────────
 
+    # ── profil KOORDYNATOR (v0.4) ────────────────────────────────────────────
+
+    def agenci(self) -> list[dict]:
+        """Agenci Organizacji (`kind='agent'`). Slug bywa pusty — i to jest stan do POKAZANIA.
+
+        Członkostwo agenta bez sluga jest błędem konfiguracji, ale takie wiersze istnieją.
+        Kit ma je wypisać z adnotacją „nie da się zawołać", a nie ukryć: ukryty agent wygląda
+        jak nieistniejący, więc nikt nie wie, że jest coś do naprawienia.
+        """
+        wynik = self._wywolaj("GET", "agents")
+        return wynik if isinstance(wynik, list) else []
+
+    def zaloz_zadanie(self, *, tytul: str, agent_id: str, ticket_id: str,
+                      tresc: str | None = None, skrot: str | None = None,
+                      priorytet: str = "medium", termin: str | None = None,
+                      projekt: str | None = None, kategoria: str | None = None) -> dict:
+        """Zadanie dla agenta, ZAWSZE na sprawie. To jedyna droga zakładania zadań w SF.
+
+        `ticket_id` jest tu wymagany po stronie Kitu, choć API pozwala go pominąć — twarda
+        strona polityki „twardo przy zakładaniu, miękko przy wykonaniu". Zadanie bez sprawy
+        umie się wykonać, ale jego wynik nie ma gdzie wylądować, więc koordynator nie powinien
+        takiego zakładać ani przez przypadek, ani „na chwilę".
+        """
+        cialo = {
+            "title": tytul, "assigned_agent_id": agent_id, "ticket_id": ticket_id,
+            "priority": priorytet,
+        }
+        for klucz, wartosc in (("body_md", tresc), ("short_desc", skrot),
+                               ("deadline", termin), ("project_code", projekt),
+                               ("category", kategoria)):
+            if wartosc:
+                cialo[klucz] = wartosc
+        return self._wywolaj("POST", "tasks", cialo=cialo)
+
+    def wpisy_sprawy(self, ticket_id: str, *, limit: int = 100) -> dict:
+        """Dziennik sprawy — do sprawdzenia, czy wynik zadania w ogóle na niej wylądował."""
+        return self._wywolaj("GET", f"tickets/{ticket_id}/entries?limit={int(limit)}")
+
     def komentarz_zadania(self, task_id: str, tresc: str, *, wewnetrzny: bool = True) -> dict:
         """Komentarz pod ZADANIEM (nie pod sprawą). Ostatnia deska ratunku dla wyniku.
 

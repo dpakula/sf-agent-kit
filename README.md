@@ -59,10 +59,22 @@ głębiej.
 
 ---
 
-## Którym agentem jesteś? Dwie drogi, jedno narzędzie
+## Którym agentem jesteś? Trzy drogi, jedno narzędzie
 
-Kit obsługuje **dwa sposoby pracy** i to jest pierwsza rzecz do rozstrzygnięcia — reszta
+Kit obsługuje **trzy sposoby pracy** i to jest pierwsza rzecz do rozstrzygnięcia — reszta
 dokumentu zależy od odpowiedzi.
+
+| profil | co robisz | polecenia |
+|---|---|---|
+| **worker** | bierzesz zadania z kolejki i wykonujesz | `tasks`, `worker` |
+| **autor** | pchasz do SF gotową pracę człowieka | `zglos`, `wpis`, `zalacz`, `sprawy` |
+| **koordynator** | rozdajesz pracę flocie i odbierasz ją | `flota`, `zlec`, `kolejka`, `odbierz`, `status` |
+
+Polecenia koordynatora **działają tylko wtedy, gdy twój klucz ma do tego prawo** w wybranej
+Organizacji (uprawnienie `plans:write`). Kit sprawdza to w SalesForge, a nie w swoim pliku
+ustawień — polecenie, które obiecuje i kończy się odmową serwera w połowie pracy, jest gorsze
+od polecenia, którego nie ma. Bez uprawnienia dostaniesz zdanie mówiące, czego brakuje i gdzie
+to uprawnienie masz.
 
 | | **worker** — pracujesz dla kolejki | **autor** — pracujesz z człowiekiem |
 |---|---|---|
@@ -669,6 +681,38 @@ roboczym i znika po wysłaniu; oryginał zostaje tam, gdzie był.
 
 W sprawozdaniu wymienione są też pliki, których **nie** załączono, razem z powodem („nie ma
 takiego pliku", „poza katalogiem roboczym", „powyżej limitu"). Cisza o nich byłaby stratą.
+
+## Profil koordynator — rozdajesz pracę flocie
+
+Pięć poleceń. Wszystkie wymagają uprawnienia `plans:write` w wybranej Organizacji; bez niego
+Kit odmawia na wejściu i mówi, gdzie to uprawnienie masz.
+
+```bash
+sf-kit flota                      # kto może dostać zadanie
+sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md
+sf-kit kolejka [--agent-slug kodeks] [--status in_progress]
+sf-kit odbierz zadanie-abc-20260915
+sf-kit status                     # kim jestem + kolejka floty
+```
+
+**`zlec` zawsze wymaga sprawy.** To twarda strona zasady „twardo przy zakładaniu, miękko przy
+wykonaniu": zadanie bez sprawy da się wykonać, ale jego wynik nie ma gdzie wylądować. Jeśli
+sprawa jest w Organizacji, do której wykonawca nie ma dostępu, Kit odmówi i podpowie, żeby
+założyć sprawę pomocniczą w jego Organizacji — zadanie na niewidocznej sprawie jest
+niewykonalne, a wygląda na wysłane.
+
+**`flota` pokazuje też agentów bez sluga**, z adnotacją „nie da się zlecić". Takie członkostwo
+jest błędem konfiguracji po stronie administratora; ukrycie go znaczyłoby, że nikt nie wie,
+że jest co naprawić.
+
+**`odbierz` nie zamyka na słowo.** Najpierw sprawdza, czy na sprawie widać ślad po tym zadaniu
+— wpis wskazujący jego identyfikator albo załącznik przy takim wpisie. Jeśli nie widzi, odmawia
+i mówi dlaczego. Zamykanie bez sprawdzenia znaczyłoby, że status „zrobione" przestaje cokolwiek
+znaczyć: zadania schodzą z tablicy niezależnie od tego, czy coś po nich zostało.
+
+Jeden przypadek jest opisany osobno: gdy część wpisów na sprawie jest **poza twoim poziomem
+widoczności**, Kit powie to wprost, zamiast twierdzić, że wyniku nie ma. Brak dowodu to nie
+dowód braku.
 
 ### Zadanie bez sprawy — co się wtedy dzieje
 
