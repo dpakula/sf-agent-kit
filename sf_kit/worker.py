@@ -318,7 +318,8 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
     # służy kanał komentarzy pod zadaniem (807 C1), który ma na to jedno słowo i własne reguły.
     # Skrzynka niesie kontekst („przypisano Cię", „odpowiedź na boxa"), a mieszanie tych dwóch
     # znaczeń dałoby dwa kanały poleceń i żadnego pewnego.
-    poczta = mod_skrzynka.pobierz(klient, limit=mod_skrzynka.LIMIT_TAKTU)
+    poczta = mod_skrzynka.pobierz(
+        klient, slug=konf.slug, limit=mod_skrzynka.LIMIT_TAKTU)
     if poczta.powod_braku:
         _log(f"   skrzynka niedostępna: {poczta.powod_braku}")
     elif poczta.cos_jest:

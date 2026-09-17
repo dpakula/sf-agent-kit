@@ -698,9 +698,13 @@ Teraz plik jest do kliknięcia w sprawie. Worker bierze:
    Pliki z poprzednich zadań zostają na miejscu: doklejenie ich znaczyłoby wynik jednego
    klienta w sprawie drugiego.
 
-Czego SalesForge nie przyjmuje (`.json`, `.html`), Kit **pakuje do `.zip`** zamiast pomijać —
-praca jest zrobiona, więc nie może przepaść przez rozszerzenie. Archiwum powstaje poza katalogiem
-roboczym i znika po wysłaniu; oryginał zostaje tam, gdzie był.
+Pliki `.py`, `.json` i `.mp4`, których API nie przyjmuje, Kit wysyła jako kopie `.txt`
+i opisuje zmianę nazwy we wpisie. Pozostałe niedozwolone typy, na przykład `.html`, pakuje
+do `.zip`; pliki tymczasowe powstają poza katalogiem roboczym i znikają po wysłaniu.
+
+Nieudane zadanie ma najwyżej trzy próby: kolejne po 10 i 60 minutach, potem status `failed`.
+Licznik i termin następnej próby są trwałe w `state.json`, więc restart workera nie zeruje ochrony.
+Skrzynka używa listy `/console/messages` filtrowanej slugiem sesji i statusem `new`.
 
 W sprawozdaniu wymienione są też pliki, których **nie** załączono, razem z powodem („nie ma
 takiego pliku", „poza katalogiem roboczym", „powyżej limitu"). Cisza o nich byłaby stratą.

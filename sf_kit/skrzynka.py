@@ -63,7 +63,8 @@ class Odebrane:
         return max(0, self.razem - len(self.wiadomosci))
 
 
-def pobierz(klient: Klient, *, limit: int = LIMIT_TAKTU, dni: int | None = None) -> Odebrane:
+def pobierz(klient: Klient, *, slug: str = "", limit: int = LIMIT_TAKTU,
+           dni: int | None = None) -> Odebrane:
     """Nieodebrane wiadomości z MOJEJ skrzynki. Nie potwierdza — to osobny krok.
 
     Rozdzielenie pobrania od potwierdzenia jest celowe: między jednym a drugim treść musi
@@ -71,7 +72,8 @@ def pobierz(klient: Klient, *, limit: int = LIMIT_TAKTU, dni: int | None = None)
     nikt jeszcze nie zobaczył.
     """
     try:
-        dane = klient.skrzynka(dni=dni, limit=limit, tylko_nieodebrane=True)
+        dane = klient.skrzynka(session_target=slug, dni=dni, limit=limit,
+                               tylko_nieodebrane=True)
     except BladAPI as blad:
         # 503 = tabela adresatów jeszcze nie istnieje (rewizja po stronie SF). 422 = klucz bez
         # właściciela albo konto bez sluga agenckiego. Oba są stanem konfiguracji, nie awarią
