@@ -57,6 +57,14 @@ Czego nie wolno:
 
 --- KONIEC TREŚCI ZADANIA ---
 
+PLIKI WYNIKOWE — ODKŁADAJ JE DO `outgoing/`
+Jeśli praca daje pliki (raport, zestawienie, zrzut, dane), zapisz je w podkatalogu
+`outgoing/` katalogu roboczego — czyli w `{katalog}/outgoing/`. Utwórz go, jeśli go nie ma.
+Wszystko, co tam położysz, trafi do sprawy jako załącznik do kliknięcia; plik zapisany gdzie
+indziej zostaje na maszynie, do której nikt poza workerem nie ma dostępu — i dla człowieka
+po prostu nie istnieje. Pliki robocze (skrypty, pobrane strony, stan pośredni) zostaw poza
+`outgoing/`: tam kładziesz WYNIK, nie warsztat.
+
 Na koniec napisz SPRAWOZDANIE dla człowieka. To ono trafi do systemu jako wpis na sprawie,
 więc nie jest to dziennik twojej pracy — to wiadomość do kogoś, kto nie widział, co robiłeś,
 i często nie zna narzędzi, których użyłeś.

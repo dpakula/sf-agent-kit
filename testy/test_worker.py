@@ -98,16 +98,31 @@ def konfiguracja(**nadpisz):
 
 
 class TestOdrzucanie(unittest.TestCase):
-    """Zadanie bez kontekstu ma być ODRZUCONE, a nie wykonane „mniej więcej"."""
+    """Zadanie bez kontekstu ma być ODRZUCONE, a nie wykonane „mniej więcej".
+
+    ZMIANA KONTRAKTU W ADVERTPR-850 — ŚWIADOMA, NIE PRZEOCZENIE
+    ═════════════════════════════════════════════════════════════
+    Do v0.5.1 te testy wymagały `klient.statusy == []`: odrzucenie NIE ruszało statusu, żeby
+    nie zostawiać śladu „ktoś to wziął i oddał". Uzasadnienie było dobre i przestało wystarczać,
+    gdy policzyłem skutek: worker bierze PIERWSZE zadanie z kolejki, więc zadanie odrzucone
+    i pozostawione jako `queued` wraca przy następnym takcie — i przy następnym, i przy każdym.
+    Przy takcie minutowym (design Bita, 17.09) to jest ten sam wpis o odrzuceniu co minutę,
+    w nieskończoność, na tej samej sprawie.
+
+    Nowy kontrakt: odrzucone zadanie ląduje na **`on_hold`**. To jedyny status w enumie SF
+    (`queued`, `in_progress`, `on_hold`, `completed` — sprawdzone w modelu, `rejected` NIE MA),
+    który mówi prawdę: czeka na człowieka. `completed` byłoby kłamstwem i zawyżałoby domknięcia.
+    """
 
     def test_puste_zadanie_nie_jest_przyjmowane(self):
         klient = AtrapaKlienta()
         wynik = obsluz_zadanie(klient, konfiguracja(), zadanie(body_md=""))
 
         self.assertIn("odrzucone", wynik)
-        self.assertEqual(klient.statusy, [],
-                         "zadanie bez treści NIE ma być przyjęte — inaczej zostawia ślad "
-                         "„ktoś to wziął i oddał”, o który nikt nie prosił")
+        self.assertNotIn("in_progress", [s for _, s in klient.statusy],
+                         "zadania bez treści NIE przyjmujemy — odkładamy je nietknięte")
+        self.assertEqual([s for _, s in klient.statusy], ["on_hold"],
+                         "odrzucone zadanie ma czekać na człowieka, a nie wracać w pętli")
         self.assertEqual(len(klient.wpisy), 1, "odrzucenie ma zostawić wpis, nie ciszę")
         self.assertIn("nie mam czego wykonać", klient.wpisy[0][1])
 
@@ -116,7 +131,7 @@ class TestOdrzucanie(unittest.TestCase):
         wynik = obsluz_zadanie(klient, konfiguracja(katalog_roboczy=""), zadanie())
 
         self.assertIn("odrzucone", wynik)
-        self.assertEqual(klient.statusy, [])
+        self.assertEqual([s for _, s in klient.statusy], ["on_hold"])
         self.assertIn("Nie zgaduję", klient.wpisy[0][1])
 
     def test_nieistniejacy_katalog_tez_odrzuca(self):
@@ -124,7 +139,16 @@ class TestOdrzucanie(unittest.TestCase):
         wynik = obsluz_zadanie(
             klient, konfiguracja(katalog_roboczy="/nie/ma/takiego/katalogu"), zadanie())
         self.assertIn("odrzucone", wynik)
-        self.assertEqual(klient.statusy, [])
+        self.assertEqual([s for _, s in klient.statusy], ["on_hold"])
+
+    def test_odrzucone_zadanie_NIE_wraca_do_kolejki(self):
+        """Sedno zmiany z 850: `queued` znaczyłoby „weź mnie znowu za minutę"."""
+        klient = AtrapaKlienta()
+        obsluz_zadanie(klient, konfiguracja(), zadanie(body_md=""))
+
+        self.assertNotIn("queued", [s for _, s in klient.statusy],
+                         "zadanie odrzucone wróciło do kolejki — worker weźmie je przy "
+                         "następnym takcie i dopisze ten sam wpis")
 
 
 class TestSciezkaUdana(unittest.TestCase):

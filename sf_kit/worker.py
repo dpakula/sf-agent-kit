@@ -122,8 +122,12 @@ def wpis_odrzucenie(zadanie: dict, powod: str) -> str:
         f"więc go nie ruszam.\n\n"
         f"**Czego brakuje** — {powod}\n\n"
         f"**Szczegóły techniczne**\n\n"
-        f"Zadanie: `{zadanie.get('external_id', zadanie.get('id'))}`. Zostaje w kolejce "
-        f"ze statusem `queued` — uzupełnij je i zostanie wzięte przy następnym przebiegu.\n\n"
+        f"Zadanie: `{zadanie.get('external_id', zadanie.get('id'))}`. Odkładam je na "
+        f"`on_hold` — uzupełnij i przestaw na `queued`, a zostanie wzięte przy najbliższym "
+        f"przebiegu.\n\n"
+        f"Dlaczego nie zostawiam go w kolejce: worker bierze pierwsze zadanie z kolejki, więc "
+        f"zadanie odrzucone i pozostawione jako `queued` wracałoby przy KAŻDYM takcie, "
+        f"dopisując ten sam wpis w kółko.\n\n"
         f"Nie zgaduję kontekstu świadomie: praca wykonana „mniej więcej” trafiłaby na pliki, "
         f"których nikt mi nie wskazał."
     )
@@ -238,11 +242,13 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     if not tresc:
         _zdaj_sprawozdanie(klient, zadanie,
                            wpis_odrzucenie(zadanie, "zadanie ma pustą treść (`body_md`)"))
+        _odloz_do_czlowieka(klient, str(zadanie.get("id")))
         return "odrzucone: pusta treść"
 
     katalog, powod = katalog_zadania(zadanie, domyslny=konf.katalog_roboczy)
     if powod:
         _zdaj_sprawozdanie(klient, zadanie, wpis_odrzucenie(zadanie, powod))
+        _odloz_do_czlowieka(klient, str(zadanie.get("id")))
         return f"odrzucone: {powod}"
 
     wykonawca = wybierz(konf.runtime)
@@ -412,6 +418,28 @@ def _wroc_do_kolejki(klient: Klient, zid: str) -> None:
         klient.ustaw_status(zid, "queued")
     except BladAPI as blad:
         _log(f"   nie udało się oddać zadania do kolejki: {blad}")
+
+
+def _odloz_do_czlowieka(klient: Klient, zid: str) -> None:
+    """Zadanie, którego NIE DA SIĘ wykonać — na `on_hold`, nie z powrotem do kolejki.
+
+    ADVERTPR-850. Do dziś odrzucenie kończyło się zostawieniem zadania w `queued` i to była
+    **pętla**: worker bierze pierwsze zadanie z kolejki, odrzuca je, zostawia w kolejce —
+    i przy następnym takcie bierze DOKŁADNIE TO SAMO. Przy takcie minutowym (design Bita)
+    znaczyłoby to wpis o odrzuceniu co minutę, bez końca, na tej samej sprawie.
+
+    `on_hold`, bo to jedyny status w `TASK_STATUSES` (`queued`, `in_progress`, `on_hold`,
+    `completed`), który mówi prawdę: zadanie czeka na człowieka. Sprawdzone w modelu SF —
+    **`rejected` ani `failed` w enumie NIE MA**. `completed` byłoby kłamstwem: zadanie nie
+    zostało wykonane, a metryki domknięć liczyłyby je jako zrobione.
+    """
+    try:
+        klient.ustaw_status(zid, "on_hold")
+    except BladAPI as blad:
+        # Zadanie zostaje w kolejce i wróci — logujemy, bo wtedy pętla JEST możliwa
+        # i człowiek ma wiedzieć, skąd się wzięła.
+        _log(f"   nie udało się odłożyć zadania na on_hold: {blad} "
+             f"— UWAGA: zadanie wróci w następnym takcie")
 
 
 def przebieg(klient: Klient, konf: Konfiguracja) -> int:
