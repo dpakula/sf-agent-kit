@@ -45,6 +45,7 @@ class Konfiguracja:
     runtime: str = "codex"             # codex | kimi | shell
     odstep_s: int = DOMYSLNY_ODSTEP_S
     limit_zadania_s: int = DOMYSLNY_LIMIT_ZADANIA_S
+    katalogi_wynikow: list = field(default_factory=lambda: ["work/zadania", "outgoing"])
 
     #: Czy wolno uruchamiać wykonawcę `shell`. **Domyślnie nie** i tak ma zostać u każdego,
     #: kto nie wie, po co miałby to zmienić.
