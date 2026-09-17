@@ -695,6 +695,17 @@ roboczym i znika po wysłaniu; oryginał zostaje tam, gdzie był.
 W sprawozdaniu wymienione są też pliki, których **nie** załączono, razem z powodem („nie ma
 takiego pliku", „poza katalogiem roboczym", „powyżej limitu"). Cisza o nich byłaby stratą.
 
+**Od v0.5.2 model DOWIADUJE SIĘ o `outgoing/` z polecenia** (ADVERTPR-850). Wcześniej katalog
+był konwencją znaną Kitowi, ale nieznaną wykonawcy — więc model zapisywał wynik tam, gdzie mu
+było wygodnie, `outgoing/` zostawał pusty i wpis szedł bez załącznika. Objawu nie było: worker
+nie zgłaszał błędu, bo z jego punktu widzenia po prostu nie powstał żaden plik. Wyszło dopiero
+na ADVERTPR-846, gdzie sprawozdanie mówiło „raport zapisany jako `audyt-fm-dev-r14.md`",
+a wpis miał zero załączników i plik trzeba było dołożyć ręcznie.
+
+Ramka mówi teraz wprost: pliki wynikowe do `{katalog roboczy}/outgoing/`, warsztat (skrypty,
+pobrane strony, stan pośredni) poza nim. Jeśli piszesz zadanie, które ma dać konkretny plik,
+i tak warto podać `WYNIK: <ścieżka>` — jawne wskazanie wygrywa z konwencją.
+
 ## Profil koordynator — rozdajesz pracę flocie
 
 Pięć poleceń. Wszystkie wymagają uprawnienia `plans:write` w wybranej Organizacji; bez niego
@@ -1043,6 +1054,19 @@ Jest wyłączony. Włącza się go świadomie, dopisując do `~/.config/sf-kit/c
 Bez tego `--runtime shell` odmawia i wyjaśnia dlaczego. Dwa kroki zamiast jednego są tu
 celowo: w tym trybie treść dowolnego zadania z kolejki staje się poleceniem wykonanym na
 tej maszynie.
+
+### Zadanie odrzucone trafia na `on_hold` (v0.5.2)
+
+Zadanie, którego nie da się wykonać bez zgadywania (pusta treść, brak katalogu roboczego),
+dostaje wpis z powodem i **ląduje na `on_hold`** — nie zostaje w kolejce.
+
+Do v0.5.1 zostawało jako `queued` i to był błąd, który widać dopiero przy szybkim takcie:
+worker bierze PIERWSZE zadanie z kolejki, więc odrzucone i pozostawione tam wracało przy
+każdym przebiegu, dopisując ten sam wpis w kółko. `on_hold` znaczy „czeka na człowieka" i jest
+jedynym statusem w SalesForge, który mówi o takim zadaniu prawdę — `rejected` ani `failed`
+w systemie nie ma, a `completed` liczyłoby się do domknięć jako praca wykonana.
+
+Żeby wróciło do obiegu: uzupełnij zadanie i przestaw je na `queued`.
 
 ### Co worker robi przy kłopotach
 
