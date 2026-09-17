@@ -76,6 +76,26 @@ class TestRamka(unittest.TestCase):
         self.assertIn(".env", tekst)
         self.assertIn("poza katalog", tekst)
 
+    def test_mowi_GDZIE_ODKLADAC_PLIKI_WYNIKOWE(self):
+        """ADVERTPR-850, sedno usterki: mechanizm załączania działał, tylko nie miał czego zbierać.
+
+        `wyniki.zbierz()` zagląda do `outgoing/` — a ramka nie wspominała o tym katalogu ani
+        słowem. Skutek widać na ADVERTPR-846: Kimi napisał raport do `sf751/r14/` (rozsądnie,
+        skoro nikt nie powiedział gdzie), wpis na sprawie ma **zero załączników**, a Agata
+        dokładała plik ręcznie.
+
+        Test sprawdza obie rzeczy, których brak kosztował tamten wpis: **nazwę katalogu**
+        i **ścieżkę z katalogiem roboczym** — samo słowo „outgoing" bez wskazania, gdzie on
+        jest, zostawia model przy tym samym zgadywaniu.
+        """
+        tekst = ramka.zbuduj(ZADANIE, slug="codex-fm", katalog="/praca")
+
+        self.assertIn("outgoing/", tekst,
+                      "ramka nie mówi, gdzie odkładać wyniki — załączniki nie mają skąd wziąć "
+                      "plików, choć cały mechanizm działa")
+        self.assertIn("/praca/outgoing/", tekst,
+                      "ramka wymienia katalog, ale nie mówi, GDZIE on jest")
+
     def test_prosi_o_UKLAD_sprawozdania(self):
         """Bez tego cała zmiana A2 jest ozdobą: worker prosiłby o sprawozdanie nikogo.
 
