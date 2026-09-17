@@ -998,6 +998,35 @@ na pierwszym zadaniu — czyli po tym, jak worker zdążył je sobie przypisać.
 
 Logowanie: `kimi login` (OAuth w przeglądarce, subskrypcja Kimi Code) — jak `codex login`.
 
+### Kolejka należy do workera, nie do sesji (v0.5.3)
+
+Każdy wykonawca ma **dwa konta w SalesForge**: `{nazwa}-worker` (usługa, chodzi sama)
+i `{nazwa}` (sesja, przy której siedzi człowiek). Tak stoi Kimi i tak samo Kodeks.
+To nie jest kosmetyka administracyjna — z tego podziału wynika jedna zasada:
+
+> **Kolejka SF należy do workera.** Sesja bierze zadanie z kolejki **tylko na wyraźne
+> polecenie człowieka** i zanim cokolwiek zrobi, **ustawia je w toku** (`in_progress`).
+
+Powód jest mechaniczny, nie umowny: worker bierze **pierwsze** zadanie z kolejki i robi to
+co takt. Sesja, która zaczyna pracę nad zadaniem, nie zmieniając mu statusu, wykonuje je
+równolegle z workerem — dwa razy ta sama praca, dwa sprawozdania na jednej sprawie i dwa
+zestawy plików, z których jeden nadpisze drugi. Ustawienie `in_progress` jest jedyną rzeczą,
+która wyjmuje zadanie z pola widzenia workera.
+
+**Wpisy podpisujemy tym, kto naprawdę pracował:**
+
+| prefiks | kto | kiedy |
+|---|---|---|
+| `worker:` | usługa (`{nazwa}-worker`) | zadanie wzięte z kolejki automatycznie |
+| `sesja:` | człowiek przy modelu (`{nazwa}`) | zadanie wzięte na polecenie, praca interaktywna |
+
+Bez prefiksu wpisy z obu źródeł wyglądają identycznie, a pytanie „czy to zrobił automat, czy
+ktoś przy klawiaturze" wraca przy każdej reklamacji — i nie ma na nie odpowiedzi w danych.
+
+**Tętno jest per worker, nie per konto systemowe** (v0.5.3): `~/.sf-kit/heartbeat-{slug}`.
+Dwa konta jednego wykonawcy chodzą zwykle na tej samej maszynie i do v0.5.2 nadpisywały sobie
+ślad życia — czujka widziała jedno tętno, uznawała oba za żywe i nie zauważała, że jeden leży.
+
 ### Reakcja w trakcie zadania — co możesz powiedzieć workerowi
 
 Do v0.4 zadanie było atomowe: worker je brał i oddawał wynik, a ty przez ten czas nie miałeś
@@ -1129,6 +1158,22 @@ sf-kit heartbeat          # kod wyjścia 0 = żyje, 1 = nie
 ```
 
 Do czujki (np. w tic) jest gotowy skrypt `scripts/collect/worker-heartbeat.sh <slug>`.
+
+**Na macOS worker chodzi jako agent launchd** (v0.5.3). `sf-kit usluga` rozpoznaje system sam
+i pisze `~/Library/LaunchAgents/pl.dpakula.sf-kit.worker.{slug}.plist`; `--system linux|macos`
+przydaje się tylko wtedy, gdy przygotowujesz plik dla innej maszyny niż ta, na której stoisz.
+
+```bash
+sf-kit usluga                                  # zapisuje plik dla TEGO systemu
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/pl.dpakula.sf-kit.worker.<slug>.plist
+tail -f ~/Library/Logs/sf-kit/worker-<slug>.log
+```
+
+Trzy rzeczy w tym pliku, które nie są ozdobą: `KeepAlive` (odpowiednik `Restart=always`),
+`ThrottleInterval` 30 s (bez niego awaria sieci daje setki startów na minutę i log, w którym
+nie da się znaleźć przyczyny) i **jawny `PATH`** — launchd nie czyta profilu powłoki, więc
+proces bez tego nie znajduje ani `codex`, ani `kimi`, ani samego `sf-kit`. To jest najczęstsza
+przyczyna „usługa wstała i nic nie robi" na macOS.
 Bez `--restartuj` tylko raportuje — tak się to sprawdza na żywej maszynie, zanim wpuści się
 czujkę z prawem do restartu.
 
