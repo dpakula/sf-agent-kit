@@ -821,6 +821,18 @@ sf-kit zglos --tytul "Makieta strony głównej dla Klienta X" \
              --zalacz makieta.zip zrzut-desktop.png zrzut-telefon.png
 ```
 
+**3a. Nie jesteś pewien, czy to ma iść w świat? `--szkic` (v0.5.4).**
+
+```bash
+sf-kit zglos --tytul "Propozycja zmian w cenniku" --opis opis.md --szkic
+```
+
+Sprawa powstaje jako **wersja robocza**: nie wychodzi żadne powiadomienie, nie ma jej na
+listach ani w licznikach, a obserwujący siedzą w niej od początku i pocztę dostaną dopiero
+w chwili publikacji. **Publikuje człowiek** — przyciskiem „Opublikuj" w SF; agent tego nie
+zrobi i to jest cały sens szkicu: Ty przygotowujesz, człowiek wpuszcza do obiegu. Wpisy
+dopisujesz do szkicu normalnie, też po cichu.
+
 **4. Podaj człowiekowi numer i adres.** Kit wypisuje oba. To jest jedyne, co człowiek
 ma potem powiedzieć albo wkleić komuś innemu — powiedz mu to wprost:
 
@@ -915,7 +927,7 @@ sf-kit worker --interval 60     # co ile sekund odpytywać (domyślnie 60)
 **Profil `autor` — pchasz do SalesForge gotową pracę człowieka:**
 
 ```bash
-sf-kit zglos --tytul "…" [--opis plik.md|-] [--tag makieta] [--zalacz plik…]
+sf-kit zglos --tytul "…" [--opis plik.md|-] [--tag makieta] [--zalacz plik…] [--szkic]
 sf-kit wpis <sprawa> [--opis plik.md|-] [--zalacz plik…] [--widocznosc internal|external]
 sf-kit zalacz <sprawa> <plik…> [--notka "…"]
 sf-kit sprawy [--limit 50]

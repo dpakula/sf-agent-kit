@@ -264,7 +264,8 @@ class Klient:
 
     def zaloz_sprawe(self, *, tytul: str, opis: str, priorytet: str = "medium",
                      kategoria: str | None = None,
-                     obserwatorzy: list[str] | None = None) -> dict:
+                     obserwatorzy: list[str] | None = None,
+                     szkic: bool = False) -> dict:
         """Nowa sprawa w Organizacji klucza. Wymaga `tickets:write`.
 
         `obserwatorzy` to identyfikatory KONT (nie adresy) — SalesForge sprawdza przy tym
@@ -272,12 +273,20 @@ class Klient:
         **nie dopisuje nikogo poza samym autorem** (`create_ticket`: „skip for API key").
         Sprawa założona przez agenta spoza floty bez obserwujących nie powiadomiłaby nikogo —
         czyli leżałaby, wyglądając na zgłoszoną.
+
+        `szkic=True` (SF-4) zakłada sprawę w **wersji roboczej**: nie idzie żadne powiadomienie,
+        sprawy nie ma na listach ani w licznikach, obserwujący siedzą w niej od początku i pocztę
+        dostaną dopiero w chwili publikacji. **Publikacji agent nie wykona** — to akt człowieka
+        (`POST /tickets/{id}/publikuj` odmawia kluczowi API). Po to właśnie jest szkic: agent
+        przygotowuje, człowiek wpuszcza do obiegu.
         """
         cialo: dict = {"title": tytul, "description": opis, "priority": priorytet}
         if kategoria:
             cialo["category"] = kategoria
         if obserwatorzy:
             cialo["watcher_user_ids"] = list(obserwatorzy)
+        if szkic:
+            cialo["szkic"] = True
         return self._wywolaj("POST", "tickets", cialo=cialo)
 
     def sprawy(self, *, limit: int = 50) -> list[dict]:

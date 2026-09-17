@@ -176,6 +176,32 @@ class TestWysylkaPrzezKlienta(unittest.TestCase):
         self.assertEqual(zlapane["sciezka"], "tickets")
         self.assertEqual(zlapane["cialo"]["watcher_user_ids"], ["u1", "u2"])
 
+    def test_szkic_idzie_polem_szkic(self):
+        """SF-4: `--szkic` = sprawa bez rozsyłki, publikuje człowiek w SF."""
+        zlapane = {}
+
+        class Atrapa(Klient):
+            def _wywolaj(self, metoda, sciezka, *, cialo=None):
+                zlapane["cialo"] = cialo
+                return {"ticket_id": "abc"}
+
+        Atrapa(baza="https://x", klucz="k", organizacja="o").zaloz_sprawe(
+            tytul="Propozycja do akceptu", opis="…", szkic=True)
+
+        self.assertIs(zlapane["cialo"]["szkic"], True)
+
+    def test_zwykle_zgloszenie_NIE_wysyla_pola_szkic(self):
+        """Domyślka się nie zmienia: bez `--szkic` sprawa wchodzi do obiegu tak jak dotąd."""
+        zlapane = {}
+
+        class Atrapa(Klient):
+            def _wywolaj(self, metoda, sciezka, *, cialo=None):
+                zlapane["cialo"] = cialo
+                return {}
+
+        Atrapa(baza="https://x", klucz="k", organizacja="o").zaloz_sprawe(tytul="T", opis="O")
+        self.assertNotIn("szkic", zlapane["cialo"])
+
     def test_bez_obserwujacych_pole_NIE_idzie_puste(self):
         """Puste pole i brak pola to dla serwera to samo, ale ciało ma mówić, co zamierzamy."""
         zlapane = {}

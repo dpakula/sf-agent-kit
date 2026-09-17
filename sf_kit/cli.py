@@ -753,6 +753,7 @@ def polecenie_zglos(args) -> int:
         odp = klient.zaloz_sprawe(
             tytul=args.tytul, opis=opis, kategoria=args.tag or None,
             obserwatorzy=konf.obserwatorzy_domyslni or None,
+            szkic=bool(getattr(args, "szkic", False)),
         )
     except BladAPI as blad:
         print(f"Nie udało się założyć sprawy: {blad}", file=sys.stderr)
@@ -775,6 +776,17 @@ def polecenie_zglos(args) -> int:
     if autor.czy_opis_wymaga_uzupelnienia(opis):
         print("\nUWAGA: opis został ze szkieletu (nawiasy do wypełnienia). "
               "Uzupełnij go wpisem, zanim ktoś to odbierze.")
+    if getattr(args, "szkic", False):
+        # Szkic bez tego zdania wygląda jak zgłoszenie, które nie doszło: nie ma maila, nie ma
+        # sprawy na liście, nie ma numeru w powiadomieniu. Mówimy wprost, co się stało i kto
+        # domyka — bo tego ostatniego kroku agent NIE wykona (publikacja to akt człowieka).
+        _pokaz_sprawe(konf, sprawa_id, numer,
+                      co_dalej="To jest SZKIC — nie poszło żadne powiadomienie i sprawy nie ma "
+                               "na listach.\nOpublikować może tylko człowiek, w SF: przycisk "
+                               "„Opublikuj” na sprawie.\nDo tego czasu dopisujesz do niej "
+                               "wpisami jak zwykle (też po cichu):\n"
+                               f"  sf-kit wpis {numer or sprawa_id} --opis notatka.md")
+        return 0
     _pokaz_sprawe(konf, sprawa_id, numer,
                   co_dalej="Od tej chwili pytania i postęp idą WPISAMI na tej sprawie:\n"
                            f"  sf-kit wpis {numer or sprawa_id} --opis notatka.md")
@@ -933,6 +945,8 @@ def main(argv: list[str] | None = None) -> int:
     z.add_argument("--tag", default=None, help="kategoria sprawy, np. makieta")
     z.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK",
                    help="pliki do dołączenia (idą JEDNYM wpisem)")
+    z.add_argument("--szkic", action="store_true",
+                   help="wersja robocza: NIC nie wysyła, publikuje człowiek w SF (SF-4)")
     z.set_defaults(funkcja=polecenie_zglos)
 
     ib = pod.add_parser("inbox", help="[agent] moje wiadomości — pokaż i potwierdź odbiór")
