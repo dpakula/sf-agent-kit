@@ -42,7 +42,7 @@ class Konfiguracja:
     #: ktoś ma do tego prawo, a profil obiecujący polecenia, które kończą się 403, jest gorszy
     #: od jego braku).
     profil: str = "worker"
-    runtime: str = "codex"             # codex | shell
+    runtime: str = "codex"             # codex | kimi | shell
     odstep_s: int = DOMYSLNY_ODSTEP_S
     limit_zadania_s: int = DOMYSLNY_LIMIT_ZADANIA_S
 

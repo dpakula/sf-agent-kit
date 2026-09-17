@@ -109,7 +109,7 @@ def polecenie_init(args) -> int:
     konf.adres = pytaj("Adres SalesForge", konf.adres)
     if konf.profil == "worker":
         konf.katalog_roboczy = pytaj("Katalog roboczy (pusty = bieżący)", konf.katalog_roboczy)
-        konf.runtime = pytaj("Wykonawca: codex albo shell", konf.runtime)
+        konf.runtime = pytaj("Wykonawca: codex, kimi albo shell", konf.runtime)
 
     # KLUCZ PRZED ORGANIZACJĄ — i to jest cała zmiana v0.4. Do v0.3 `init` kazał wpisać
     # identyfikator Organizacji, którego agent skądś nie ma: dostaje klucz, nie UUID, więc
@@ -322,7 +322,9 @@ def polecenie_heartbeat(args) -> int:
     """Czy worker tego agenta żyje. Kod wyjścia 0 = tak, 1 = nie — pod czujkę."""
     from . import usluga
 
-    zywy, co = usluga.czy_zywy()
+    # Slug z konfiguracji: od v0.5.3 tętno jest per worker, nie per konto systemowe.
+    konf = konfiguracja.wczytaj()
+    zywy, co = usluga.czy_zywy(slug=konf.slug or None)
     print(co)
     return 0 if zywy else 1
 
@@ -341,19 +343,47 @@ def polecenie_usluga(args) -> int:
         print("Najpierw `sf-kit init` — bez sluga agenta nie ma czego uruchamiać.", file=sys.stderr)
         return 2
 
-    sciezka = usluga.sciezka_unitu(konf.slug)
-    tresc = usluga.tresc_unitu(
-        slug=konf.slug,
-        polecenie=os.path.abspath(sys.argv[0]),
-        katalog_domowy=str(Path.home()),
-        plik_srodowiska=str(Path.home() / ".config" / "sf-kit" / f"{konf.slug}.env"),
-    )
+    # System wybieramy z `sys.platform`, nie z pytania do człowieka: plik dla obcego systemu
+    # jest bezużyteczny, a wybrany ręcznie bywa wybrany źle. `--system` zostaje dla przypadku,
+    # w którym ktoś generuje plik dla INNEJ maszyny niż ta, na której stoi.
+    docelowy = getattr(args, "system", None) or ("macos" if sys.platform == "darwin" else "linux")
+    polecenie = os.path.abspath(sys.argv[0])
+
+    if docelowy == "macos":
+        sciezka = usluga.sciezka_plist(konf.slug)
+        tresc = usluga.tresc_plist(slug=konf.slug, polecenie=polecenie,
+                                   katalog_domowy=str(Path.home()))
+    else:
+        sciezka = usluga.sciezka_unitu(konf.slug)
+        tresc = usluga.tresc_unitu(
+            slug=konf.slug,
+            polecenie=polecenie,
+            katalog_domowy=str(Path.home()),
+            plik_srodowiska=str(Path.home() / ".config" / "sf-kit" / f"{konf.slug}.env"),
+        )
+
     if args.pokaz:
         print(tresc)
         return 0
 
     sciezka.parent.mkdir(parents=True, exist_ok=True)
     sciezka.write_text(tresc, encoding="utf-8")
+
+    if docelowy == "macos":
+        etykieta = usluga.etykieta_launchd(konf.slug)
+        (Path.home() / "Library" / "Logs" / "sf-kit").mkdir(parents=True, exist_ok=True)
+        print(f"Zapisałem agenta launchd: {sciezka}\n")
+        print("Włącz go (bez sudo, agent użytkownika) — JEDNO polecenie:")
+        print(f"  launchctl bootstrap gui/$(id -u) {sciezka}\n")
+        print("Sprawdzenie i podgląd logu:")
+        print(f"  launchctl print gui/$(id -u)/{etykieta} | head -20")
+        print(f"  tail -f ~/Library/Logs/sf-kit/worker-{konf.slug}.log\n")
+        print("Wyłączenie:")
+        print(f"  launchctl bootout gui/$(id -u)/{etykieta}\n")
+        print("Jeśli `launchctl bootstrap` odpowie „Input/output error”, agent jest już "
+              "wczytany — najpierw `bootout`, potem `bootstrap`.")
+        return 0
+
     print(f"Zapisałem jednostkę: {sciezka}\n")
     print("Włącz ją (bez sudo, usługa użytkownika):")
     print("  systemctl --user daemon-reload")
@@ -886,9 +916,13 @@ def main(argv: list[str] | None = None) -> int:
     pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
     pod.add_parser("heartbeat", help="czy worker tego agenta żyje").set_defaults(funkcja=polecenie_heartbeat)
-    us = pod.add_parser("usluga", help="[worker] jednostka systemd dla workera")
+    us = pod.add_parser("usluga",
+                        help="[worker] usługa workera: systemd (Linux) albo launchd (macOS)")
     us.add_argument("--pokaz", action="store_true",
-                    help="wypisz treść jednostki zamiast ją zapisywać")
+                    help="wypisz treść pliku zamiast go zapisywać")
+    us.add_argument("--system", choices=["linux", "macos"], default=None,
+                    help="dla JAKIEGO systemu generować (domyślnie: ten, na którym stoisz) "
+                         "— przydatne, gdy przygotowujesz plik dla innej maszyny")
     us.set_defaults(funkcja=polecenie_usluga)
 
     # ── profil AUTOR ────────────────────────────────────────────────────────
@@ -972,7 +1006,10 @@ def main(argv: list[str] | None = None) -> int:
     st.set_defaults(funkcja=polecenie_status)
 
     w = pod.add_parser("worker", help="[worker] pętla: bierz zadania, wykonuj, raportuj")
-    w.add_argument("--runtime", choices=["codex", "shell"], default=None,
+    # `kimi` DOŁOŻONY w v0.5.3 (ADVERTPR-850). Adapter `WykonawcaKimi` był w Kicie od 807 C3
+    # i działał — tylko parser go nie przyjmował, więc jedyną drogą do niego było obejście CLI
+    # (stąd „osobny skrypt na OVH"). Mechanizm bez drogi do siebie jest mechanizmem, którego nie ma.
+    w.add_argument("--runtime", choices=["codex", "kimi", "shell"], default=None,
                    help="czym wykonywać zadania (domyślnie z konfiguracji)")
     w.add_argument("--interval", type=int, default=None, help="co ile sekund odpytywać")
     w.add_argument("--once", action="store_true", help="jeden przebieg zamiast pętli")
