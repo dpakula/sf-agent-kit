@@ -257,3 +257,51 @@ class TestTresc(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDrogaWynikuDoSprawy(unittest.TestCase):
+    """CAŁA droga pliku wynikowego: model zapisuje do `outgoing/` → plik jest na sprawie.
+
+    ADVERTPR-850. Każdy kawałek tej drogi miał test osobno (`wyniki.zbierz` zna `outgoing/`,
+    `_zdaj_sprawozdanie` umie wysłać pliki), a droga jako całość — nie. I to właśnie w niej
+    siedziała usterka: mechanizm działał, tylko model nie wiedział, gdzie odkładać pliki,
+    więc `outgoing/` bywał pusty i nikt tego nie zauważał, bo każdy test z osobna świecił.
+
+    Dowód z produkcji: wpis Kimi na ADVERTPR-846 — raport „zapisany jako audyt-fm-dev-r14.md",
+    a wpis ma **zero załączników**.
+    """
+
+    def test_plik_z_outgoing_trafia_na_sprawe_jako_zalacznik(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as katalog:
+            (Path(katalog) / "outgoing").mkdir()
+
+            # Plik musi powstać W TRAKCIE zadania, nie przed nim — `wyniki.zbierz` bierze
+            # wyłącznie pliki nowsze niż start. To nie jest kaprys testu: `outgoing/` bywa
+            # pełen wyników poprzedniego zadania i bez tego warunku plik jednego klienta
+            # trafiłby do sprawy drugiego. Wykonawca `shell` pozwala to odtworzyć wiernie.
+            klient = AtrapaKlienta()
+            wynik = obsluz_zadanie(
+                klient, konfiguracja(katalog_roboczy=katalog),
+                zadanie(body_md="printf '# Wynik\\n' > outgoing/raport.md; echo gotowe"))
+
+            self.assertEqual(wynik, "zrobione", wynik)
+            self.assertTrue(klient.wpisy_z_plikami,
+                            "sprawozdanie poszło BEZ plików — plik z `outgoing/` przepadł")
+            _, _, pliki = klient.wpisy_z_plikami[0]
+            self.assertEqual([Path(p).name for p in pliki], ["raport.md"])
+
+    def test_pusty_outgoing_nie_udaje_zalacznika(self):
+        """Brak pliku to brak załącznika — a nie pusty załącznik albo awaria zadania."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as katalog:
+            (Path(katalog) / "outgoing").mkdir()
+            klient = AtrapaKlienta()
+
+            wynik = obsluz_zadanie(klient, konfiguracja(katalog_roboczy=katalog), zadanie())
+
+            self.assertEqual(wynik, "zrobione")
+            self.assertTrue(klient.wpisy or klient.wpisy_z_plikami,
+                            "zadanie bez plików ma nadal zdać sprawozdanie")
