@@ -241,3 +241,38 @@ class TestLaunchd(unittest.TestCase):
         sciezka = usluga.sciezka_plist("kodeks-worker")
         self.assertIn("LaunchAgents", str(sciezka))
         self.assertTrue(sciezka.name.endswith(".plist"))
+
+
+class TestDrogaDoWykonawcy(unittest.TestCase):
+    """Czy da się WYBRAĆ wykonawcę, którego Kit ma (v0.5.3, ADVERTPR-850).
+
+    `WykonawcaKimi` był w rejestrze od 807 C3 i działał — `wybierz("kimi")` zwracało go bez
+    mrugnięcia. Ale parser CLI miał `choices=["codex", "shell"]`, więc jedyną drogą do niego
+    było obejście `sf-kit` własnym skryptem. **Mechanizm bez drogi do siebie jest mechanizmem,
+    którego nie ma** — i ten test pilnuje właśnie drogi, nie mechanizmu.
+
+    Wykryte MUTACJĄ: usunięcie „kimi" z `choices` nie zapalało niczego, bo cała reszta testów
+    sprawdzała rejestr wykonawców, do którego CLI nie musi mieć dostępu.
+    """
+
+    def _runtime_choices(self):
+        import argparse
+        import io
+        import contextlib
+        from sf_kit import cli
+
+        # Parser powstaje w `main()`, więc pytamy o pomoc podkomendy — to jedyne wyjście,
+        # które nie wymaga refaktoru produkcyjnego kodu na potrzeby testu.
+        bufor = io.StringIO()
+        with contextlib.redirect_stdout(bufor), self.assertRaises(SystemExit):
+            cli.main(["worker", "--help"])
+        return bufor.getvalue()
+
+    def test_CLI_przyjmuje_kazdego_wykonawce_z_rejestru(self):
+        from sf_kit import wykonawcy
+
+        pomoc = self._runtime_choices()
+        for nazwa in wykonawcy._WYKONAWCY:
+            self.assertIn(nazwa, pomoc,
+                          f"wykonawca {nazwa} jest w Kicie, ale --runtime go nie przyjmuje "
+                          f"- jedyna droga do niego to obejscie CLI")
