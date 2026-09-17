@@ -692,7 +692,9 @@ Teraz plik jest do kliknięcia w sprawie. Worker bierze:
 
 1. **to, co zadanie nazwało wynikiem** — linia `WYNIK: <ścieżka>` w treści zadania (może ich
    być kilka). Jawne wskazanie zawsze wygrywa: autor zadania wie, co ma z niego wyjść;
-2. **albo wszystko nowe w `outgoing/`** — tylko to, co powstało PO rozpoczęciu tego zadania.
+2. **oraz wszystkie nowe pliki z katalogów wynikowych** — domyślnie `work/zadania/`
+   i `outgoing/`, tylko te zmienione PO rozpoczęciu zadania. Wskazana sama nazwa jest szukana
+   kolejno w `work/zadania/`, `work/`, `outgoing/` i katalogu roboczym; jeden wpis mieści 20 plików.
    Pliki z poprzednich zadań zostają na miejscu: doklejenie ich znaczyłoby wynik jednego
    klienta w sprawie drugiego.
 

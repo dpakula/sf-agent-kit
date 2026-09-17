@@ -366,7 +366,9 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
 
     # 4b. WYNIK JAKO ZAŁĄCZNIK (v0.4, ADVERTPR-799). Ścieżka pliku na maszynie workera jest
     #     bezużyteczna dla każdego, kto tej maszyny nie ma — plik do kliknięcia w sprawie nie.
-    zebrane = wyniki.zbierz(tresc, katalog=katalog, od_czasu=start)
+    zebrane = wyniki.zbierz(
+        f"{tresc}\n{wynik.wyjscie}", katalog=katalog, od_czasu=start,
+        katalogi_swiezych=konf.katalogi_wynikow)
     if zebrane.pliki:
         _log(f"   załączam wynik: {', '.join(p.name for p in zebrane.pliki)}")
     for powod in zebrane.pominiete:

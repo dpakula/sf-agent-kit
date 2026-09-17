@@ -18,11 +18,9 @@ Druga droga patrzy na czas modyfikacji, nie na samą obecność pliku: katalog `
 pełen rzeczy z poprzednich zadań, a doklejanie ich do cudzej sprawy to wyciek — pliki z jednego
 klienta wylądowałyby w sprawie drugiego.
 
-JSON I HTML PAKUJEMY DO ZIP, NIE ODRZUCAMY
-SF nie przyjmuje tych dwóch typów (`multipart.TYPY_PRZYJMOWANE`) i ma po temu powody. Ale
-odrzucenie wyniku dlatego, że ma złe rozszerzenie, znaczyłoby, że praca jest zrobiona i przepada
-— więc pakujemy. Pakujemy POJEDYNCZO (`raport.json` → `raport.json.zip`), a nie wszystko w jedno
-archiwum: człowiek otwierający sprawę ma widzieć, ile rzeczy dostał i jak się nazywają.
+NIEDOZWOLONY TYP NIE MOŻE SKASOWAĆ WYNIKU
+Pliki `.py`, `.json` i `.mp4` wysyłamy jako kopie `.txt`, zgodnie z kontraktem API, i opisujemy
+to we wpisie. Inne niedozwolone typy pakujemy pojedynczo do ZIP.
 """
 from __future__ import annotations
 
@@ -44,7 +42,10 @@ KATALOG_WYNIKOW = "outgoing"
 
 #: Sufit liczby załączników na jeden wpis. Nie z ostrożności: wpis z czterdziestoma plikami
 #: jest nieczytelny, a zadanie, które tyle produkuje, było za duże.
-MAKS_PLIKOW = 12
+MAKS_PLIKOW = 20
+
+# Jawnie odrzucone przez API. Kopia `.txt` zachowuje wynik i daje serwerowi dozwolony MIME.
+ROZSZERZENIA_JAKO_TEKST = {".py", ".json", ".mp4"}
 
 #: Sufit rozmiaru POJEDYNCZEGO pliku. Większy wynik to znak, że oddajemy nie to, co trzeba
 #: (zrzut bazy zamiast raportu) — lepiej powiedzieć to wprost niż wysyłać 200 MB przez multipart.
@@ -56,6 +57,7 @@ class Zebrane:
     """Co udało się zebrać i czego świadomie NIE bierzemy — oba potrzebne w sprawozdaniu."""
     pliki: list[Path] = field(default_factory=list)
     pominiete: list[str] = field(default_factory=list)
+    uwagi: list[str] = field(default_factory=list)
     #: Pliki spakowane do zip po drodze — do posprzątania przez wołającego.
     tymczasowe: list[Path] = field(default_factory=list)
 
@@ -68,7 +70,8 @@ def sciezki_z_tresci(tresc: str) -> list[str]:
     return [m.group(1).strip() for m in WZORZEC_WYNIKU.finditer(tresc or "")]
 
 
-def zbierz(tresc: str, *, katalog: Path | str, od_czasu: float) -> Zebrane:
+def zbierz(tresc: str, *, katalog: Path | str, od_czasu: float,
+           katalogi_swiezych: list[str] | None = None) -> Zebrane:
     """Pliki wynikowe zadania. `od_czasu` = znacznik startu zadania (`time.time()`).
 
     Kolejność dróg jest częścią kontraktu: jawne `WYNIK:` WYGRYWA i wtedy `outgoing/` w ogóle
@@ -81,22 +84,34 @@ def zbierz(tresc: str, *, katalog: Path | str, od_czasu: float) -> Zebrane:
     wskazane = sciezki_z_tresci(tresc)
     if wskazane:
         for surowa in wskazane:
-            _dodaj(zebrane, _rozwin(baza, surowa), etykieta=surowa)
-        return _dopasuj_do_sf(zebrane)
+            znaleziony = _znajdz_wskazany(baza, surowa)
+            _dodaj(zebrane, znaleziony, etykieta=surowa)
 
-    katalog_wyjsc = baza / KATALOG_WYNIKOW
-    if not katalog_wyjsc.is_dir():
-        return zebrane
-
-    # Tylko NOWE — patrz nagłówek. `outgoing/` bywa pełen rzeczy z poprzednich zadań.
-    swieze = sorted(
-        (p for p in katalog_wyjsc.rglob("*")
-         if p.is_file() and p.stat().st_mtime >= od_czasu),
-        key=lambda p: p.stat().st_mtime,
-    )
-    for p in swieze:
-        _dodaj(zebrane, p, etykieta=str(p.relative_to(baza)))
+    # Pliki zmodyfikowane podczas zadania dokładamy także przy jawnym wskazaniu.
+    for nazwa in katalogi_swiezych or ["work/zadania", KATALOG_WYNIKOW]:
+        katalog_wyjsc = _rozwin(baza, nazwa)
+        if katalog_wyjsc is None or not katalog_wyjsc.is_dir():
+            continue
+        swieze = sorted(
+            (p for p in katalog_wyjsc.rglob("*")
+             if p.is_file() and p.stat().st_mtime >= od_czasu),
+            key=lambda p: (p.stat().st_mtime, str(p)),
+        )
+        for p in swieze:
+            _dodaj(zebrane, p, etykieta=str(p.relative_to(baza)))
     return _dopasuj_do_sf(zebrane)
+
+
+def _znajdz_wskazany(baza: Path, surowa: str) -> Path | None:
+    """Znajdź wskazany plik w umówionej kolejności, nadal wyłącznie pod katalogiem pracy."""
+    p = Path(surowa).expanduser()
+    if p.is_absolute() or len(p.parts) > 1:
+        return _rozwin(baza, surowa)
+    for katalog in ("work/zadania", "work", KATALOG_WYNIKOW, "."):
+        kandydat = _rozwin(baza, str(Path(katalog) / p))
+        if kandydat is not None and kandydat.is_file():
+            return kandydat
+    return _rozwin(baza, surowa)
 
 
 def _rozwin(baza: Path, surowa: str) -> Path | None:
@@ -146,6 +161,16 @@ def _dopasuj_do_sf(zebrane: Zebrane) -> Zebrane:
     """Typy, których SF nie przyjmie, pakujemy do zip. Reszta idzie bez zmian."""
     gotowe: list[Path] = []
     for p in zebrane.pliki:
+        if p.suffix.lower() in ROZSZERZENIA_JAKO_TEKST:
+            kopia = _kopia_txt(p)
+            if kopia is None:
+                zebrane.pominiete.append(f"{p.name} — nie udało się utworzyć kopii .txt")
+                continue
+            gotowe.append(kopia)
+            zebrane.tymczasowe.append(kopia)
+            zebrane.uwagi.append(
+                f"{p.name} — API odrzuca {p.suffix.lower()}, wysłano jako {kopia.name}")
+            continue
         if typ_pliku(p) in TYPY_PRZYJMOWANE:
             gotowe.append(p)
             continue
@@ -159,8 +184,18 @@ def _dopasuj_do_sf(zebrane: Zebrane) -> Zebrane:
     return zebrane
 
 
+def _kopia_txt(plik: Path) -> Path | None:
+    try:
+        katalog = Path(tempfile.mkdtemp(prefix="sf-kit-wynik-"))
+        cel = katalog / (plik.name + ".txt")
+        shutil.copyfile(plik, cel)
+        return cel
+    except OSError:
+        return None
+
+
 def _spakuj(plik: Path) -> Path | None:
-    """`raport.json` → `raport.json.zip` w katalogu TYMCZASOWYM. `None`, gdy się nie udało.
+    """Niedozwolony plik → osobny ZIP w katalogu TYMCZASOWYM. `None`, gdy się nie udało.
 
     POZA KATALOGIEM ROBOCZYM — i to jest poprawka z 15.09, po dowodzie na żywej sprawie.
     Pierwsza wersja pakowała OBOK oryginału, „żeby człowiek miał archiwum tam, gdzie pracuje".
@@ -203,4 +238,6 @@ def opis_dla_wpisu(zebrane: Zebrane) -> str:
         czesci.append(f"**Załączam wynik:** {nazwy}")
     if zebrane.pominiete:
         czesci.append("**Nie załączono:** " + "; ".join(zebrane.pominiete))
+    if zebrane.uwagi:
+        czesci.append("**Zmieniono nazwę do wysyłki:** " + "; ".join(zebrane.uwagi))
     return "\n\n".join(czesci)
