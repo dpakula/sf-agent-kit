@@ -160,6 +160,19 @@ class TestPakowania(_Katalog):
         z = wyniki.zbierz("", katalog=self.baza, od_czasu=time.time() - 60)
         self.assertEqual([p.name for p in z.pliki], ["makieta.html.zip"])
 
+    def test_binarium_idzie_do_ZIP_a_NIE_jako_txt(self):
+        """Granica kopii `.txt`: wolno nią wysyłać TEKST, nigdy bajty.
+
+        Film przemianowany na `.txt` przechodzi przez serwer i jest nie do otwarcia dla
+        człowieka, który go pobierze — dostaje plik z nazwą, która kłamie o zawartości.
+        ZIP niesie to samo bez kłamstwa i też jest przyjmowany, więc binaria idą zipem.
+        """
+        self.plik("outgoing/nagranie.mp4", tresc="\x00\x01BINARIUM")
+        z = wyniki.zbierz("", katalog=self.baza, od_czasu=time.time() - 60)
+
+        self.assertEqual([p.name for p in z.pliki], ["nagranie.mp4.zip"])
+        self.assertEqual(z.uwagi, [], "zip nie zmienia nazwy pliku w archiwum — nie ma o czym pisać")
+
     def test_kazdy_plik_osobno_a_nie_wszystko_w_jedno_archiwum(self):
         """Człowiek otwierający sprawę ma widzieć, ILE rzeczy dostał i jak się nazywają."""
         self.plik("outgoing/a.json", tresc="{}")

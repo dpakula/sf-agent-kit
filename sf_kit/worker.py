@@ -43,6 +43,10 @@ from .wykonawcy import katalog_zadania, wybierz
 #: wpis ma być do przeczytania przez człowieka, a nie zrzutem konsoli.
 LIMIT_WYJSCIA = 4000
 
+#: Ilu kandydatów na zadanie bierzemy z kolejki, żeby mieć z czego wybierać, gdy część jest
+#: odłożona backoffem (`stan_workera`). Sufit, nie cel — obsługujemy dalej JEDNO zadanie.
+KANDYDATOW = 20
+
 
 def _teraz() -> str:
     return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
@@ -484,9 +488,12 @@ def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
     na obie odpowiada zerem, nie nadaje się do niczyjego nadzoru (cron, launchd, systemd).
     """
     try:
-        # Jedno zadanie na przebieg, więc szukamy do pierwszego trafienia — przy kolejce
-        # liczonej w setkach zwykle kończy się to na jednej stronie.
-        wynik = klient.moje_zadania(slug=konf.slug)
+        # Bierzemy JEDNO zadanie na przebieg, ale kandydatów potrzeba kilku: pierwszy z brzegu
+        # może być odłożony backoffem. Stąd `ile_najwyzej=KANDYDATOW`, a nie `1` (jak do v0.5.5)
+        # i nie brak limitu — bez limitu każdy takt przeglądałby CAŁĄ kolejkę do `total`, czyli
+        # przy 518 zadaniach trzy żądania zamiast jednego, co takt, u każdego agenta floty.
+        # Dwudziestu kandydatów starczy: tylu zadań naraz jeden agent nie ma odłożonych.
+        wynik = klient.moje_zadania(slug=konf.slug, ile_najwyzej=KANDYDATOW)
     except ZlyKlucz as blad:
         raise SystemExit(f"Klucz przestał działać: {blad}") from None
     except BladAPI as blad:

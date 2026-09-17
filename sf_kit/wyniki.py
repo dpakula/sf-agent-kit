@@ -42,10 +42,21 @@ KATALOG_WYNIKOW = "outgoing"
 
 #: Sufit liczby załączników na jeden wpis. Nie z ostrożności: wpis z czterdziestoma plikami
 #: jest nieczytelny, a zadanie, które tyle produkuje, było za duże.
+#:
+#: Podniesiony z 12 do 20 razem ze zmianą kontraktu w `zbierz` (17.09): skoro bierzemy teraz
+#: DWIE drogi naraz, a nie jedną, dwunastka obcinałaby wyniki, które wcześniej się mieściły.
 MAKS_PLIKOW = 20
 
-# Jawnie odrzucone przez API. Kopia `.txt` zachowuje wynik i daje serwerowi dozwolony MIME.
-ROZSZERZENIA_JAKO_TEKST = {".py", ".json", ".mp4"}
+#: Odrzucane przez API, a będące TEKSTEM — kopia `.txt` zachowuje wynik i daje dozwolony MIME.
+#: Kit sam tę drogę podpowiada człowiekowi (`multipart.PODPOWIEDZI` przy `application/json`),
+#: więc worker robi to, co i tak byśmy komuś doradzili.
+#:
+#: WYŁĄCZNIE TEKST — i to jest granica, nie przeoczenie. `.mp4` stało tu w PR #1 i wypadło:
+#: film przemianowany na `.txt` to nie plik tekstowy, tylko bajty z kłamiącą nazwą. Człowiek,
+#: który go pobierze, dostaje coś, czego nie otworzy bez zgadnięcia, że ma zmienić rozszerzenie
+#: z powrotem. ZIP niesie binaria bez kłamstwa i jest przez API przyjmowany — więc wszystko,
+#: co nie jest tekstem, idzie drogą zipa niżej.
+ROZSZERZENIA_JAKO_TEKST = {".py", ".json"}
 
 #: Sufit rozmiaru POJEDYNCZEGO pliku. Większy wynik to znak, że oddajemy nie to, co trzeba
 #: (zrzut bazy zamiast raportu) — lepiej powiedzieć to wprost niż wysyłać 200 MB przez multipart.
@@ -74,9 +85,19 @@ def zbierz(tresc: str, *, katalog: Path | str, od_czasu: float,
            katalogi_swiezych: list[str] | None = None) -> Zebrane:
     """Pliki wynikowe zadania. `od_czasu` = znacznik startu zadania (`time.time()`).
 
-    Kolejność dróg jest częścią kontraktu: jawne `WYNIK:` WYGRYWA i wtedy `outgoing/` w ogóle
-    nie przeglądamy. Inaczej zadanie, które wskazało jeden plik, dostałoby do niego wszystko,
-    co model zapisał po drodze — a autor zadania powiedział wprost, czego oczekuje.
+    DWIE DROGI, OBIE NARAZ — ZMIANA KONTRAKTU Z 17.09 (PR #1 Kodeksa)
+    ════════════════════════════════════════════════════════════════
+    Do v0.5.5 jawne `WYNIK:` WYGRYWAŁO i katalogów nie czytaliśmy wcale. Powód był dobry:
+    zadanie, które wskazało jeden plik, nie miało dostać wszystkiego, co model zapisał po
+    drodze. Powód PRZECIWNY okazał się mocniejszy w praktyce — wykonawca zapisywał wynik
+    w innym umówionym katalogu niż ten, który wymienił w `WYNIK:`, i **praca przepadała po
+    cichu**. Cisza jest gorsza niż jeden załącznik za dużo, więc bierzemy obie drogi.
+
+    Czego to NIE znaczy: że bierzemy cokolwiek. Nadal obowiązują trzy granice i to one, a nie
+    „wskazanie wygrywa", bronią przed doklejeniem cudzego wyniku:
+      · tylko pliki zmodyfikowane PO starcie zadania (`od_czasu`),
+      · tylko spod katalogu roboczego (`_rozwin` odrzuca wyjście poza),
+      · sufit `MAKS_PLIKOW`, a to, co nie weszło, jest wymienione w sprawozdaniu.
     """
     baza = Path(katalog).expanduser().resolve()
     zebrane = Zebrane()

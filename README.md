@@ -691,19 +691,32 @@ na jego maszynie leży wynik — co dla każdego, kto tej maszyny nie ma, znaczy
 Teraz plik jest do kliknięcia w sprawie. Worker bierze:
 
 1. **to, co zadanie nazwało wynikiem** — linia `WYNIK: <ścieżka>` w treści zadania (może ich
-   być kilka). Jawne wskazanie zawsze wygrywa: autor zadania wie, co ma z niego wyjść;
+   być kilka). Sama nazwa pliku jest szukana kolejno w `work/zadania/`, `work/`, `outgoing/`
+   i katalogu roboczym;
 2. **oraz wszystkie nowe pliki z katalogów wynikowych** — domyślnie `work/zadania/`
-   i `outgoing/`, tylko te zmienione PO rozpoczęciu zadania. Wskazana sama nazwa jest szukana
-   kolejno w `work/zadania/`, `work/`, `outgoing/` i katalogu roboczym; jeden wpis mieści 20 plików.
-   Pliki z poprzednich zadań zostają na miejscu: doklejenie ich znaczyłoby wynik jednego
-   klienta w sprawie drugiego.
+   i `outgoing/`, tylko te zmienione PO rozpoczęciu zadania. Jeden wpis mieści 20 plików.
 
-Czego SalesForge nie przyjmuje (`.json`, `.html`), Kit **pakuje do `.zip`** zamiast pomijać —
-praca jest zrobiona, więc nie może przepaść przez rozszerzenie. Archiwum powstaje poza katalogiem
-roboczym i znika po wysłaniu; oryginał zostaje tam, gdzie był.
+**Obie drogi naraz — od v0.5.6.** Wcześniej wskazanie `WYNIK:` wygrywało i katalogów nie
+czytaliśmy wcale. Zmieniło się, bo wykonawca potrafi zapisać wynik gdzie indziej niż zapowiedział
+i wtedy **praca przepadała po cichu** — a cisza jest gorsza niż jeden załącznik za dużo.
+Przed doklejeniem cudzego wyniku nadal bronią trzy granice: tylko pliki zmienione po starcie
+zadania, tylko spod katalogu roboczego i sufit 20 plików. Pliki z poprzednich zadań zostają
+na miejscu: doklejenie ich znaczyłoby wynik jednego klienta w sprawie drugiego.
+
+Czego SalesForge nie przyjmuje, Kit wysyła mimo to — praca jest zrobiona, więc nie może przepaść
+przez rozszerzenie. `.py` i `.json` idą jako kopia `.txt` (to tekst, więc nazwa nie kłamie),
+a zmiana nazwy jest opisana we wpisie. Wszystko inne, na przykład `.html` czy plik wideo,
+**pakujemy do `.zip`** — binarium przemianowane na `.txt` byłoby plikiem, którego odbiorca
+nie otworzy. Archiwum i kopie powstają poza katalogiem roboczym i znikają po wysłaniu;
+oryginał zostaje tam, gdzie był.
 
 W sprawozdaniu wymienione są też pliki, których **nie** załączono, razem z powodem („nie ma
 takiego pliku", „poza katalogiem roboczym", „powyżej limitu"). Cisza o nich byłaby stratą.
+
+**Nieudane zadanie ma najwyżej trzy próby** (v0.5.6): kolejna po 10 minutach, następna po 60,
+a potem zadanie dostaje status `failed` i przestaje wracać. Licznik i termin następnej próby
+są trwałe (`state.json` obok konfiguracji), więc restart workera ich nie zeruje. Gdy człowiek
+ruszy status zadania, licznik kasuje się sam — zmiana wersji zadania znaczy „ktoś się tym zajął".
 
 **Od v0.5.2 model DOWIADUJE SIĘ o `outgoing/` z polecenia** (ADVERTPR-850). Wcześniej katalog
 był konwencją znaną Kitowi, ale nieznaną wykonawcy — więc model zapisywał wynik tam, gdzie mu
