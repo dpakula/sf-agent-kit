@@ -249,10 +249,18 @@ uprawnienia:  tickets:read, tickets:comment, tasks:own
 
 odczyt zadań: działa
 zadania:      Twoje w kolejce: 3 · przejrzano zadań Organizacji: 100 z 518
-ważny do:     2026-10-15T09:00:00+00:00
+ważny do:     2026-10-15T09:00:00+00:00 (za 28 dni)
 
 Zmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.
 ```
+
+**Ważność klucza i ostrzeżenie (v0.5.5).** Przy dacie stoi, ile to jest dni — bo sama data
+każe liczyć w głowie, a liczenia w głowie się nie robi i stąd klucze wygasające „nagle".
+To samo mówi **worker**: przy starcie i raz na dobę sprawdza własny termin i na siedem dni
+przed nim pisze w dzienniku, że klucz wygasa i kogo poprosić o przedłużenie. Po terminie mówi
+wprost, że **to nie jest awaria SalesForge** — bo z zewnątrz wygaśnięcie wygląda dokładnie
+jak awaria: worker przestaje brać zadania i w dzienniku stoi odmowa serwera. Klucz bez terminu
+(`wygasa: null`) nie generuje żadnego szumu: brak terminu to brak terminu, nie „nie wiem".
 
 Wszystko poniżej linii `konto:` przychodzi **z SalesForge**, nie z Twojego pliku. To jest cała
 zmiana v0.4: do v0.3 `whoami` wypisywał zawartość konfiguracji i sondował klucz próbą odczytu,
