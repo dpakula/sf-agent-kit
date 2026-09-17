@@ -36,11 +36,16 @@ from .telemetria import Telemetria
 from . import tozsamosc as mod_tozsamosc
 from . import usluga
 from . import wyniki
+from .stan_workera import StanProb
 from .wykonawcy import katalog_zadania, wybierz
 
 #: Ile znaków wyjścia wykonawcy wchodzi do wpisu. Reszta jest obcinana z jawną adnotacją —
 #: wpis ma być do przeczytania przez człowieka, a nie zrzutem konsoli.
 LIMIT_WYJSCIA = 4000
+
+#: Ilu kandydatów na zadanie bierzemy z kolejki, żeby mieć z czego wybierać, gdy część jest
+#: odłożona backoffem (`stan_workera`). Sufit, nie cel — obsługujemy dalej JEDNO zadanie.
+KANDYDATOW = 20
 
 
 def _teraz() -> str:
@@ -231,7 +236,9 @@ def _zajrzyj_do_komentarzy(klient: Klient, zid: str, *, po: datetime) -> "mod_re
     return mod_reakcje.rozpoznaj(
         szczegoly.get("comments") or [], po=po, autor_wlasny=_moj_mail(klient))
 
-def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
+def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
+                   *, stan_prob: StanProb | None = None,
+                   teraz: datetime | None = None) -> str:
     """Jedno zadanie od początku do końca. Zwraca krótki opis wyniku (do logu)."""
     tytul = zadanie.get("title", "?")
     zid = str(zadanie.get("id"))
@@ -358,15 +365,39 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
 
     # 4. Sprawozdanie PRZED zmianą statusu — patrz zasada 3 w nagłówku.
     if not wynik.udalo_sie:
+        powod = wynik.powod_niepowodzenia
+        if stan_prob is None:
+            _zdaj_sprawozdanie(klient, zadanie,
+                               wpis_niepowodzenie(zadanie, powod, wykonawca=wykonawca.nazwa))
+            _wroc_do_kolejki(klient, zid)
+            return f"niepowodzenie: {powod[:120]}"
+
+        poprzednie = int(stan_prob.proby.get(zid, {}).get("liczba", 0))
+        numer = poprzednie + 1
+        if numer >= 3:
+            _zdaj_sprawozdanie(klient, zadanie, f"3 nieudane próby: {powod}")
+            zmienione = {}
+            try:
+                zmienione = klient.ustaw_status(zid, "failed")
+            except BladAPI as blad:
+                _log(f"   nie udało się oznaczyć zadania jako failed: {blad}")
+                zmienione = _wroc_do_kolejki(klient, zid)
+            wersja = zmienione.get("version") if isinstance(zmienione, dict) else None
+            stan_prob.niepowodzenie(zid, powod, version=wersja, teraz=teraz)
+            return f"niepowodzenie po 3 próbach: {powod[:120]}"
+
         _zdaj_sprawozdanie(klient, zadanie,
-                           wpis_niepowodzenie(zadanie, wynik.powod_niepowodzenia,
-                                              wykonawca=wykonawca.nazwa))
-        _wroc_do_kolejki(klient, zid)
+                           wpis_niepowodzenie(zadanie, powod, wykonawca=wykonawca.nazwa))
+        odlozone = _wroc_do_kolejki(klient, zid)
+        wersja = odlozone.get("version") if isinstance(odlozone, dict) else None
+        stan_prob.niepowodzenie(zid, powod, version=wersja, teraz=teraz)
         return f"niepowodzenie: {wynik.powod_niepowodzenia[:120]}"
 
     # 4b. WYNIK JAKO ZAŁĄCZNIK (v0.4, ADVERTPR-799). Ścieżka pliku na maszynie workera jest
     #     bezużyteczna dla każdego, kto tej maszyny nie ma — plik do kliknięcia w sprawie nie.
-    zebrane = wyniki.zbierz(tresc, katalog=katalog, od_czasu=start)
+    zebrane = wyniki.zbierz(
+        f"{tresc}\n{wynik.wyjscie}", katalog=katalog, od_czasu=start,
+        katalogi_swiezych=konf.katalogi_wynikow)
     if zebrane.pliki:
         _log(f"   załączam wynik: {', '.join(p.name for p in zebrane.pliki)}")
     for powod in zebrane.pominiete:
@@ -410,15 +441,19 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict) -> str:
     except BladAPI as blad:
         _log(f"   praca zrobiona i opisana, ale nie mogę zamknąć zadania: {blad}")
         return "wykonane, niezamknięte"
+    if stan_prob is not None:
+        stan_prob.wyczysc(zid)
     return "zrobione"
 
 
-def _wroc_do_kolejki(klient: Klient, zid: str) -> None:
+def _wroc_do_kolejki(klient: Klient, zid: str) -> dict:
     """Odłóż zadanie z powrotem. Błąd tutaj tylko logujemy — praca i tak jest opisana."""
     try:
-        klient.ustaw_status(zid, "queued")
+        wynik = klient.ustaw_status(zid, "queued")
+        return wynik if isinstance(wynik, dict) else {}
     except BladAPI as blad:
         _log(f"   nie udało się oddać zadania do kolejki: {blad}")
+        return {}
 
 
 def _odloz_do_czlowieka(klient: Klient, zid: str) -> None:
@@ -443,7 +478,8 @@ def _odloz_do_czlowieka(klient: Klient, zid: str) -> None:
              f"— UWAGA: zadanie wróci w następnym takcie")
 
 
-def przebieg(klient: Klient, konf: Konfiguracja) -> int:
+def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
+             teraz: datetime | None = None) -> int:
     """Jeden przebieg: weź NAJWYŻEJ JEDNO zadanie.
 
     Zwraca liczbę obsłużonych zadań (0 albo 1) albo **-1**, gdy nie udało się nawet pobrać
@@ -452,9 +488,12 @@ def przebieg(klient: Klient, konf: Konfiguracja) -> int:
     na obie odpowiada zerem, nie nadaje się do niczyjego nadzoru (cron, launchd, systemd).
     """
     try:
-        # Jedno zadanie na przebieg, więc szukamy do pierwszego trafienia — przy kolejce
-        # liczonej w setkach zwykle kończy się to na jednej stronie.
-        wynik = klient.moje_zadania(slug=konf.slug, ile_najwyzej=1)
+        # Bierzemy JEDNO zadanie na przebieg, ale kandydatów potrzeba kilku: pierwszy z brzegu
+        # może być odłożony backoffem. Stąd `ile_najwyzej=KANDYDATOW`, a nie `1` (jak do v0.5.5)
+        # i nie brak limitu — bez limitu każdy takt przeglądałby CAŁĄ kolejkę do `total`, czyli
+        # przy 518 zadaniach trzy żądania zamiast jednego, co takt, u każdego agenta floty.
+        # Dwudziestu kandydatów starczy: tylu zadań naraz jeden agent nie ma odłożonych.
+        wynik = klient.moje_zadania(slug=konf.slug, ile_najwyzej=KANDYDATOW)
     except ZlyKlucz as blad:
         raise SystemExit(f"Klucz przestał działać: {blad}") from None
     except BladAPI as blad:
@@ -468,7 +507,14 @@ def przebieg(klient: Klient, konf: Konfiguracja) -> int:
             _log(f"brak moich zadań w przejrzanych {wynik.przejrzano} z {wynik.wszystkich} "
                  f"pozycji kolejki — przeglądanie urwał bezpiecznik stron")
         return 0
-    _log(f"   wynik: {obsluz_zadanie(klient, konf, wynik.zadania[0])}")
+    if plik_stanu is None:
+        from .config import sciezka as sciezka_konfiguracji
+        plik_stanu = sciezka_konfiguracji().with_name("state.json")
+    stan = StanProb(plik_stanu)
+    zadanie = next((z for z in wynik.zadania if stan.gotowe(z, teraz=teraz)), None)
+    if zadanie is None:
+        return 0
+    _log(f"   wynik: {obsluz_zadanie(klient, konf, zadanie, stan_prob=stan, teraz=teraz)}")
     return 1
 
 
