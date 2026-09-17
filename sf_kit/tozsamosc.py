@@ -30,6 +30,7 @@ założeniu części rzeczy.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 #: Uprawnienia, które wystarczają, żeby uznać Organizację za „moją" do pracy. Pusta lista
 #: uprawnień znaczy „jestem członkiem, ale nic mi tu nie wolno" — i to jest stan do odmowy,
@@ -195,3 +196,69 @@ def _sprawdz_nadania(toz: Tozsamosc, org: Organizacja, *, skad: str) -> Organiza
     raise BrakWyboru(
         f"W Organizacji „{org.slug}” (z {skad}) nie masz żadnych uprawnień.\n{podpowiedz}"
     )
+
+
+# ── ważność klucza: ostrzeżenie, zanim flota stanie (ADVERTPR-779) ────────────
+#
+# Klucze agentów dostają termin ważności (30 dni, przedłużenie do 180). Bez ostrzeżenia
+# wygaśnięcie wygląda z zewnątrz jak awaria SF: worker przestaje brać zadania, w dzienniku
+# stoi odmowa serwera, a człowiek szuka usterki w kodzie. Ostrzeżenie zamienia awarię
+# w termin, o którym wiadomo z wyprzedzeniem — i dlatego mówi też, KTO może to załatwić.
+#
+# `wygasa = null` znaczy BRAK TERMINU, nie „nie wiem" (patrz `Tozsamosc.klucz_wygasa`),
+# więc bezterminowy klucz nie generuje żadnego szumu.
+
+#: Od ilu dni przed terminem mówimy o tym w dzienniku workera.
+PROG_OSTRZEZENIA_DNI = 7
+
+
+def _na_czas(wartosc: str | None) -> datetime | None:
+    """Znacznik z SF → `datetime` w UTC. Nieczytelna wartość to `None`, nie wyjątek.
+
+    Kit nie ma prawa przewrócić się przez pole informacyjne: gdyby SF zmieniło format,
+    worker ma dalej robić swoje, tylko bez ostrzeżenia.
+    """
+    if not wartosc:
+        return None
+    try:
+        znacznik = datetime.fromisoformat(str(wartosc).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if znacznik.tzinfo is None:
+        znacznik = znacznik.replace(tzinfo=timezone.utc)
+    return znacznik.astimezone(timezone.utc)
+
+
+def dni_do_wygasniecia(toz: Tozsamosc, *, teraz: datetime | None = None) -> int | None:
+    """Ile pełnych dni zostało kluczowi. `None` = bezterminowy albo data nie do odczytania.
+
+    Ujemna wartość znaczy „wygasł tyle dni temu" — rozróżnienie jest potrzebne, bo komunikat
+    po terminie mówi co innego niż komunikat przed.
+    """
+    termin = _na_czas(getattr(toz, "klucz_wygasa", None))
+    if termin is None:
+        return None
+    teraz = (teraz or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return (termin - teraz).days
+
+
+def ostrzezenie_o_waznosci(toz: Tozsamosc, *, teraz: datetime | None = None) -> str | None:
+    """Zdanie do dziennika workera albo `None`, gdy nie ma o czym mówić.
+
+    Progi są celowo rzadkie: ostrzeżenie powtarzane co przebieg (raz na minutę) przestaje być
+    ostrzeżeniem po pierwszej godzinie. Wołający decyduje KIEDY pytać — tu jest tylko treść.
+    """
+    dni = dni_do_wygasniecia(toz, teraz=teraz)
+    if dni is None or dni > PROG_OSTRZEZENIA_DNI:
+        return None
+    termin = str(getattr(toz, "klucz_wygasa", "") or "")[:10]
+    if dni < 0:
+        return (f"KLUCZ WYGASŁ {termin} — SalesForge odmówi każdego żądania. "
+                f"To nie jest awaria SF: poproś właściciela albo administratora Organizacji "
+                f"o wystawienie nowego klucza i wpisz go przez `sf-kit init`.")
+    if dni == 0:
+        return (f"UWAGA: klucz wygasa DZIŚ ({termin}). Po tej chwili worker nie weźmie już "
+                f"żadnego zadania — poproś właściciela Organizacji o przedłużenie.")
+    dzien = "dzień" if dni == 1 else "dni"
+    return (f"UWAGA: klucz wygasa za {dni} {dzien} ({termin}). Potem worker przestanie brać "
+            f"zadania — poproś właściciela albo administratora Organizacji o przedłużenie.")

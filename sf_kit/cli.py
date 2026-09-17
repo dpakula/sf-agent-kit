@@ -298,11 +298,22 @@ def polecenie_whoami(args) -> int:
 
 
 def _waznosc_klucza(toz: tozsamosc.Tozsamosc) -> str:
-    """Data ważności albo „bezterminowy". Pusta wartość z SF znaczy brak terminu, nie brak wiedzy."""
+    """Data ważności albo „bezterminowy". Pusta wartość z SF znaczy brak terminu, nie brak wiedzy.
+
+    Przy dacie stoi ILE TO JEST DNI (ADVERTPR-779): sama data każe człowiekowi liczyć w głowie,
+    a liczenie w głowie jest tym, czego się nie robi — i stąd klucze wygasające „nagle".
+    """
     wygasa = getattr(toz, "klucz_wygasa", None)
-    if wygasa:
+    if not wygasa:
+        return "bezterminowy (SF nie ma ustawionego terminu)"
+    dni = tozsamosc.dni_do_wygasniecia(toz)
+    if dni is None:
         return str(wygasa)
-    return "bezterminowy (SF nie ma ustawionego terminu)"
+    if dni < 0:
+        return f"{wygasa} — WYGASŁ {abs(dni)} dni temu"
+    if dni == 0:
+        return f"{wygasa} — wygasa DZIŚ"
+    return f"{wygasa} (za {dni} {'dzień' if dni == 1 else 'dni'})"
 
 
 def _licznik(wynik) -> str:

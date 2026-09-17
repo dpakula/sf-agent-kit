@@ -33,6 +33,7 @@ from . import ramka
 from . import reakcje as mod_reakcje
 from . import skrzynka as mod_skrzynka
 from .telemetria import Telemetria
+from . import tozsamosc as mod_tozsamosc
 from . import usluga
 from . import wyniki
 from .wykonawcy import katalog_zadania, wybierz
@@ -498,15 +499,49 @@ def odstep_po_awarii(odstep_bazowy: int, nieudanych: int) -> int:
     return min(odstep_bazowy * (2 ** min(nieudanych, 10)), MAX_ODSTEP_AWARII_S)
 
 
+#: Jak często worker pyta o ważność własnego klucza. Raz na dobę: termin nie zmienia się
+#: częściej, a pytanie co przebieg to jedno żądanie na minutę za informację, która i tak
+#: będzie ta sama.
+ODSTEP_SPRAWDZENIA_KLUCZA_S = 24 * 3600
+
+
+def ostrzez_o_kluczu(klient: Klient, *, teraz: datetime | None = None) -> str | None:
+    """Powiedz w dzienniku, że klucz zaraz wygaśnie — i zwróć to zdanie (albo `None`).
+
+    ADVERTPR-779. Bez tego wygaśnięcie klucza wygląda z zewnątrz jak awaria SalesForge:
+    worker przestaje brać zadania, w dzienniku stoi odmowa serwera, a człowiek szuka usterki
+    w kodzie. Ostrzeżenie zamienia awarię w termin, o którym wiadomo z wyprzedzeniem.
+
+    FAIL-SOFT: to jest informacja, nie warunek pracy. Każdy błąd po drodze (brak sieci,
+    zmieniony kształt `GET /me`, klucz bez prawa do tej trasy) kończy się ciszą, a nie
+    zatrzymaniem workera — zatrzymać go ma dopiero SF, gdy naprawdę odmówi.
+    """
+    try:
+        toz = mod_tozsamosc.z_odpowiedzi(klient.me())
+    except Exception:
+        return None
+    zdanie = mod_tozsamosc.ostrzezenie_o_waznosci(toz, teraz=teraz)
+    if zdanie:
+        _log(zdanie)
+    return zdanie
+
+
 def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
     """Pętla workera. `raz=True` robi jeden przebieg i kończy."""
     _log(f"worker startuje: agent „{konf.slug}”, wykonawca `{konf.runtime}`, "
          f"odstęp {konf.odstep_s} s, {konf.adres}")
+    # Przy starcie, zanim cokolwiek weźmiemy: jeśli klucz dożywa ostatnich dni, człowiek ma
+    # się o tym dowiedzieć z pierwszych linii dziennika, a nie z odmowy za tydzień.
+    ostrzez_o_kluczu(klient)
     if raz:
         return 0 if przebieg(klient, konf) >= 0 else 1
 
+    ostatnie_sprawdzenie = time.monotonic()
     nieudanych = 0
     while True:
+        if time.monotonic() - ostatnie_sprawdzenie >= ODSTEP_SPRAWDZENIA_KLUCZA_S:
+            ostrzez_o_kluczu(klient)
+            ostatnie_sprawdzenie = time.monotonic()
         # Przebieg potrafi trwać dłużej niż próg martwoty (zadanie ma własny limit), a tętna
         # w trakcie wykonania nie odświeżamy. Mówimy więc czujce WPROST, do kiedy ten stan
         # jest legalny — inaczej restartowałaby workera w połowie pracy modelu.
