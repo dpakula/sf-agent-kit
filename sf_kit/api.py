@@ -369,18 +369,18 @@ class Klient:
     # nie awaria. Wołający ma ją rozpoznać i zachować się jak przed 812, zamiast pokazywać
     # agentowi błąd, na który nie ma wpływu.
 
-    def skrzynka(self, *, dni: int | None = None, limit: int | None = None,
-                 tylko_nieodebrane: bool = False) -> dict:
+    def skrzynka(self, *, session_target: str, dni: int | None = None,
+                 limit: int | None = None, tylko_nieodebrane: bool = False) -> dict:
         """Moje wiadomości — jako adresata. Najstarsze pierwsze (to kolejka, nie feed)."""
-        parametry = []
+        parametry = {"session_target": session_target}
         if dni is not None:
-            parametry.append(f"dni={int(dni)}")
+            parametry["dni"] = int(dni)
         if limit is not None:
-            parametry.append(f"limit={int(limit)}")
+            parametry["limit"] = int(limit)
         if tylko_nieodebrane:
-            parametry.append("tylko_nieodebrane=true")
-        ogon = ("?" + "&".join(parametry)) if parametry else ""
-        wynik = self._wywolaj("GET", f"console/messages/inbox{ogon}")
+            parametry["status"] = "new"
+        ogon = urllib.parse.urlencode(parametry)
+        wynik = self._wywolaj("GET", f"console/messages?{ogon}")
         return wynik if isinstance(wynik, dict) else {}
 
     def nadane(self, *, dni: int | None = None, tylko_zalegle: bool = False) -> dict:

@@ -19,11 +19,12 @@ Uruchomienie: `python3 -m unittest discover -s testy`
 import sys
 import unittest
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sf_kit import skrzynka  # noqa: E402
-from sf_kit.api import BladAPI  # noqa: E402
+from sf_kit.api import BladAPI, Klient  # noqa: E402
 from sf_kit.worker import obsluz_zadanie  # noqa: E402
 from testy.test_worker import AtrapaKlienta, konfiguracja, zadanie  # noqa: E402
 
@@ -46,7 +47,7 @@ class KlientZeSkrzynka:
         self.potwierdzone: list[str] = []
         self.zapytania = 0
 
-    def skrzynka(self, *, dni=None, limit=None, tylko_nieodebrane=False):
+    def skrzynka(self, *, session_target="", dni=None, limit=None, tylko_nieodebrane=False):
         self.zapytania += 1
         if self._odczyt_pada:
             raise self._odczyt_pada
@@ -60,6 +61,29 @@ class KlientZeSkrzynka:
 
 
 class TestPobieranie(unittest.TestCase):
+
+    def test_klient_uzywa_listy_z_filtrem_sluga_a_nie_kolizyjnego_inbox(self):
+        class KlientSzpieg(Klient):
+            def __init__(self):
+                super().__init__(baza="https://atrapa.test", klucz="x", organizacja="org")
+                self.zapytanie = None
+
+            def _wywolaj(self, metoda, sciezka, *, cialo=None):
+                self.zapytanie = (metoda, sciezka)
+                return {"wiadomosci": []}
+
+        klient = KlientSzpieg()
+        klient.skrzynka(session_target="kodeks-dpakula", limit=5,
+                        tylko_nieodebrane=True)
+        metoda, sciezka = klient.zapytanie
+        adres = urlparse(sciezka)
+        parametry = parse_qs(adres.query)
+
+        self.assertEqual(metoda, "GET")
+        self.assertEqual(adres.path, "console/messages")
+        self.assertEqual(parametry["session_target"], ["kodeks-dpakula"])
+        self.assertEqual(parametry["status"], ["new"])
+        self.assertNotIn("/inbox", adres.path)
 
     def test_bierze_tylko_to_co_CZEKA_na_agenta(self):
         klient = KlientZeSkrzynka({"wiadomosci": [
@@ -145,7 +169,7 @@ class KlientWorkera(AtrapaKlienta):
         self.potwierdzone: list[str] = []
         self.ack_przy_wykonaniu: int | None = None
 
-    def skrzynka(self, *, dni=None, limit=None, tylko_nieodebrane=False):
+    def skrzynka(self, *, session_target="", dni=None, limit=None, tylko_nieodebrane=False):
         return self._dane
 
     def potwierdz_odbior(self, message_id, *, status="consumed", powod=None):

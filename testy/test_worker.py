@@ -14,7 +14,9 @@ sprawdzić te, których na produkcji wywołać nie wolno (np. „co się stanie,
 Uruchomienie: `python3 -m unittest discover -s testy`
 """
 import sys
+import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -22,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sf_kit.api import BladAPI, BrakUprawnienia  # noqa: E402
 from sf_kit.config import Konfiguracja  # noqa: E402
 from sf_kit.worker import obsluz_zadanie  # noqa: E402
+from sf_kit.stan_workera import StanProb  # noqa: E402
 
 
 class AtrapaKlienta:
@@ -180,6 +183,28 @@ class TestNiepowodzenia(unittest.TestCase):
                          "zadanie, które się nie udało, ma WRÓCIĆ do kolejki")
         self.assertNotIn("completed", [s for _, s in klient.statusy])
         self.assertIn("utknąłem", klient.wpisy[0][1])
+
+    def test_trzy_bledy_maja_backoff_i_koncza_statusem_failed(self):
+        with tempfile.TemporaryDirectory() as katalog:
+            stan = StanProb(Path(katalog) / "state.json")
+            chwila = datetime(2026, 9, 17, 10, tzinfo=timezone.utc)
+            klient = AtrapaKlienta()
+            z = zadanie(body_md="exit 1")
+
+            obsluz_zadanie(klient, konfiguracja(), z, stan_prob=stan, teraz=chwila)
+            self.assertFalse(stan.gotowe(z, teraz=chwila + timedelta(minutes=9)))
+            self.assertTrue(stan.gotowe(z, teraz=chwila + timedelta(minutes=10)))
+
+            obsluz_zadanie(klient, konfiguracja(), z, stan_prob=stan,
+                           teraz=chwila + timedelta(minutes=10))
+            self.assertFalse(stan.gotowe(z, teraz=chwila + timedelta(minutes=69)))
+            self.assertTrue(stan.gotowe(z, teraz=chwila + timedelta(minutes=70)))
+
+            obsluz_zadanie(klient, konfiguracja(), z, stan_prob=stan,
+                           teraz=chwila + timedelta(minutes=70))
+            self.assertEqual([s for _, s in klient.statusy].count("in_progress"), 3)
+            self.assertEqual(klient.statusy[-1][1], "failed")
+            self.assertIn("3 nieudane próby:", klient.wpisy[-1][1])
 
     def test_praca_bez_sprawozdania_NIE_zamyka_zadania(self):
         """Sedno zasady „sprawozdanie przed zamknięciem".

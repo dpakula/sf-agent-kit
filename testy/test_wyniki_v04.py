@@ -73,12 +73,17 @@ class TestOdczytuWskazan(_Katalog):
 
 class TestZbierania(_Katalog):
 
-    def test_wskazanie_wprost_wygrywa_z_katalogiem(self):
-        """Autor zadania powiedział, czego oczekuje — nie doklejamy mu reszty."""
+    def test_wskazanie_i_wszystkie_swieze_pliki_sa_zalaczane(self):
+        """Jawny wynik nie może ukryć innych plików utworzonych podczas zadania."""
         self.plik("outgoing/raport.pdf")
         self.plik("outgoing/smieci.pdf")
         z = wyniki.zbierz("WYNIK: outgoing/raport.pdf", katalog=self.baza, od_czasu=0)
-        self.assertEqual([p.name for p in z.pliki], ["raport.pdf"])
+        self.assertEqual([p.name for p in z.pliki], ["raport.pdf", "smieci.pdf"])
+
+    def test_wskazany_plik_jest_szukany_w_work_zadania(self):
+        self.plik("work/zadania/raport.md")
+        z = wyniki.zbierz("WYNIK: raport.md", katalog=self.baza, od_czasu=time.time() + 60)
+        self.assertEqual([p.name for p in z.pliki], ["raport.md"])
 
     def test_bez_wskazania_bierze_NOWE_z_outgoing(self):
         self.plik("outgoing/nowy.pdf")
@@ -126,24 +131,29 @@ class TestOdmow(_Katalog):
         self.assertIn("to katalog", z.pominiete[0])
 
     def test_sufit_liczby_zalacznikow(self):
-        for n in range(wyniki.MAKS_PLIKOW + 3):
+        for n in range(21):
             self.plik(f"outgoing/p{n:02d}.pdf")
         z = wyniki.zbierz("", katalog=self.baza, od_czasu=time.time() - 60)
         self.assertEqual(len(z.pliki), wyniki.MAKS_PLIKOW)
         self.assertTrue(any("powyżej" in p for p in z.pominiete))
 
+    def test_brak_wskazanego_pliku_jest_opisany(self):
+        z = wyniki.zbierz("WYNIK: brak.md", katalog=self.baza, od_czasu=0)
+        self.assertFalse(z.pliki)
+        self.assertIn("nie ma takiego pliku", z.pominiete[0])
+
 
 class TestPakowania(_Katalog):
 
-    def test_json_jest_pakowany_do_zip_a_nie_odrzucany(self):
-        """Praca jest zrobiona — zły typ pliku nie może znaczyć, że wynik przepada."""
+    def test_json_jest_wysylany_jako_txt_a_nie_odrzucany(self):
         self.plik("outgoing/raport.json", tresc='{"a": 1}')
         z = wyniki.zbierz("", katalog=self.baza, od_czasu=time.time() - 60)
 
-        self.assertEqual([p.name for p in z.pliki], ["raport.json.zip"])
+        self.assertEqual([p.name for p in z.pliki], ["raport.json.txt"])
         self.assertTrue(z.pliki[0].exists())
-        with zipfile.ZipFile(z.pliki[0]) as archiwum:
-            self.assertEqual(archiwum.namelist(), ["raport.json"])
+        self.assertEqual(z.pliki[0].read_text(encoding="utf-8"), '{"a": 1}')
+        self.assertEqual(z.pominiete, [])
+        self.assertIn("wysłano jako", z.uwagi[0])
 
     def test_html_tez(self):
         self.plik("outgoing/makieta.html", tresc="<p>x</p>")
@@ -155,7 +165,7 @@ class TestPakowania(_Katalog):
         self.plik("outgoing/a.json", tresc="{}")
         self.plik("outgoing/b.json", tresc="{}")
         z = wyniki.zbierz("", katalog=self.baza, od_czasu=time.time() - 60)
-        self.assertEqual(sorted(p.name for p in z.pliki), ["a.json.zip", "b.json.zip"])
+        self.assertEqual(sorted(p.name for p in z.pliki), ["a.json.txt", "b.json.txt"])
 
     def test_pdf_i_png_ida_bez_pakowania(self):
         self.plik("outgoing/raport.pdf")
@@ -168,7 +178,7 @@ class TestPakowania(_Katalog):
         """Oryginał to praca człowieka i zostaje; archiwum zrobiliśmy my i my je kasujemy."""
         self.plik("outgoing/raport.json", tresc="{}")
         z = wyniki.zbierz("", katalog=self.baza, od_czasu=time.time() - 60)
-        self.assertEqual([p.name for p in z.tymczasowe], ["raport.json.zip"])
+        self.assertEqual([p.name for p in z.tymczasowe], ["raport.json.txt"])
 
     def test_archiwum_NIE_powstaje_w_katalogu_roboczym(self):
         """ZNALEZIONE NA ŻYWEJ SPRAWIE (15.09) — i jest to wyciek, nie bałagan.

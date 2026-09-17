@@ -697,7 +697,7 @@ def polecenie_inbox(args) -> int:
     konf = konfiguracja.wczytaj()
     klient = _klient(konf, args)
 
-    odebrane = skrzynka.pobierz(klient, limit=args.limit, dni=args.dni)
+    odebrane = skrzynka.pobierz(klient, slug=konf.slug, limit=args.limit, dni=args.dni)
     if odebrane.powod_braku:
         # 503 przed rewizją, 422 przy kluczu bez właściciela albo koncie bez sluga agenckiego.
         # Oba są stanem konfiguracji, nie awarią Kitu — i mają brzmieć jak stan.
