@@ -503,3 +503,131 @@ class Klient:
         except BladAPI as blad:
             wynik["odczyt_zadan"] = f"NIE DZIAŁA — {blad}"
         return wynik
+
+    # ── warstwa administracyjna: konta, nadania, klucze (ADVERTPR-879) ───────
+    #
+    # Wspólna pułapka tych trzech operacji: numer Organizacji w ścieżce to `tenants.id`
+    # (liczba porządkowa), a nagłówek `X-Tenant-Id` niesie `uuid`. Dwa różne identyfikatory
+    # tej samej Organizacji, w jednym żądaniu. Metody niżej przyjmują NUMER — tłumaczeniem
+    # ze sluga zajmuje się `numer_organizacji`, żeby człowiek nigdy nie musiał go znać.
+
+    def organizacje_z_numerem(self) -> list[dict]:
+        """`GET /tenants` — Organizacje wołającego z `id` (numer), `uuid` i `slug`.
+
+        To jest JEDYNA trasa oddająca numer porządkowy komuś, kto nie jest superadminem
+        (sprawdzone kluczem członka 18.09). `GET /me` go nie ma — i właśnie dlatego
+        koordynatorka przepisywała numery z panelu albo strzelała uuid-em w ścieżkę.
+        """
+        odp = self._wywolaj("GET", "tenants")
+        return odp if isinstance(odp, list) else []
+
+    def numer_organizacji(self, wskazanie: str = "") -> int:
+        """Slug albo uuid → numer porządkowy. Bez wskazania: Organizacja bieżąca klienta.
+
+        ODMAWIAMY, zamiast zgadywać. Numer wskazuje Organizację, w której powstanie konto
+        albo pojadą nadania — pomyłka nie jest niedogodnością, tylko cudzym kontem z prawami.
+        """
+        szukane = (wskazanie or self.organizacja or "").strip().lower()
+        if not szukane:
+            raise BladAPI(
+                "nie wiem, w której Organizacji mam to zrobić. Podaj `--org <slug>`.")
+        lista = self.organizacje_z_numerem()
+        for org in lista:
+            if szukane in {str(org.get("slug", "")).lower(), str(org.get("uuid", "")).lower()}:
+                numer = org.get("id")
+                if not isinstance(numer, int):
+                    raise BladAPI(
+                        f"Organizacja {szukane} nie ma numeru porządkowego w odpowiedzi "
+                        f"`GET /tenants` — to znaczy, że kontrakt tej trasy się zmienił.")
+                return numer
+        znane = ", ".join(sorted(str(o.get("slug", "?")) for o in lista)) or "żadnej"
+        raise BladAPI(
+            f"nie widzę Organizacji „{szukane}” wśród swoich. Masz dostęp do: {znane}.")
+
+    def zaloz_agenta(self, numer: int, *, email: str, nazwa: str, slug: str,
+                     uprawnienia: list[str] | None = None,
+                     dodatkowe: dict | None = None) -> dict:
+        """`POST /tenants/{numer}/agents` — konto + członkostwo + nadania + klucz, jednym aktem.
+
+        Klucz wraca w odpowiedzi RAZ. Wołający MUSI go od razu przekazać dalej albo zapisać —
+        drugiego odczytu nie ma, a klucza, którego nikt nie złapał, nie da się odzyskać,
+        tylko wystawić od nowa.
+        """
+        cialo: dict = {"email": email, "full_name": nazwa, "agent_slug": slug}
+        if uprawnienia is not None:
+            cialo["permissions"] = uprawnienia
+        # `dodatkowe` NIE jest dziurą w bramce — to jej druga połowa. Pole, które przeszło
+        # sprawdzenie w `kontrakt.nieznane_pola`, musi NAPRAWDĘ pojechać; zgubienie go tutaj
+        # byłoby tym samym cichym połknięciem, przed którym broni cała ta warstwa, tyle że
+        # popełnionym przez Kit zamiast przez serwer.
+        cialo.update(dodatkowe or {})
+        return self._wywolaj("POST", f"tenants/{numer}/agents", cialo=cialo)
+
+    def nadania(self, numer: int, konto: str) -> dict:
+        """`GET /tenants/{numer}/users/{uuid}/permissions` — stan nadań na CZŁONKOSTWIE.
+
+        Adres jest pod użytkownikiem, nie pod agentem. To dokładnie ta pomyłka, która
+        18.09 dała wniosek „nie ma tras odczytu ani zapisu nadań".
+        """
+        return self._wywolaj("GET", f"tenants/{numer}/users/{konto}/permissions")
+
+    def ustaw_nadania(self, numer: int, konto: str, *, uprawnienia: list[str] | None = None,
+                      domyslne: bool = False, dodatkowe: dict | None = None) -> dict:
+        """`PUT …/permissions` — ZASTĘPUJE wycinek uprawnień agenta na członkostwie.
+
+        `domyslne=True` wygrywa z listą po stronie serwera, więc Kit nie wysyła obu naraz:
+        wysłanie jednego i drugiego wyglądałoby jak suma, a jest nadpisaniem.
+        """
+        cialo: dict = {"ustaw_domyslne": True} if domyslne else {
+            "permissions": sorted(set(uprawnienia or []))}
+        cialo.update(dodatkowe or {})
+        return self._wywolaj("PUT", f"tenants/{numer}/users/{konto}/permissions", cialo=cialo)
+
+    def wystaw_klucz(self, *, nazwa: str, opis: str = "", zakres: str = "tenant",
+                     wlasciciel: str = "", uprawnienia: list[str] | None = None,
+                     wygasa: str = "", dodatkowe: dict | None = None) -> dict:
+        """`POST /api-keys` — klucz w Organizacji z nagłówka. Pełny sekret wraca RAZ.
+
+        `uprawnienia=None` wysyłamy jako jawne `null`, bo po tamtej stronie `null` i `[]` to
+        DWIE RÓŻNE RZECZY: brak zawężenia kontra klucz, który nie może nic (kontrakt 545 §4.3).
+        Zamiana jednego w drugie rodziła martwe sekrety — 201 przy wystawieniu i 403 na każdym
+        żądaniu (ADVERTPR-776 usterka 9).
+        """
+        cialo: dict = {"source_name": nazwa, "scope": zakres, "permissions": uprawnienia}
+        if opis:
+            cialo["description"] = opis
+        if wlasciciel:
+            cialo["user_email"] = wlasciciel
+        if wygasa:
+            cialo["expires_at"] = wygasa
+        cialo.update(dodatkowe or {})
+        return self._wywolaj("POST", "api-keys", cialo=cialo)
+
+    def napraw_agenta(self, numer: int, konto: str, *, slug: str = "", rodzaj: str = "",
+                      katalog: str = "", dodatkowe: dict | None = None) -> dict:
+        """`PATCH /tenants/{numer}/agents/{uuid}` — członkostwo istniejącego konta.
+
+        Ta trasa NIE nadaje uprawnień, choć pole `permissions` przyjmie bez słowa skargi
+        (potwierdzona usterka, ADVERTPR-879 — poprawiana po stronie API). Kit go tu nie
+        wyśle: bramka `kontrakt.nieznane_pola` stoi przed wywołaniem.
+        """
+        cialo: dict = {}
+        if slug:
+            cialo["agent_slug"] = slug
+        if rodzaj:
+            cialo["kind"] = rodzaj
+        if katalog:
+            cialo["board_root"] = katalog
+        cialo.update(dodatkowe or {})
+        return self._wywolaj("PATCH", f"tenants/{numer}/agents/{konto}", cialo=cialo)
+
+    def probne_wywolanie(self, klucz: str) -> dict:
+        """`GET /me` CUDZYM kluczem — czy świeżo wystawiony sekret naprawdę działa.
+
+        PO CO OSOBNA METODA, SKORO JEST `kim_jestem`: bo tamta pyta kluczem wołającego,
+        a tu chodzi o klucz, który właśnie powstał. To jest różnica między „serwer odpowiedział
+        201" a „tym kluczem da się pracować" — i dokładnie na tej różnicy poległa doba 18.09,
+        gdy klucz wystawiony z polem `scope` dostał 201 i nie działał.
+        """
+        probny = Klient(baza=self.baza, klucz=klucz)   # bez Organizacji: `GET /me` jej nie chce
+        return probny.kim_jestem()

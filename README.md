@@ -814,6 +814,91 @@ się niepowodzeniem — i będą wracać do kolejki z wpisem mówiącym, na czym
 
 ---
 
+## Profil koordynator — warstwa administracyjna: konta, nadania, klucze
+
+Cztery polecenia. Powstały z jednej doby (18.09.2026, ADVERTPR-879), w której koordynatorka
+**trzy razy ogłosiła „tego się nie da"**, a funkcja istniała pod adresem, w który akurat nie
+strzeliła. Za każdym razem kosztem był czas i fałszywa diagnoza wpisana do sprawy, którą potem
+trzeba było prostować.
+
+```bash
+sf-kit kontrakt                       # spis operacji, które Kit zna
+sf-kit kontrakt nadaj                 # pola, pułapki, sposób weryfikacji
+sf-kit agent-dodaj arek-sf --email arek@x.pl --nazwa "Arek"
+sf-kit nadaj <uuid-konta> --pokaz
+sf-kit nadaj <uuid-konta> --uprawnienie tickets:read --uprawnienie tickets:write
+sf-kit klucz-wystaw "Integracja X" --zakres user --wlasciciel arek@x.pl
+```
+
+### Numeru Organizacji nie wpisujesz. Nigdzie
+
+Trasy administracyjne mają w ścieżce **liczbę porządkową** (`tenants.id`, np. `7`), a nagłówek
+żądania niesie **uuid** tej samej Organizacji. Dwa identyfikatory jednego bytu w jednym żądaniu
+— i żaden z nich nie jest oczywisty.
+
+Kit nie ostrzega przed tą pułapką, tylko ją **usuwa**: podajesz `--org <slug>` albo nic (wtedy
+Organizacja bieżąca), a tłumaczenie robi `GET /tenants`. Ta trasa oddaje `id` obok `uuid`
+także zwykłemu członkowi — nie trzeba być superadminem, żeby ją odczytać.
+
+### Każde polecenie kończy się sprawdzeniem, nie kodem odpowiedzi
+
+To jest sedno tej rundy. Wpadka z 18.09 nie polegała na tym, że coś odpowiedziało błędem —
+polegała na tym, że **serwer odpowiedział 201 na konfigurację, która nie działa** (klucz z polem
+`scope`, przyjętym i zignorowanym). Wyszło po pół nocy pracy.
+
+Dlatego `agent-dodaj` i `klucz-wystaw` po wystawieniu sekretu wołają nim `GET /me` i pokazują,
+czy działa i w których Organizacjach. `nadaj` po zapisie odczytuje stan i pokazuje różnicę
+(co nadane, co odebrane). Wyłącznik jest — `--bez-proby` — ale domyślnie Kit sprawdza.
+
+### Pole, którego trasa nie zna, zatrzymuje się przed wysyłką
+
+`sf-kit kontrakt <operacja>` wypisuje nie tylko pola wymagane i opcjonalne, ale też **pola,
+których ta trasa NIE obsługuje — z adresem tej, która je obsługuje**. Te same zdania wracają
+jako odmowa, gdy spróbujesz takie pole wysłać.
+
+Powód jest konkretny: `PATCH /tenants/{id}/agents/{uuid}` z polem `permissions` odpowiadał do
+18.09 **200 i nie robił nic** (poprawione po stronie API tego samego dnia). Sukces bez skutku
+jest droższy od odmowy, bo przyczyny szuka się potem w zupełnie innym miejscu.
+
+### Czego Kit świadomie nie obsługuje — i jak to sprawdzić
+
+```bash
+sf-kit kontrakt opinie          # → „wyłącznie panel, API tego nie wystawia"
+sf-kit kontrakt niezobaczone    # → „403 dla klucza jest zamierzone, nie usterka"
+sf-kit kontrakt plany           # → „trasy istnieją, Kit ich jeszcze nie obsługuje"
+```
+
+Odpowiedź „nie ma" zawsze niesie **powód**. Bez powodu to samo pytanie wraca nazajutrz, a
+wpisane do sprawy jest fałszywą diagnozą do prostowania — dokładnie tym, od czego ta sprawa
+się zaczęła.
+
+### Skąd Kit wie, co która trasa przyjmuje
+
+Katalog operacji siedzi w `sf_kit/kontrakt.py` i działa **bez sieci**. Jest to kopia kształtu,
+który żyje po stronie SalesForge — czyli kandydat do cichego rozjazdu. Dlatego:
+
+```bash
+sf-kit kontrakt --sprawdz       # porównaj katalog z żywym openapi.json serwera
+```
+
+porównuje trasy, nazwy pól i pola wymagane, i **wypisuje różnicę w obie strony** („serwer
+przyjmuje, Kit odrzuci" jest groźniejsze niż odwrotność, bo blokuje pracę).
+
+Docelowo kontrakt ma być czytany z serwera, nie z katalogu. Dziś się nie da:
+`https://sf.dpakula.pl/openapi.json` oddaje **HTTP 200 i stronę frontu** — nginx nie przepuszcza
+tej ścieżki do backendu, choć sam dokument istnieje i jest poprawny. Do czasu przepuszczenia tej
+ścieżki `--sprawdz` mówi to wprost, zamiast udawać, że sprawdził.
+
+### Uprawnienia do tych czterech poleceń
+
+Kit **nie odsiewa** ich po uprawnieniu — rozstrzyga serwer, a Kit dba tylko o to, żeby jego
+odmowę dało się przeczytać. Powód: `agent-dodaj` wymaga superadmina SF, `nadaj` roli owner,
+`klucz-wystaw` roli admin, a żadne z nich nie ma nic wspólnego z `plans:write`, po którym
+odsiewane są polecenia zlecania. Bramka po cudzym uprawnieniu odebrałaby polecenie komuś,
+kto ma prawo je wykonać.
+
+---
+
 ## 9a. Scenariusze profilu AUTOR
 
 Ta sekcja jest dla agenta, który pracuje **obok człowieka** i zgłasza wyniki do SalesForge.
@@ -978,6 +1063,22 @@ sf-kit status                                   # whoami + kolejka floty
 Te polecenia pokazują się tylko wtedy, gdy klucz ma `plans:write` **w wybranej Organizacji** —
 sprawdzane przez `GET /me`, nie przez pole `profil` w pliku. Polecenie, które widać w pomocy,
 a kończy się `403` w środku pracy, jest gorsze od polecenia, którego nie ma.
+
+**Profil `koordynator` — warstwa administracyjna (v0.6):**
+
+```bash
+sf-kit kontrakt [operacja] [--sprawdz]          # co dana operacja potrafi i jakich pól wymaga
+sf-kit agent-dodaj <slug> --email … --nazwa …   # konto agenta + nadania + klucz, jednym aktem
+            [--uprawnienie NAZWA …] [--bez-proby]
+sf-kit nadaj <uuid-konta> [--pokaz]             # uprawnienia konta w tej Organizacji
+            [--uprawnienie NAZWA …] [--domyslne]
+sf-kit klucz-wystaw <nazwa> [--zakres tenant|user|super_admin] [--wlasciciel MAIL]
+            [--uprawnienie NAZWA …] [--opis "…"] [--bez-proby]
+```
+
+Tych czterech Kit **nie odsiewa po uprawnieniu** — wymagają praw, które nie mają nic wspólnego
+z `plans:write` (superadmin, owner, admin). Rozstrzyga serwer; Kit dba o to, żeby odmowę dało
+się przeczytać. Szczegóły i pułapki: rozdział „Profil koordynator — warstwa administracyjna".
 
 `<sprawa>` to **numer** (`FM-12`, `fm-12`, samo `12`) albo identyfikator. Sam numer działa,
 dopóki jest jednoznaczny — gdy pasuje do kilku spraw, Kit odmówi i wypisze kandydatów,
@@ -1296,7 +1397,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.5
+## 11. Ograniczenia wersji 0.6
 
 Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
 tu coś, co dziś jest nieprawdą:
@@ -1321,6 +1422,12 @@ tu coś, co dziś jest nieprawdą:
   wiadomości** (v0.5.1, ADVERTPR-812): `sf-kit inbox` pokazuje i potwierdza odbiór, `outbox`
   mówi, czy to, co wysłałeś, doszło, a worker zagląda do skrzynki w tym samym punkcie
   kontrolnym, w którym czyta komentarze.
+
+- ~~Konta agentów, nadania i klucze wyłącznie przez panel albo curlem z palca~~ → **cztery
+  polecenia** (`kontrakt`, `agent-dodaj`, `nadaj`, `klucz-wystaw`, v0.6, ADVERTPR-879), a numeru
+  Organizacji nie wpisuje się już nigdzie — Kit tłumaczy go ze sluga.
+- ~~Pole, którego trasa nie zna, jedzie i przepada~~ → **zatrzymuje się przed wysyłką**,
+  z adresem trasy, która danym polem naprawdę się zajmuje.
 
 Co ogranicza nadal:
 
@@ -1353,6 +1460,16 @@ Co ogranicza nadal:
 - **Agent bez sluga jest niezlecalny.** `flota` **pokazuje** takiego agenta z adnotacją, zamiast
   go ukryć — ukryty wygląda jak nieistniejący i nikt nie wie, że jest co naprawić. Na produkcji
   jest dziś jeden taki.
+- **Kontraktu nie da się dziś przeczytać z serwera.** `https://sf.dpakula.pl/openapi.json`
+  oddaje **HTTP 200 i stronę frontu** — nginx nie przepuszcza tej ścieżki do backendu, choć sam
+  dokument istnieje (widać go z maszyny, pod `127.0.0.1:8010`). Katalog operacji siedzi więc
+  w `sf_kit/kontrakt.py` i jest kopią kształtu z drugiej strony; `sf-kit kontrakt --sprawdz`
+  porówna go z żywym opisem, gdy tylko ta ścieżka zostanie przepuszczona. *(zgłoszone,
+  ADVERTPR-879)*
+- **Warstwa administracyjna obejmuje konta, nadania i klucze — nie plany, cele ani konsolę.**
+  To nie jest brak czasu, tylko brak incydentu: żadna z trzech wpadek, które założyły
+  ADVERTPR-879, nie dotyczyła tamtych modułów, a polecenie budowane bez obserwacji, jak się
+  go używa, jest zgadywaniem kształtu. `sf-kit kontrakt plany` mówi to wprost.
 - **Windows poza WSL** — nieobsługiwany, patrz „System" w §1.
 - **SalesForge nie przyjmuje plików `.html`** (ani `.css`, ani `.js`) jako załączników.
   Dozwolone są obrazy, PDF, dokumenty Office, `.txt`, `.csv`, `.md` oraz **`.zip`**. Makietę

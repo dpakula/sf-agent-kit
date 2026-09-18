@@ -26,6 +26,7 @@ PROFIL_DOMYSLNY = "worker"
 from . import klucz as magazyn_klucza
 from . import autor
 from . import koordynator
+from . import kontrakt
 from . import tozsamosc
 from .api import BladAPI, Klient
 
@@ -915,6 +916,435 @@ def polecenie_sprawy(args) -> int:
     return 0
 
 
+# ── profil KOORDYNATOR: warstwa administracyjna (ADVERTPR-879) ───────────────
+#
+# Trzy polecenia niżej to trzy wpadki z jednej doby (18.09), w której koordynatorka trzy razy
+# ogłosiła „tego się nie da", a funkcja istniała. Czwarte (`kontrakt`) istnieje po to, żeby
+# czwartej wpadki nie było — bo trzy polecenia rozwiązują trzy wczorajsze pomyłki i ani jednej
+# jutrzejszej.
+#
+# BRAMKI UPRAWNIEŃ TU NIE MA I TO JEST DECYZJA. `_koordynator()` sprawdza `plans:write`, bo
+# zlecanie zadań tego wymaga — ale nadania wymagają roli owner, a konto agenta superadmina,
+# i żadne z nich nie ma nic wspólnego z `plans:write`. Odsianie po cudzym uprawnieniu
+# odebrałoby polecenie komuś, kto ma prawo je wykonać. Rozstrzyga serwer; Kit dba tylko o to,
+# żeby jego odmowa dało się przeczytać.
+
+
+def _pola_surowe(args) -> dict:
+    """`--pole nazwa=wartość` → słownik. Furtka na pola, których Kit jeszcze nie modeluje.
+
+    PO CO TA FURTKA ISTNIEJE, SKORO KIT I TAK JE ODRZUCI
+    Bez niej bramka z `_sprawdz_pola` byłaby teatrem: argparse przepuszcza wyłącznie flagi,
+    które sam zna, więc ciało żądania nigdy nie zawierałoby nieznanego pola i sprawdzenie
+    nie miałoby czego łapać. Człowiek, który wie (albo myśli, że wie), że trasa przyjmuje
+    jeszcze jedno pole, sięgnie po nie i tak — dziś przez curl, gdzie nikt go nie ostrzeże.
+
+    Furtka przenosi ten moment do Kita: pole, które trasa zna, pojedzie; pole, którego nie
+    zna, zatrzyma się z adresem tej, która je obsługuje. To jest cała różnica między
+    „przyjęte i zignorowane" a „odmowa, która mówi, dokąd iść".
+
+    Wartości `true`/`false`/`null` i liczby rozpoznajemy, resztę zostawiamy tekstem —
+    zgadywanie typów dalej niż to kończy się polem `"1"` tam, gdzie miało być `1`.
+    """
+    wynik: dict = {}
+    for wpis in (getattr(args, "pola", None) or []):
+        if "=" not in wpis:
+            raise SystemExit(f"`--pole {wpis}` — brakuje znaku `=`. Poprawnie: --pole nazwa=wartość")
+        nazwa, _, wartosc = wpis.partition("=")
+        nazwa = nazwa.strip()
+        wartosc = wartosc.strip()
+        if wartosc.lower() in {"true", "false"}:
+            wynik[nazwa] = (wartosc.lower() == "true")
+        elif wartosc.lower() in {"null", "none"}:
+            wynik[nazwa] = None
+        elif wartosc.lstrip("-").isdigit():
+            wynik[nazwa] = int(wartosc)
+        else:
+            wynik[nazwa] = wartosc
+    return wynik
+
+
+def _sprawdz_pola(op, cialo: dict) -> None:
+    """Wymaganie 3 ze sprawy: pole, którego trasa nie obsługuje, ZATRZYMUJEMY przed wysyłką.
+
+    Po wysłaniu jest za późno na rozpoznanie pomyłki — serwer albo je cicho pominie (to jest
+    potwierdzona usterka `PATCH …/agents/{uuid}` z polem `permissions`: HTTP 200 i zero skutku),
+    albo odpowie 422 nie mówiąc, gdzie to pole naprawdę mieszka.
+    """
+    nieznane = kontrakt.nieznane_pola(op, cialo)
+    if not nieznane:
+        return
+    linie = [f"Te pola nie należą do operacji `{op.nazwa}` ({op.metoda} {op.trasa}):"]
+    linie += [f"  {pole} — {powod}" for pole, powod in nieznane]
+    linie.append(f"\nPełny opis operacji: {_jak_wolac()} kontrakt {op.nazwa}")
+    raise SystemExit("\n".join(linie))
+
+
+def polecenie_kontrakt(args) -> int:
+    """Co dana operacja potrafi i jakich pól wymaga. Bez sieci, bez klucza, bez logowania."""
+    if getattr(args, "sprawdz", False):
+        return _kontrakt_sprawdz(args)
+
+    nazwa = (getattr(args, "operacja", None) or "").strip()
+    if not nazwa:
+        print(kontrakt.spis())
+        return 0
+
+    op = kontrakt.znajdz(nazwa)
+    if op:
+        print(op.opis())
+        return 0
+
+    # „Nie ma" z POWODEM, nie samo „nie znam". Bo „nie da się" bez powodu wraca następnego
+    # dnia jako to samo pytanie — a wpisane do sprawy jest fałszywą diagnozą do prostowania.
+    powod = kontrakt.podpowiedz_nie_ma(nazwa)
+    if powod:
+        print(f"`{nazwa}` — Kit tego nie obsługuje.\n\n{powod}")
+        return 0
+
+    print(f"Nie znam operacji `{nazwa}`.\n", file=sys.stderr)
+    print(kontrakt.spis(), file=sys.stderr)
+    return 2
+
+
+def _kontrakt_sprawdz(args) -> int:
+    """Porównaj katalog Kitu z żywym `openapi.json`. Rozjazd ma boleć tu, nie u człowieka.
+
+    Katalog w `kontrakt.py` jest kopią kształtu, który żyje po drugiej stronie — czyli
+    kandydatem do cichego rozjazdu. To polecenie jest jedyną rzeczą, która robi z niego
+    kandydata GŁOŚNEGO.
+    """
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    konf = konfiguracja.wczytaj()
+    adres = f"{konf.adres.rstrip('/')}/openapi.json"
+    try:
+        with urllib.request.urlopen(adres, timeout=30) as odp:
+            surowe = odp.read().decode("utf-8", errors="replace")
+        opis = _json.loads(surowe)
+    except (urllib.error.URLError, ValueError) as blad:
+        # Osobny, jawny komunikat dla przypadku „200, ale to nie jest kontrakt". Sprawdzone
+        # 18.09: `sf.dpakula.pl/openapi.json` oddaje HTTP 200 i stronę frontu, bo nginx nie
+        # przepuszcza tej ścieżki do backendu. Sam kod odpowiedzi powiedziałby „jest".
+        print(f"Nie mam skąd wziąć kontraktu z serwera ({adres}).\n"
+              f"Powód: {blad}\n\n"
+              f"Jeśli adres oddaje HTTP 200 ze stroną, to znaczy, że `/openapi.json` łapie "
+              f"front, a nie API — poproś o przepuszczenie tej ścieżki do backendu "
+              f"(ADVERTPR-879).\n"
+              f"Katalog Kitu działa dalej bez tego; sprawdzono go z kodem "
+              f"{kontrakt.SPRAWDZONO}.", file=sys.stderr)
+        return 1
+
+    sciezki = opis.get("paths", {})
+    schematy = (opis.get("components") or {}).get("schemas") or {}
+
+    def pola_zadania(wzorzec: str, metoda: str) -> tuple[set, set]:
+        """Nazwy pól ciała i pola wymagane — z żywego opisu, nie z naszej pamięci."""
+        trasa = (sciezki.get(wzorzec) or {}).get(metoda) or {}
+        ciało = trasa.get("requestBody") or {}
+        odn = (((ciało.get("content") or {}).get("application/json") or {})
+               .get("schema") or {}).get("$ref", "")
+        schemat = schematy.get(odn.rsplit("/", 1)[-1], {}) if odn else {}
+        return set(schemat.get("properties") or {}), set(schemat.get("required") or [])
+
+    rozjazdy = 0
+    for op in kontrakt.KATALOG:
+        wzorzec = op.trasa.replace("{numer}", "{tenant_id}").replace("{uuid}", "{user_id}")
+        if wzorzec not in sciezki:
+            print(f"✗ {op.nazwa}: serwer nie zna trasy {wzorzec}")
+            rozjazdy += 1
+            continue
+        metoda = op.metoda.rsplit("/", 1)[-1].strip().lower()
+        serwer, serwer_wymaga = pola_zadania(wzorzec, metoda)
+        nasze = set(op.wymagane) | set(op.opcjonalne)
+        # Porównujemy OBIE strony różnicy. „Serwer zna, my nie" znaczy, że Kit odrzuci pole,
+        # które przeszłoby — i to jest gorsze niż odwrotność, bo blokuje pracę.
+        nowe_u_nich = sorted(serwer - nasze)
+        martwe_u_nas = sorted(nasze - serwer)
+        inne_wymagane = sorted(serwer_wymaga.symmetric_difference(set(op.wymagane)))
+        if nowe_u_nich or martwe_u_nas or inne_wymagane:
+            rozjazdy += 1
+            print(f"✗ {op.nazwa} ({metoda.upper()} {wzorzec})")
+            if nowe_u_nich:
+                print(f"    serwer przyjmuje, Kit ODRZUCI: {', '.join(nowe_u_nich)}")
+            if martwe_u_nas:
+                print(f"    Kit wymienia, serwer nie zna: {', '.join(martwe_u_nas)}")
+            if inne_wymagane:
+                print(f"    rozjazd pól wymaganych: {', '.join(inne_wymagane)}")
+        else:
+            print(f"✓ {op.nazwa}: {metoda.upper()} {wzorzec}")
+
+    print(f"\nSprawdzono {len(kontrakt.KATALOG)} operacji, rozjazdów: {rozjazdy}.")
+    if rozjazdy:
+        print(f"Katalog Kitu (`sf_kit/kontrakt.py`, sprawdzony {kontrakt.SPRAWDZONO}) "
+              f"rozjechał się z serwerem — popraw katalog, zanim ktoś oprze na nim pracę.")
+    return 1 if rozjazdy else 0
+
+
+def polecenie_agent_dodaj(args) -> int:
+    """Konto agenta: użytkownik + członkostwo + nadania + klucz, jednym aktem.
+
+    Wpadka, którą to zamyka (18.09): „nie da się założyć konta agenta przez API, bo
+    `POST /agents` odpowiada odmową metody". Właściwa trasa jest pod Organizacją.
+    """
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    op = kontrakt.znajdz("agent-dodaj")
+
+    uprawnienia = list(args.uprawnienia) if args.uprawnienia else None
+    cialo = {"email": args.email, "full_name": args.nazwa, "agent_slug": args.slug}
+    if uprawnienia is not None:
+        cialo["permissions"] = uprawnienia
+    cialo.update(_pola_surowe(args))
+    _sprawdz_pola(op, cialo)
+
+    try:
+        numer = klient.numer_organizacji(getattr(args, "org", None) or "")
+    except BladAPI as blad:
+        print(f"Nie umiem wskazać Organizacji: {blad}", file=sys.stderr)
+        return 1
+
+    try:
+        wynik = klient.zaloz_agenta(numer, email=args.email, nazwa=args.nazwa,
+                                    slug=args.slug, uprawnienia=uprawnienia,
+                                    dodatkowe=_pola_surowe(args))
+    except BladAPI as blad:
+        print(f"Nie udało się założyć konta: {blad}", file=sys.stderr)
+        if getattr(blad, "kod", None) == 403:
+            print("Tę operację wykonuje wyłącznie superadmin SF — rola owner Organizacji "
+                  "tu nie wystarczy.", file=sys.stderr)
+        return 1
+
+    konto = wynik.get("user") or {}
+    klucz_out = wynik.get("api_key") or {}
+    nadane = list(wynik.get("nadania") or [])
+    print(f"Konto założone: {konto.get('email')} (slug `{args.slug}`, Organizacja nr {numer})")
+    print(f"  nadania na członkostwie: {', '.join(nadane) or 'brak'}")
+
+    # Serwer ODSIEWA uprawnienia spoza swojego katalogu po cichu — odpowiedź pokazuje stan
+    # faktyczny, ale nikt jej nie czyta linijka po linijce. Różnicę mówimy wprost, bo
+    # „poprosiłam o `plans:write`, dostałam ciszę" to następna noc szukania, czemu agent
+    # dostaje 403 mimo „nadanego" uprawnienia.
+    if uprawnienia:
+        odpadlo = sorted(set(uprawnienia) - set(nadane))
+        if odpadlo:
+            print(f"  ⚠ serwer ODSIAŁ: {', '.join(odpadlo)} — te uprawnienia nie są "
+                  f"w jego katalogu nadawalnych. Konto ich NIE ma.")
+
+    sekret = klucz_out.get("api_key") or ""
+    if sekret:
+        print(f"\n  klucz (widoczny RAZ, przekaż go teraz): {sekret}")
+        print(f"  prefiks: {klucz_out.get('key_prefix')}   zakres: {klucz_out.get('scope')}")
+
+    # WERYFIKACJA, nie kod odpowiedzi. 201 na konfigurację, która nie działa, to jest dokładnie
+    # to, co kosztowało pół nocy przy kluczu z polem `scope`.
+    if sekret and not args.bez_proby:
+        print("\nPróbne wywołanie nowym kluczem (`GET /me`):")
+        try:
+            kim = klient.probne_wywolanie(sekret)
+        except BladAPI as blad:
+            print(f"  ✗ klucz NIE DZIAŁA: {blad}", file=sys.stderr)
+            print("  Konto powstało, ale sekretem nie da się pracować — zgłoś to, "
+                  "zanim go przekażesz.", file=sys.stderr)
+            return 1
+        orgs = [o.get("slug") for o in (kim.get("organizacje") or [])]
+        print(f"  ✓ działa — konto {(kim.get('konto') or {}).get('email')}, "
+              f"Organizacje: {', '.join(str(o) for o in orgs) or 'brak'}")
+    return 0
+
+
+def polecenie_nadaj(args) -> int:
+    """Nadania na CZŁONKOSTWIE konta w tej Organizacji — odczyt i zapis.
+
+    Wpadka, którą to zamyka (18.09): „nie ma tras odczytu ani zapisu nadań" — bo pytanie szło
+    pod adresem agenta. Trasy są pod adresem użytkownika w Organizacji.
+    """
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    op = kontrakt.znajdz("nadaj")
+
+    # BRAMKA PRZED SIECIĄ, nie po niej. Pierwsza wersja sprawdzała pola dopiero przed zapisem,
+    # czyli PO odczycie stanu — a gdy odczyt kończył się odmową (403 to tu normalna sytuacja
+    # dla kogoś, kto nie jest ownerem), człowiek dostawał komunikat o uprawnieniach i nigdy
+    # nie dowiadywał się, że w dodatku wysyłał pole, którego ta trasa nie zna. Błąd składni
+    # żądania ma być widoczny zawsze, niezależnie od tego, czy wolno je w ogóle wykonać.
+    zamiar = {"ustaw_domyslne": True} if args.domyslne else {
+        "permissions": list(args.uprawnienia)}
+    zamiar.update(_pola_surowe(args))
+    if not args.pokaz:
+        _sprawdz_pola(op, zamiar)
+
+    if args.uprawnienia and args.domyslne:
+        # Serwer rozstrzyga to na korzyść `ustaw_domyslne` i robi to po cichu. Suma tych dwóch
+        # rzeczy nie istnieje, więc pytanie o nią jest pomyłką, a nie wyborem do zgadnięcia.
+        print("`--domyslne` i `--uprawnienie` wykluczają się: serwer w takim żądaniu bierze "
+              "sam zestaw domyślny i lista przepada bez słowa. Wybierz jedno.", file=sys.stderr)
+        return 2
+
+    try:
+        numer = klient.numer_organizacji(getattr(args, "org", None) or "")
+    except BladAPI as blad:
+        print(f"Nie umiem wskazać Organizacji: {blad}", file=sys.stderr)
+        return 1
+
+    try:
+        przed = klient.nadania(numer, args.konto)
+    except BladAPI as blad:
+        print(f"Nie udało się odczytać nadań: {blad}", file=sys.stderr)
+        if getattr(blad, "kod", None) == 404:
+            print("404 tutaj znaczy jedno z dwojga: nie ma takiego konta ALBO nie ma ono "
+                  "AKTYWNEGO członkostwa w tej Organizacji. Zawieszone członkostwo nie "
+                  "daje nic, więc nadanie na nim też by nie dało.", file=sys.stderr)
+        return 1
+
+    stan = list(przed.get("permissions") or [])
+    if args.pokaz or (not args.uprawnienia and not args.domyslne):
+        print(f"{przed.get('email')} w Organizacji nr {numer}:")
+        print(f"  {', '.join(stan) or 'brak nadań'}")
+        if not args.pokaz:
+            print(f"\nŻeby zmienić: {_jak_wolac()} nadaj {args.konto} "
+                  f"--uprawnienie tickets:read --uprawnienie tickets:comment")
+            print(f"           albo: {_jak_wolac()} nadaj {args.konto} --domyslne")
+        return 0
+
+    try:
+        po = klient.ustaw_nadania(numer, args.konto,
+                                  uprawnienia=list(args.uprawnienia), domyslne=args.domyslne,
+                                  dodatkowe=_pola_surowe(args))
+    except BladAPI as blad:
+        print(f"Nie udało się zapisać nadań: {blad}", file=sys.stderr)
+        if getattr(blad, "kod", None) == 403:
+            print("Nadania zmienia owner Organizacji albo superadmin — rola admin "
+                  "tu nie wystarczy.", file=sys.stderr)
+        return 1
+
+    teraz = list(po.get("permissions") or [])
+    nadane = sorted(set(teraz) - set(stan))
+    odebrane = sorted(set(stan) - set(teraz))
+    print(f"{po.get('email')} w Organizacji nr {numer}:")
+    print(f"  {', '.join(teraz) or 'brak nadań'}")
+    if nadane:
+        print(f"  + {', '.join(nadane)}")
+    if odebrane:
+        print(f"  − {', '.join(odebrane)}")
+    if not nadane and not odebrane:
+        print("  (bez zmian — dokładnie to już tam było)")
+    return 0
+
+
+def polecenie_agent_napraw(args) -> int:
+    """Członkostwo ISTNIEJĄCEGO konta: slug, rodzaj, katalog boardu.
+
+    To jest trasa, na której siedziała usterka z ADVERTPR-879: `permissions` przyjmowane
+    i ignorowane, 200 i zero skutku. Po stronie API poprawione tego samego dnia; tutaj
+    bramka stoi przed wysyłką, żeby pomyłkę rozpoznać, zanim zamieni się w żądanie.
+    """
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    op = kontrakt.znajdz("agent-napraw")
+
+    cialo: dict = {}
+    if args.slug:
+        cialo["agent_slug"] = args.slug
+    if args.rodzaj:
+        cialo["kind"] = args.rodzaj
+    if args.katalog:
+        cialo["board_root"] = args.katalog
+    cialo.update(_pola_surowe(args))
+    _sprawdz_pola(op, cialo)
+
+    if not cialo:
+        print("Nie podałaś, co poprawić. Co najmniej jedno z: --slug, --rodzaj, --katalog.",
+              file=sys.stderr)
+        return 2
+    if cialo.get("kind") == "agent" and not cialo.get("agent_slug"):
+        # Serwer odrzuci to 422, ale powód warto podać ZANIM ktoś zobaczy kod błędu: plakietka
+        # agenta bez katalogu boardu to stan, który wygląda na zrobiony i nie działa (SF-37).
+        print("`--rodzaj agent` wymaga `--slug`: slug wskazuje katalog boardu, a bez niego "
+              "delegacja odbija się 422 dopiero w momencie użycia.", file=sys.stderr)
+        return 2
+
+    try:
+        numer = klient.numer_organizacji(getattr(args, "org", None) or "")
+        wynik = klient.napraw_agenta(numer, args.konto, slug=args.slug or "",
+                                     rodzaj=args.rodzaj or "", katalog=args.katalog or "",
+                                     dodatkowe=_pola_surowe(args))
+    except BladAPI as blad:
+        print(f"Nie udało się poprawić członkostwa: {blad}", file=sys.stderr)
+        if getattr(blad, "kod", None) == 403:
+            print("Tę operację wykonuje wyłącznie superadmin SF.", file=sys.stderr)
+        return 1
+
+    print(f"Członkostwo poprawione: {wynik.get('email')} w „{wynik.get('tenant_slug')}”")
+    print(f"  rodzaj: {wynik.get('kind')}   slug: {wynik.get('agent_slug') or 'brak'}")
+    print(f"  katalog boardu: {wynik.get('board_root') or 'kanon ze sluga'}")
+    print(f"\nUprawnień to NIE zmienia — te nadaje `{_jak_wolac()} nadaj {args.konto}`.")
+    return 0
+
+
+def polecenie_klucz_wystaw(args) -> int:
+    """Klucz API w tej Organizacji — i próbne wywołanie, zanim ktokolwiek go dostanie.
+
+    Wpadka, którą to zamyka (18.09): pole `scope` przyjęte i zignorowane. Serwer odpowiedział
+    201 na konfigurację, która nie działa, a wyszło to po pół nocy pracy.
+    """
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    op = kontrakt.znajdz("klucz-wystaw")
+
+    # `None` (brak zawężenia) i `[]` (klucz bez żadnych praw) to po tamtej stronie dwie różne
+    # rzeczy — kontrakt 545 §4.3. Kit nie ma prawa zamienić jednego w drugie, bo tak powstaje
+    # martwy sekret: 201 przy wystawieniu i 403 na każdym żądaniu.
+    uprawnienia = list(args.uprawnienia) if args.uprawnienia else None
+
+    cialo = {"source_name": args.nazwa, "scope": args.zakres, "permissions": uprawnienia}
+    if args.opis:
+        cialo["description"] = args.opis
+    if args.wlasciciel:
+        cialo["user_email"] = args.wlasciciel
+    cialo.update(_pola_surowe(args))
+    _sprawdz_pola(op, cialo)
+
+    if args.zakres == "user" and not args.wlasciciel:
+        print("Klucz osobisty (`--zakres user`) pożycza prawa właściciela, więc bez "
+              "`--wlasciciel <mail>` nie ma czyich praw pożyczyć.", file=sys.stderr)
+        return 2
+
+    try:
+        wynik = klient.wystaw_klucz(nazwa=args.nazwa, opis=args.opis or "",
+                                    zakres=args.zakres, wlasciciel=args.wlasciciel or "",
+                                    uprawnienia=uprawnienia, dodatkowe=_pola_surowe(args))
+    except BladAPI as blad:
+        print(f"Nie udało się wystawić klucza: {blad}", file=sys.stderr)
+        return 1
+
+    sekret = wynik.get("api_key") or ""
+    print(f"Klucz wystawiony: {wynik.get('key_prefix')}…  zakres: {wynik.get('scope')}")
+    print(f"  właściciel: {wynik.get('user_email') or 'brak (klucz integracyjny)'}")
+    zaw = wynik.get("permissions")
+    print(f"  zawężenie: {', '.join(zaw) if zaw else 'brak — pełne prawa właściciela'}")
+    print(f"\n  sekret (widoczny RAZ): {sekret}")
+
+    if args.bez_proby:
+        return 0
+    print("\nPróbne wywołanie tym kluczem (`GET /me`):")
+    try:
+        kim = klient.probne_wywolanie(sekret)
+    except BladAPI as blad:
+        print(f"  ✗ klucz NIE DZIAŁA: {blad}", file=sys.stderr)
+        print("  Nie przekazuj go — 201 przy wystawieniu nie jest dowodem, że działa.",
+              file=sys.stderr)
+        return 1
+    orgs = [o.get("slug") for o in (kim.get("organizacje") or [])]
+    klucz_info = kim.get("klucz") or {}
+    print(f"  ✓ działa — zakres {klucz_info.get('scope')}, "
+          f"zawężony: {'tak' if klucz_info.get('zawezony') else 'nie'}")
+    print(f"  Organizacje, w których zadziała: {', '.join(str(o) for o in orgs) or 'brak'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sf-kit",
@@ -1023,6 +1453,79 @@ def main(argv: list[str] | None = None) -> int:
     od = pod.add_parser("odbierz", help="[koordynator] zamknij zadanie po sprawdzeniu wyniku")
     od.add_argument("zadanie", help="identyfikator zadania (`external_id` albo uuid)")
     od.set_defaults(funkcja=polecenie_odbierz)
+
+    # ── profil KOORDYNATOR: warstwa administracyjna (ADVERTPR-879) ────────────
+    #
+    # NIGDZIE nie ma flagi z numerem Organizacji i to jest cała odpowiedź na pułapkę
+    # z wymagania 2 sprawy. Numer w ścieżce to `tenants.id`, a nagłówek niesie `uuid` —
+    # dwa identyfikatory tej samej Organizacji w jednym żądaniu. Zamiast ostrzegać przed
+    # pomyłką, odbieramy okazję do jej popełnienia: Kit tłumaczy `--org <slug>` na numer sam.
+
+    kt = pod.add_parser("kontrakt",
+                        help="[koordynator] co dana operacja potrafi i jakich pól wymaga")
+    kt.add_argument("operacja", nargs="?", default=None,
+                    help="nazwa operacji; bez niej — spis wszystkich")
+    kt.add_argument("--sprawdz", action="store_true",
+                    help="porównaj katalog Kitu z żywym openapi.json serwera")
+    kt.set_defaults(funkcja=polecenie_kontrakt)
+
+    ad = pod.add_parser("agent-dodaj",
+                        help="[koordynator] załóż konto agenta (konto + nadania + klucz)")
+    ad.add_argument("slug", help="slug agenta = nazwa katalogu boardu (male-litery-z-myslnikami)")
+    ad.add_argument("--email", required=True)
+    ad.add_argument("--nazwa", required=True, help="nazwa wyświetlana konta")
+    ad.add_argument("--uprawnienie", dest="uprawnienia", action="append", default=[],
+                    metavar="NAZWA",
+                    help="powtarzalne; bez tego serwer nadaje swój zestaw domyślny")
+    ad.add_argument("--bez-proby", dest="bez_proby", action="store_true",
+                    help="nie wołaj GET /me nowym kluczem (domyślnie Kit to robi)")
+    ad.add_argument("--pole", dest="pola", action="append", default=[], metavar="NAZWA=WARTOSC",
+                    help="pole ciała żądania, którego Kit nie modeluje; nieznane trasie "
+                         "zostanie ODRZUCONE z adresem właściwej trasy")
+    ad.set_defaults(funkcja=polecenie_agent_dodaj)
+
+    nd = pod.add_parser("nadaj",
+                        help="[koordynator] uprawnienia konta w tej Organizacji")
+    nd.add_argument("konto", help="uuid konta (nie slug agenta)")
+    nd.add_argument("--uprawnienie", dest="uprawnienia", action="append", default=[],
+                    metavar="NAZWA", help="powtarzalne; ZASTĘPUJE dotychczasowy zestaw")
+    nd.add_argument("--domyslne", action="store_true",
+                    help="ustaw zestaw domyślny agenta (wyklucza się z --uprawnienie)")
+    nd.add_argument("--pokaz", action="store_true", help="tylko odczyt, bez zapisu")
+    nd.add_argument("--pole", dest="pola", action="append", default=[], metavar="NAZWA=WARTOSC",
+                    help="pole ciała żądania, którego Kit nie modeluje; nieznane trasie "
+                         "zostanie ODRZUCONE z adresem właściwej trasy")
+    nd.set_defaults(funkcja=polecenie_nadaj)
+
+    an = pod.add_parser("agent-napraw",
+                        help="[koordynator] popraw członkostwo istniejącego konta")
+    an.add_argument("konto", help="uuid albo adres konta")
+    an.add_argument("--slug", default=None, help="slug agenta = nazwa katalogu boardu")
+    an.add_argument("--rodzaj", default=None, choices=["agent", "human"])
+    an.add_argument("--katalog", default=None, metavar="SCIEZKA",
+                    help="nadpisanie katalogu boardu (bez tego: kanon ze sluga)")
+    an.add_argument("--pole", dest="pola", action="append", default=[], metavar="NAZWA=WARTOSC",
+                    help="pole ciała żądania, którego Kit nie modeluje; nieznane trasie "
+                         "zostanie ODRZUCONE z adresem właściwej trasy")
+    an.set_defaults(funkcja=polecenie_agent_napraw)
+
+    kw = pod.add_parser("klucz-wystaw",
+                        help="[koordynator] wystaw klucz API i sprawdź, że działa")
+    kw.add_argument("nazwa", help="źródło klucza — po czym go poznasz na liście")
+    kw.add_argument("--opis", default=None)
+    kw.add_argument("--zakres", default="tenant", choices=["tenant", "user", "super_admin"],
+                    help="jak daleko klucz sięga w Organizacjach (to NIE są uprawnienia)")
+    kw.add_argument("--wlasciciel", default=None, metavar="MAIL",
+                    help="wymagane przy --zakres user: czyje prawa klucz pożycza")
+    kw.add_argument("--uprawnienie", dest="uprawnienia", action="append", default=[],
+                    metavar="NAZWA",
+                    help="ZAWĘŻENIE klucza; bez tego klucz ma pełne prawa właściciela")
+    kw.add_argument("--bez-proby", dest="bez_proby", action="store_true",
+                    help="nie wołaj GET /me nowym kluczem (domyślnie Kit to robi)")
+    kw.add_argument("--pole", dest="pola", action="append", default=[], metavar="NAZWA=WARTOSC",
+                    help="pole ciała żądania, którego Kit nie modeluje; nieznane trasie "
+                         "zostanie ODRZUCONE z adresem właściwej trasy")
+    kw.set_defaults(funkcja=polecenie_klucz_wystaw)
 
     st = pod.add_parser("status", help="[koordynator] kim jestem + kolejka floty")
     st.add_argument("--agent-slug", default=None, dest="agent_slug")
