@@ -713,6 +713,14 @@ oryginał zostaje tam, gdzie był.
 W sprawozdaniu wymienione są też pliki, których **nie** załączono, razem z powodem („nie ma
 takiego pliku", „poza katalogiem roboczym", „powyżej limitu"). Cisza o nich byłaby stratą.
 
+**Zadanie, które obiecało wynik i go nie oddało, nie zamyka się jako zrobione** (v0.5.7).
+Gdy treść zadania zawiera `WYNIK: <plik>`, a pliku po pracy nie ma (albo jest pusty, albo leży
+poza katalogiem roboczym), worker zdaje sprawozdanie i oznacza zadanie jako **nieudane**
+(`failed`), zamiast je domknąć. Bramka jest wąska celowo: zadanie bez linii `WYNIK:` — na
+przykład „sprawdź i opisz" — zamyka się normalnie, bo jego produktem jest sprawozdanie.
+Starsza instalacja SF, która nie zna statusu `failed`, dostaje zadanie z powrotem do kolejki —
+gorzej, ale bez kłamstwa.
+
 **Nieudane zadanie ma najwyżej trzy próby** (v0.5.6): kolejna po 10 minutach, następna po 60,
 a potem zadanie dostaje status `failed` i przestaje wracać. Licznik i termin następnej próby
 są trwałe (`state.json` obok konfiguracji), więc restart workera ich nie zeruje. Gdy człowiek

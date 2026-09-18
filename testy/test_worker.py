@@ -330,3 +330,50 @@ class TestDrogaWynikuDoSprawy(unittest.TestCase):
             self.assertEqual(wynik, "zrobione")
             self.assertTrue(klient.wpisy or klient.wpisy_z_plikami,
                             "zadanie bez plików ma nadal zdać sprawozdanie")
+
+
+class TestNieoddanegoWyniku(unittest.TestCase):
+    """ADVERTPR-777: zadanie, które obiecało produkt i go nie oddało, NIE jest zrobione.
+
+    Damian, 18.09: jedno zadanie zamknęło się jako zrobione z zerowym produktem. Bramka jest
+    wąska celowo — patrzy na NIEDOTRZYMANE WSKAZANIE (`WYNIK: plik`), nie na „czy powstały
+    jakieś pliki": zadanie „sprawdź i opisz" słusznie nie produkuje żadnych.
+    """
+
+    def test_obiecany_plik_ktorego_nie_ma_konczy_sie_statusem_failed(self):
+        klient = AtrapaKlienta()
+        obsluz_zadanie(klient, konfiguracja(),
+                       zadanie(body_md="echo 'niby zrobione'\nexit 0\nWYNIK: raport-ktorego-nie-ma.pdf"))
+
+        statusy = [s for _, s in klient.statusy]
+        self.assertIn("failed", statusy, "zadanie bez obiecanego wyniku ma być nieudane")
+        self.assertNotIn("completed", statusy, "to nie jest zadanie zrobione")
+
+    def test_sprawozdanie_mowi_CZEGO_brakuje(self):
+        """Werdykt bez nazwy brakującego pliku zmusza człowieka do zgadywania."""
+        klient = AtrapaKlienta()
+        obsluz_zadanie(klient, konfiguracja(),
+                       zadanie(body_md="echo x\nexit 0\nWYNIK: raport-ktorego-nie-ma.pdf"))
+
+        tresci = " ".join(t for _, t in klient.wpisy)
+        self.assertIn("raport-ktorego-nie-ma.pdf", tresci)
+        self.assertIn("nie oddało obiecanego wyniku", tresci)
+
+    def test_zadanie_BEZ_obietnicy_dalej_zamyka_sie_normalnie(self):
+        """Gdyby bramka patrzyła na `pliki`, każde zadanie opisowe byłoby nieudane."""
+        klient = AtrapaKlienta()
+        obsluz_zadanie(klient, konfiguracja(), zadanie(body_md="echo 'przegląd zrobiony'"))
+
+        statusy = [s for _, s in klient.statusy]
+        self.assertIn("completed", statusy)
+        self.assertNotIn("failed", statusy)
+
+    def test_gdy_SF_nie_zna_failed_zadanie_wraca_do_kolejki_a_NIE_zamyka_sie(self):
+        """Instalacja sprzed 777 nie przyjmie `failed`. Wtedy kolejka — gorzej, ale bez kłamstwa."""
+        klient = AtrapaKlienta(status_pada_na="failed")
+        obsluz_zadanie(klient, konfiguracja(),
+                       zadanie(body_md="echo x\nexit 0\nWYNIK: brak.pdf"))
+
+        statusy = [s for _, s in klient.statusy]
+        self.assertNotIn("completed", statusy)
+        self.assertEqual(statusy[-1], "queued")

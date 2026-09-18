@@ -252,3 +252,35 @@ class TestOpisu(_Katalog):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNiedotrzymanychObietnic(_Katalog):
+    """ADVERTPR-777: zadanie, które obiecało produkt i go nie oddało, nie jest zrobione."""
+
+    def test_wskazanie_bez_pliku_jest_niedotrzymane(self):
+        z = wyniki.zbierz("WYNIK: raport.pdf", katalog=self.baza, od_czasu=0)
+        self.assertEqual(z.niedotrzymane, ["raport.pdf"])
+
+    def test_wskazanie_spelnione_nie_jest_niedotrzymane(self):
+        self.plik("outgoing/raport.pdf")
+        z = wyniki.zbierz("WYNIK: outgoing/raport.pdf", katalog=self.baza, od_czasu=0)
+        self.assertEqual(z.niedotrzymane, [])
+
+    def test_pusty_plik_liczy_sie_jako_niedotrzymane(self):
+        """`_dodaj` odrzuca pliki puste — a plik o zerowej długości to nie jest oddany wynik.
+
+        Liczymy PO SKUTKU (czy plik wszedł do załączników), nie po samym istnieniu ścieżki.
+        """
+        self.plik("outgoing/pusty.pdf", tresc="")
+        z = wyniki.zbierz("WYNIK: outgoing/pusty.pdf", katalog=self.baza, od_czasu=0)
+        self.assertEqual(z.niedotrzymane, ["outgoing/pusty.pdf"])
+
+    def test_brak_wskazania_to_brak_obietnicy(self):
+        """Zadanie „sprawdź i opisz" nie obiecuje pliku — jego produktem jest sprawozdanie.
+
+        Gdyby bramka domknięcia patrzyła na `pliki` zamiast na `niedotrzymane`, każde takie
+        zadanie kończyłoby się jako nieudane.
+        """
+        z = wyniki.zbierz("zrób przegląd i napisz wpis", katalog=self.baza, od_czasu=0)
+        self.assertEqual(z.niedotrzymane, [])
+        self.assertEqual(z.pliki, [])

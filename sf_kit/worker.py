@@ -435,6 +435,38 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
     if po_wykonaniu.przerwal:
         _wroc_do_kolejki(klient, zid)
         return f"wykonane i opisane, ale {po_wykonaniu.przerwal} przerwał(a) — wróciło do kolejki"
+
+    # 4d. ZADANIE, KTÓRE OBIECAŁO PRODUKT I GO NIE ODDAŁO, NIE JEST ZROBIONE (ADVERTPR-777)
+    # ════════════════════════════════════════════════════════════════════════════════════
+    # Damian, 18.09: jedno zadanie zamknęło się jako zrobione z ZEROWYM produktem.
+    #
+    # Bramka jest WĄSKA i to jest jej sedno: nie sprawdzamy „czy powstały jakieś pliki", bo
+    # zadanie typu „sprawdź X i opisz" słusznie nie produkuje żadnych — jego produktem jest
+    # sprawozdanie i ono poszło (`zapisano` wyżej). Sprawdzamy węziej: **autor zadania napisał
+    # `WYNIK: <plik>` i tego pliku nie ma.** Wtedy `completed` jest nieprawdą, niezależnie od
+    # tego, jak dobrze wygląda wyjście wykonawcy.
+    #
+    # Dopiero od dziś da się to powiedzieć w SF: status `failed` wszedł do `TASK_STATUSES`
+    # tą samą sprawą. Wcześniej jedynym wyjściem byłoby `on_hold` — czyli „czeka na człowieka",
+    # co myli zadanie nietknięte z zadaniem, które padło.
+    if zebrane.niedotrzymane:
+        brakuje = ", ".join(zebrane.niedotrzymane)
+        _log(f"   zadanie obiecało wynik, którego nie ma: {brakuje}")
+        _zdaj_sprawozdanie(
+            klient, zadanie,
+            f"**Zadanie nie oddało obiecanego wyniku.** Treść wskazywała `WYNIK: {brakuje}`, "
+            f"a pliku nie ma w katalogu roboczym po zakończeniu pracy.\n\n"
+            f"Wykonawca zakończył się bez błędu, więc sprawozdanie z jego przebiegu jest wyżej — "
+            f"ale zamknięcie tego jako zrobione byłoby nieprawdą. Zadanie oznaczam jako nieudane; "
+            f"do decyzji człowieka, czy wynik miał inną nazwę, czy praca naprawdę nie powstała.")
+        try:
+            klient.ustaw_status(zid, "failed")
+        except BladAPI as blad:
+            # SF sprzed ADVERTPR-777 nie zna `failed`. Nie zamykamy wtedy jako `completed` —
+            # zadanie wraca do kolejki, co jest gorsze, ale nie jest kłamstwem.
+            _log(f"   nie mogę oznaczyć jako failed ({blad}) — oddaję do kolejki")
+            _wroc_do_kolejki(klient, zid)
+        return f"nieudane: brak obiecanego wyniku ({brakuje[:80]})"
     puls.krok(4, "zamykam zadanie")
     try:
         klient.ustaw_status(zid, "completed")

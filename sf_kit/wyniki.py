@@ -69,6 +69,14 @@ class Zebrane:
     pliki: list[Path] = field(default_factory=list)
     pominiete: list[str] = field(default_factory=list)
     uwagi: list[str] = field(default_factory=list)
+    #: Wskazania `WYNIK:` z treści zadania, których NIE UDAŁO SIĘ dostarczyć (ADVERTPR-777).
+    #:
+    #: Osobno od `pominiete`, choć powód bywa ten sam. Różnica jest w ciężarze: `pominiete`
+    #: to lista rzeczy, których nie załączono (także takich, których nikt nie obiecywał —
+    #: plik za duży, katalog zamiast pliku). To pole mówi węziej i mocniej: **autor zadania
+    #: powiedział, co ma z niego wyjść, i to nie wyszło.** Na tym stoi bramka domknięcia
+    #: w workerze, więc nie może opierać się na parsowaniu cudzych komunikatów.
+    niedotrzymane: list[str] = field(default_factory=list)
     #: Pliki spakowane do zip po drodze — do posprzątania przez wołającego.
     tymczasowe: list[Path] = field(default_factory=list)
 
@@ -106,7 +114,13 @@ def zbierz(tresc: str, *, katalog: Path | str, od_czasu: float,
     if wskazane:
         for surowa in wskazane:
             znaleziony = _znajdz_wskazany(baza, surowa)
+            przed = len(zebrane.pliki)
             _dodaj(zebrane, znaleziony, etykieta=surowa)
+            if len(zebrane.pliki) == przed:
+                # Wskazanie nie dało pliku. Liczymy PO SKUTKU, a nie po samym istnieniu ścieżki:
+                # `_dodaj` odrzuca też katalog, plik pusty i plik poza katalogiem roboczym —
+                # a każdy z tych przypadków znaczy „obiecanego wyniku nie ma".
+                zebrane.niedotrzymane.append(surowa)
 
     # Pliki zmodyfikowane podczas zadania dokładamy także przy jawnym wskazaniu.
     for nazwa in katalogi_swiezych or ["work/zadania", KATALOG_WYNIKOW]:
