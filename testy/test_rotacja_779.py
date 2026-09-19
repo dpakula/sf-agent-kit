@@ -163,3 +163,47 @@ class TestWorkerDbaOKlucz(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPolecenieRotate(unittest.TestCase):
+    """`sf-kit rotate` musi wołać SF Z ORGANIZACJĄ — inaczej 403 przy poprawnym kluczu.
+
+    Odnowienie wygląda na czynność ponad Organizacjami, ale uprawnienie `keys:self-renew` jest
+    nadaniem na członkostwie, więc SF wymaga nagłówka `X-Tenant-Id` (sprawdzone żądaniem na
+    trasie, nie założone). Pierwsza wersja polecenia budowała klienta bez Organizacji.
+    """
+
+    def test_klient_dostaje_organizacje(self):
+        from types import SimpleNamespace
+
+        from sf_kit import cli
+
+        zbudowane = []
+
+        class _K:
+            def __init__(self, *, baza, klucz, organizacja=""):
+                zbudowane.append(organizacja)
+
+            def kim_jestem(self):
+                return {"konto": {"nazwa": "Borys"}, "klucz": {"id": "abc"},
+                        "organizacje": [{"tenant_uuid": "u-1", "slug": "advertpro-co",
+                                         "nazwa": "AdvertPro", "rola": "user",
+                                         "uprawnienia_efektywne": ["keys:self-renew"]}]}
+
+        pierwotne = (cli.Klient, cli.konfiguracja.wczytaj, cli.magazyn_klucza.wczytaj,
+                     cli.mod_rotacja.rotuj)
+        cli.Klient = _K
+        cli.konfiguracja.wczytaj = lambda: SimpleNamespace(
+            adres="https://sf.example", organizacja="advertpro-co", slug="borys-sf",
+            profil="agent")
+        cli.magazyn_klucza.wczytaj = lambda: "sk_live_x"
+        cli.mod_rotacja.rotuj = lambda klient: rotacja.Wynik(True, "odnowiony", gdzie="atrapa")
+        try:
+            kod = cli.polecenie_rotate(SimpleNamespace(org=None))
+        finally:
+            (cli.Klient, cli.konfiguracja.wczytaj, cli.magazyn_klucza.wczytaj,
+             cli.mod_rotacja.rotuj) = pierwotne
+
+        self.assertEqual(kod, 0)
+        # Pierwszy klient (odczyt `/me`) celowo bez Organizacji, drugi — TEN, którym rotujemy — z nią.
+        self.assertEqual(zbudowane, ["", "u-1"])

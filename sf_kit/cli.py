@@ -347,7 +347,20 @@ def polecenie_rotate(args) -> int:
     if not kl:
         raise SystemExit(magazyn_klucza.powod_braku_klucza())
 
-    klient = Klient(baza=konf.adres, klucz=kl)
+    # Organizacja jest OBOWIĄZKOWA, choć odnowienie wygląda na czynność ponad nimi: uprawnienie
+    # `keys:self-renew` jest nadaniem na CZŁONKOSTWIE, więc bez wskazania Organizacji SF nie ma
+    # czego policzyć i oddaje 403. Pierwsza wersja tego polecenia budowała klienta bez
+    # Organizacji i dostawała odmowę przy najzupełniej poprawnym kluczu.
+    klient_bez_org = Klient(baza=konf.adres, klucz=kl)
+    toz = _tozsamosc(klient_bez_org)
+    try:
+        org = tozsamosc.wybierz(toz, wskazana=(getattr(args, "org", None) or ""),
+                                z_pliku=konf.organizacja)
+    except tozsamosc.BrakWyboru as brak:
+        print(str(brak))
+        return 1
+
+    klient = Klient(baza=konf.adres, klucz=kl, organizacja=org.uuid)
     wynik = mod_rotacja.rotuj(klient)
     print(wynik.zdanie)
     if not wynik.odnowiony:
