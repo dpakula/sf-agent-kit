@@ -84,6 +84,11 @@ class Tozsamosc:
     #: Termin ważności klucza. `None` znaczy BRAK TERMINU (klucz bezterminowy), a nie „nie wiem"
     #: — to rozróżnienie jest po stronie SF i Kit nie ma go rozmywać.
     klucz_wygasa: str | None = None
+    #: Identyfikator klucza — potrzebny WYŁĄCZNIE do samoodnowienia (adres trasy `odnow`).
+    #: `None` znaczy starsze SF, które go nie podaje; wtedy Kit mówi to wprost, zamiast
+    #: zgadywać identyfikator. Na końcu listy pól z wartością domyślną, żeby istniejące
+    #: wywołania `Tozsamosc(...)` — także te w testach — nie musiały się zmieniać.
+    klucz_id: str | None = None
 
     @property
     def z_nadaniami(self) -> list[Organizacja]:
@@ -103,6 +108,7 @@ def z_odpowiedzi(dane: dict) -> Tozsamosc:
     return Tozsamosc(
         konto_nazwa=konto.get("nazwa") or konto.get("email"),
         konto_kind=konto.get("kind"),
+        klucz_id=(str(klucz.get("id")) if klucz.get("id") else None),
         klucz_prefiks=klucz.get("prefiks"),
         klucz_scope=klucz.get("scope"),
         klucz_zawezony=bool(klucz.get("zawezony")),

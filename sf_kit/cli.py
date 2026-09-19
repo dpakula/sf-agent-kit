@@ -27,6 +27,7 @@ from . import klucz as magazyn_klucza
 from . import autor
 from . import koordynator
 from . import kontrakt
+from . import rotacja as mod_rotacja
 from . import tozsamosc
 from .api import BladAPI, Klient
 
@@ -328,6 +329,34 @@ def _licznik(wynik) -> str:
             f"przejrzano zadań Organizacji: {wynik.przejrzano}"
             + (f" z {wynik.wszystkich}" if wynik.urwane else ""))
 
+
+
+def polecenie_rotate(args) -> int:
+    """Wymień sekret klucza, zanim wygaśnie — kluczem, który jeszcze żyje (ADVERTPR-779 B).
+
+    Klucz musi mieć nadanie `keys:self-renew` na koncie w tej Organizacji i być w oknie
+    siedmiu dni przed terminem. Decyduje SalesForge; Kit próbuje i pokazuje odpowiedź.
+
+    Po udanej rotacji STARY SEKRET JEST MARTWY — nowy jest już zapisany w tym samym miejscu,
+    z którego Kit czyta klucz, więc nie trzeba nic przepisywać. Gdyby zapis się nie udał,
+    zobaczysz błąd i dostęp będzie do odzyskania tylko przez człowieka; dlatego zapis idzie
+    przed jakimkolwiek wypisywaniem na ekran.
+    """
+    konf = konfiguracja.wczytaj()
+    kl = magazyn_klucza.wczytaj()
+    if not kl:
+        raise SystemExit(magazyn_klucza.powod_braku_klucza())
+
+    klient = Klient(baza=konf.adres, klucz=kl)
+    wynik = mod_rotacja.rotuj(klient)
+    print(wynik.zdanie)
+    if not wynik.odnowiony:
+        # Kod wyjścia 1, bo to jest odpowiedź „nie odnowiłem" — a skrypt, który tego nie
+        # sprawdzi, poszedłby dalej z kluczem, któremu zostało kilka dni.
+        return 1
+    print("Stary sekret przestał działać w chwili odpowiedzi — to zamierzone "
+          "(„jeden żywy sekret naraz”).")
+    return 0
 
 
 def polecenie_heartbeat(args) -> int:
@@ -1369,6 +1398,8 @@ def main(argv: list[str] | None = None) -> int:
     pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
     pod.add_parser("heartbeat", help="czy worker tego agenta żyje").set_defaults(funkcja=polecenie_heartbeat)
+    pod.add_parser("rotate", help="wymień sekret klucza przed wygaśnięciem (okno 7 dni)"
+                   ).set_defaults(funkcja=polecenie_rotate)
     us = pod.add_parser("usluga",
                         help="[worker] usługa workera: systemd (Linux) albo launchd (macOS)")
     us.add_argument("--pokaz", action="store_true",

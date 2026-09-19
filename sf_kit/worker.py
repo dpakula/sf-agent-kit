@@ -33,6 +33,7 @@ from . import ramka
 from . import reakcje as mod_reakcje
 from . import skrzynka as mod_skrzynka
 from .telemetria import Telemetria
+from . import rotacja as mod_rotacja
 from . import tozsamosc as mod_tozsamosc
 from . import usluga
 from . import wyniki
@@ -595,12 +596,53 @@ def ostrzez_o_kluczu(klient: Klient, *, teraz: datetime | None = None) -> str | 
     zatrzymaniem workera — zatrzymać go ma dopiero SF, gdy naprawdę odmówi.
     """
     try:
-        toz = mod_tozsamosc.z_odpowiedzi(klient.me())
+        # `klient.kim_jestem()`, NIE `klient.me()`. Do 19.09 stało tu `me()`, którego `Klient`
+        # nigdy nie miał — atrapa w teście miała, więc jedenaście testów było zielonych, a na
+        # prawdziwym kliencie `AttributeError` wpadał w to `except` i ostrzeżenie NIE POSZŁO
+        # ani razu. Fail-soft połknął literówkę; test niżej pilnuje, że nazwa istnieje naprawdę.
+        toz = mod_tozsamosc.z_odpowiedzi(klient.kim_jestem())
     except Exception:
         return None
     zdanie = mod_tozsamosc.ostrzezenie_o_waznosci(toz, teraz=teraz)
     if zdanie:
         _log(zdanie)
+    return zdanie
+
+
+def zadbaj_o_klucz(klient: Klient, *, teraz: datetime | None = None,
+                   zapis=None) -> str | None:
+    """Odnów klucz, jeśli SF na to pozwala; jeśli nie — ostrzeż. Zwraca zdanie albo `None`.
+
+    ADVERTPR-779 zakres B. Kolejność jest treścią: najpierw PRÓBUJEMY odnowić, a dopiero gdy
+    się nie da, mówimy człowiekowi, że musi wejść. Odwrotna kolejność (ostrzegaj, odnawiaj
+    tylko gdy wiemy, że wolno) wymagałaby liczenia okna i uprawnień po stronie Kitu — czyli
+    drugiej kopii reguły, która rozjedzie się z pierwszą przy pierwszej poprawce.
+
+    Poza oknem T-7 SF odmawia (409) i to jest normalny, oczekiwany stan — wtedy nie mówimy
+    nic. Dopiero ostrzeżenie o ważności ma prawo się odezwać i ono decyduje, kiedy.
+
+    FAIL-SOFT jak przy ostrzeganiu: brak sieci albo zmieniony kształt odpowiedzi kończy się
+    ciszą. Worker ma pracować dopóki SF go wpuszcza.
+    """
+    try:
+        # `zapis` wstrzykiwany z tego samego powodu, co wysyłka powiadomień w zakresie C: test
+        # ma sprawdzać DECYZJĘ (odnawiać czy ostrzegać), nie zapisywać sekretu do prawdziwego
+        # pęku kluczy. Pierwsza wersja tego testu zapisała „sk_live_nowy" do realnego magazynu
+        # na tej maszynie — atrapa kończyła się o jeden krok za wcześnie.
+        wynik = mod_rotacja.rotuj(klient, zapis=zapis)
+    except Exception:                      # noqa: BLE001 — informacja, nie warunek pracy
+        return ostrzez_o_kluczu(klient, teraz=teraz)
+
+    if wynik.odnowiony:
+        _log(wynik.zdanie)
+        return wynik.zdanie
+
+    # Nieudane odnowienie nie jest samo w sobie wiadomością: „za wcześnie" słyszymy codziennie
+    # przez pierwsze trzy tygodnie życia klucza. Mówimy o nim TYLKO wtedy, gdy termin jest już
+    # blisko — czyli wtedy, gdy ostrzeżenie o ważności i tak ma coś do powiedzenia.
+    zdanie = ostrzez_o_kluczu(klient, teraz=teraz)
+    if zdanie:
+        _log(f"   samoodnowienie nie doszło do skutku: {wynik.zdanie}")
     return zdanie
 
 
@@ -610,7 +652,7 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
          f"odstęp {konf.odstep_s} s, {konf.adres}")
     # Przy starcie, zanim cokolwiek weźmiemy: jeśli klucz dożywa ostatnich dni, człowiek ma
     # się o tym dowiedzieć z pierwszych linii dziennika, a nie z odmowy za tydzień.
-    ostrzez_o_kluczu(klient)
+    zadbaj_o_klucz(klient)
     if raz:
         return 0 if przebieg(klient, konf) >= 0 else 1
 
@@ -618,7 +660,7 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
     nieudanych = 0
     while True:
         if time.monotonic() - ostatnie_sprawdzenie >= ODSTEP_SPRAWDZENIA_KLUCZA_S:
-            ostrzez_o_kluczu(klient)
+            zadbaj_o_klucz(klient)
             ostatnie_sprawdzenie = time.monotonic()
         # Przebieg potrafi trwać dłużej niż próg martwoty (zadanie ma własny limit), a tętna
         # w trakcie wykonania nie odświeżamy. Mówimy więc czujce WPROST, do kiedy ten stan

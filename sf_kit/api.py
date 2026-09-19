@@ -485,6 +485,23 @@ class Klient:
         """
         return self._wywolaj("GET", "me")
 
+    def odnow_klucz(self, key_id: str) -> dict:
+        """`POST /me/api-keys/{id}/odnow` — nowy sekret dla klucza, którym właśnie mówimy.
+
+        Sekret jest w odpowiedzi i wraca RAZ. Dlatego ta metoda niczego z nim nie robi:
+        oddaje surową odpowiedź wołającemu, który ma ją natychmiast zapisać (patrz `rotacja`).
+        """
+        return self._wywolaj("POST", f"me/api-keys/{key_id}/odnow")
+
+    def podmien_klucz(self, klucz: str) -> None:
+        """Mów dalej NOWYM sekretem, bez tworzenia drugiego klienta.
+
+        Po odnowieniu stary sekret jest martwy, a worker ma w połowie pętli otwarte zadania
+        i konfigurację. Tworzenie nowego klienta znaczyłoby przepisanie tego stanu; podmiana
+        jednego pola znaczy, że następne żądanie po prostu przechodzi.
+        """
+        self._klucz = klucz
+
     def sprawdz_klucz(self) -> dict:
         """Czy klucz żyje i co nim wolno. Namiastka „kim jestem", którego SF nie ma.
 

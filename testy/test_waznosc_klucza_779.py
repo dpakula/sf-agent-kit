@@ -79,7 +79,12 @@ class TestWorker(unittest.TestCase):
         def __init__(self, odpowiedz=None, blad=None):
             self.odpowiedz, self.blad, self.pytano = odpowiedz, blad, 0
 
-        def me(self):
+        def kim_jestem(self):
+            # NAZWA MA ZNACZENIE. Do 19.09 atrapa nazywała tę metodę `me()` — tak samo jak kod
+            # workera, który ją wołał — a prawdziwy `Klient` nigdy takiej metody nie miał.
+            # Jedenaście testów było zielonych, a ostrzeżenie o ważności nie poszło na produkcji
+            # ani razu: `AttributeError` wpadał w `except` fail-softu. Test niżej
+            # (`test_atrapa_ma_metode_ktora_MA_prawdziwy_klient`) pilnuje, żeby się nie powtórzyło.
             self.pytano += 1
             if self.blad:
                 raise self.blad
@@ -102,6 +107,19 @@ class TestWorker(unittest.TestCase):
     def test_klucz_bezterminowy_nie_zasmieca_dziennika_workera(self):
         kl = self._Klient({"konto": {}, "klucz": {"wygasa": None}, "organizacje": []})
         self.assertIsNone(worker.ostrzez_o_kluczu(kl, teraz=TERAZ))
+
+    def test_atrapa_ma_metode_ktora_MA_prawdziwy_klient(self):
+        """Atrapa z podstawioną nazwą nie jest testem — jest potwierdzeniem własnej pomyłki.
+
+        Ten test nie sprawdza zachowania, tylko to, że nazwa, którą woła worker, istnieje na
+        PRAWDZIWYM kliencie. Gdyby istniała wyłącznie na atrapie, wszystko wyżej byłoby
+        zielone przy kodzie, który na produkcji milczy.
+        """
+        from sf_kit.api import Klient
+
+        self.assertTrue(callable(getattr(Klient, "kim_jestem", None)))
+        self.assertFalse(hasattr(Klient, "me"),
+                         "gdyby `me` istniało, ten strażnik przestałby cokolwiek znaczyć")
 
 
 if __name__ == "__main__":

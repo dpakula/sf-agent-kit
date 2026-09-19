@@ -436,6 +436,40 @@ Ochrona obejmuje **tylko katalog Kitu**. W innych repozytoriach nic nie pilnuje.
 **Jeśli klucz gdziekolwiek wyciekł** — powiedz administratorowi od razu i poproś o nowy.
 Wyciek plus milczenie jest gorszy niż sam wyciek.
 
+### Ważność i samoodnowienie (od v0.7)
+
+Klucz agenta jest ważny **30 dni** (ADVERTPR-779). Kit robi z tym dwie rzeczy:
+
+**Ostrzega z wyprzedzeniem.** Na siedem dni przed terminem worker pisze w dzienniku, że klucz
+wygasa i kogo poprosić o przedłużenie; po terminie mówi wprost, że **to nie jest awaria
+SalesForge**. `sf-kit whoami` pokazuje przy dacie, ile to jest dni.
+
+**Wymienia sekret sam, jeśli wolno.**
+
+```bash
+sf-kit rotate        # ręcznie, w oknie siedmiu dni przed terminem
+```
+
+Worker robi to samo raz na dobę, bez pytania. Żeby odnowienie przeszło, muszą zajść **oba**
+warunki (decyzja Damiana z 14.09):
+
+- konto ma nadanie **`keys:self-renew`** w tej Organizacji (nadaje owner/admin albo superadmin,
+  np. `sf-kit nadaj`),
+- klucz **nie jest zawężony** — albo jest, ale ma to uprawnienie wypisane w swoim zakresie.
+
+Reguły, które liczy SalesForge (Kit ich nie powtarza — próbuje i pokazuje odpowiedź):
+
+| reguła | co się dzieje poza nią |
+|---|---|
+| okno **7 dni** przed terminem | 409 „za wcześnie" — normalny stan przez pierwsze trzy tygodnie |
+| **jedno** odnowienie na okno | 429 — drugie znaczy, że nowy sekret nie został zapisany |
+| sufit **180 dni** od ostatniego przedłużenia **przez człowieka** | 409 — dalej musi wejść człowiek |
+
+**Stary sekret umiera w chwili odpowiedzi** („jeden żywy sekret naraz"). Kit zapisuje nowy
+w pęku, zanim zrobi z odpowiedzią cokolwiek innego — ale jeśli proces zginie dokładnie w tej
+szczelinie, dostęp przepada i trzeba poprosić człowieka o nowy klucz. Dlatego rotacja chodzi
+w oknie siedmiu dni, a nie w ostatniej godzinie.
+
 ---
 
 ## 5. Uprawnienia — co widzisz, co to znaczy, co powiedzieć użytkownikowi
@@ -1019,6 +1053,7 @@ też ma być jedna.
 sf-kit --version                # która wersja Kitu jest zainstalowana
 sf-kit init                     # zapisz klucz (bez echa) i ustawienia
 sf-kit whoami                   # kim jesteś, czy klucz działa, gdzie leżą ustawienia
+sf-kit rotate                   # wymień sekret klucza przed wygaśnięciem (okno 7 dni)
 sf-kit heartbeat                # czy worker tego agenta żyje (0/1 — pod czujkę)
 sf-kit usluga [--pokaz]         # jednostka systemd dla workera
 sf-kit --agent <slug> …         # gdy na tej maszynie jest kilku agentów
@@ -1397,7 +1432,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.6
+## 11. Ograniczenia wersji 0.7
 
 Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
 tu coś, co dziś jest nieprawdą:
@@ -1428,8 +1463,21 @@ tu coś, co dziś jest nieprawdą:
   Organizacji nie wpisuje się już nigdzie — Kit tłumaczy go ze sluga.
 - ~~Pole, którego trasa nie zna, jedzie i przepada~~ → **zatrzymuje się przed wysyłką**,
   z adresem trasy, która danym polem naprawdę się zajmuje.
+- ~~Klucz wygasa i wygląda to jak awaria SalesForge~~ → **worker odnawia go sam** w oknie
+  siedmiu dni (v0.7, ADVERTPR-779), a gdy nie wolno — mówi, kogo poprosić. Uczciwie: do 19.09
+  samo OSTRZEŻENIE też nie działało na prawdziwym kliencie (worker wołał metodę, której `Klient`
+  nie miał, a fail-soft połykał błąd); testy były zielone, bo atrapa tę metodę miała.
 
 Co ogranicza nadal:
+
+- **Samoodnowienie nie da się wyłączyć dla POJEDYNCZEGO klucza bez zawężenia.** „Flagą per
+  klucz" jest jego zakres, więc klucz bez zawężenia idzie za nadaniem konta. Wyłączenie
+  dotyczy albo całego konta (zdjęcie `keys:self-renew`), albo klucza zawężonego. Osobny
+  wyłącznik per klucz wymagałby kolumny w bazie — do decyzji, gdy okaże się potrzebny.
+- **Między odpowiedzią SF a zapisem sekretu jest szczelina.** Stary klucz jest już martwy;
+  proces zabity dokładnie w tej chwili zostawia agenta bez dostępu. Kit zapisuje sekret jako
+  pierwszą czynność po odpowiedzi, ale szczeliny nie da się zamknąć bez odnowienia
+  dwufazowego (propozycja czeka na decyzję).
 
 - **Skrzynka wymaga, żeby SF wiedział, jakim slugiem się nazywasz.** Pomiar z 16.09 (pętlą po
   Organizacjach, z kontekstem): `memberships.agent_slug` ma **58 członkostw ze slugiem
