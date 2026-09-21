@@ -447,6 +447,53 @@ def polecenie_usluga(args) -> int:
     print(f"  sudo loginctl enable-linger {os.environ.get('USER', 'twoj-uzytkownik')}")
     return 0
 
+def polecenie_blok(args) -> int:
+    """`sf-kit blok …` — na razie wyłącznie `typy` (SF-7, przed rewizją E1).
+
+    DLACZEGO TYLKO JEDNO PODPOLECENIE I DLACZEGO MÓWIĘ O TYM WPROST
+    ═══════════════════════════════════════════════════════════════
+    `blok pokaz` i `blok odpowiedz` (SF-23) potrzebują tras, które czytają kolumny rdzenia —
+    a te wchodzą dopiero z rewizją E1. Mógłbym je dopisać „na przyszłość", ale polecenie,
+    które istnieje i zawsze pada, jest gorsze od polecenia, którego nie ma: uczy człowieka,
+    że Kit bywa zepsuty. Dostaje więc jasną odmowę z powodem i numerem sprawy.
+    """
+    podpolecenie = getattr(args, "co", None)
+
+    if podpolecenie != "typy":
+        print("Na razie działa wyłącznie `sf-kit blok typy`.\n"
+              "`pokaz` i `odpowiedz` czekają na rdzeń bloku (SF-7, etap E1) — bez niego\n"
+              "nie ma czego pytać. Postęp: sprawa SF-7.", file=sys.stderr)
+        return 2
+
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        typy = klient.typy_blokow()
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać katalogu typów: {blad}", file=sys.stderr)
+        return 1
+
+    if not typy:
+        print("SF nie zna żadnego rodzaju bloku. To nie jest normalny stan — "
+              "zgłoś na SF-7.", file=sys.stderr)
+        return 1
+
+    print(f"Rodzaje bloku ({len(typy)}):\n")
+    for t in typy:
+        stany = ", ".join(t.get("stany") or []) or "—"
+        print(f"  {t.get('rodzaj')}")
+        print(f"    {t.get('etykieta')}")
+        print(f"    stany: {stany}")
+        for a in t.get("akcje") or []:
+            # Uprawnienie pokazujemy ZAWSZE, gdy jest: człowiek pytający Kita o typy zwykle
+            # chce wiedzieć, czego mu braknie, zanim spróbuje.
+            perm = a.get("uprawnienie")
+            dopisek = f"  (wymaga: {perm})" if perm else ""
+            print(f"    · {a.get('nazwa')} — {a.get('etykieta')}{dopisek}")
+        print()
+    return 0
+
+
 def polecenie_tasks(args) -> int:
     """Moje zadania w kolejce."""
     konf = konfiguracja.wczytaj()
@@ -1410,6 +1457,10 @@ def main(argv: list[str] | None = None) -> int:
     pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)
     pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
+    bl = pod.add_parser("blok", help="[agent] rodzaje bloku na osi (SF-7)")
+    bl.add_argument("co", nargs="?", default="typy",
+                    help="typy — katalog rodzajów (jedyne działające przed etapem E1)")
+    bl.set_defaults(funkcja=polecenie_blok)
     pod.add_parser("heartbeat", help="czy worker tego agenta żyje").set_defaults(funkcja=polecenie_heartbeat)
     pod.add_parser("rotate", help="wymień sekret klucza przed wygaśnięciem (okno 7 dni)"
                    ).set_defaults(funkcja=polecenie_rotate)

@@ -195,6 +195,16 @@ class Klient:
         odp = self._wywolaj("GET", f"tasks?{zapytanie}")
         return odp if isinstance(odp, dict) else {"items": [], "total": 0}
 
+    def typy_blokow(self) -> list[dict]:
+        """Katalog rodzajów bloku (`GET /blocks/typy`) — SF-7.
+
+        Jedyna trasa rdzenia bloków, która działa PRZED rewizją E1: rejestr typów mieszka
+        w kodzie SF, więc nie czyta kolumn, których jeszcze nie ma. Reszta poleceń `blok`
+        (`pokaz`, `odpowiedz`) czeka na tamtą rewizję i mówi o tym wprost, zamiast oddawać 404.
+        """
+        odp = self._wywolaj("GET", "blocks/typy")
+        return odp if isinstance(odp, list) else []
+
     def moje_zadania(self, *, slug: str, status: str = "queued",
                      ile_najwyzej: int | None = None) -> WynikSzukania:
         """Moje zadania — odsiane PO STRONIE KLIENTA, ale przez CAŁĄ kolejkę.
