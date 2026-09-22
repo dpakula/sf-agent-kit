@@ -198,12 +198,44 @@ class Klient:
     def typy_blokow(self) -> list[dict]:
         """Katalog rodzajów bloku (`GET /blocks/typy`) — SF-7.
 
-        Jedyna trasa rdzenia bloków, która działa PRZED rewizją E1: rejestr typów mieszka
-        w kodzie SF, więc nie czyta kolumn, których jeszcze nie ma. Reszta poleceń `blok`
-        (`pokaz`, `odpowiedz`) czeka na tamtą rewizję i mówi o tym wprost, zamiast oddawać 404.
+        Pierwsza trasa rdzenia bloków — działała już PRZED rewizją E1, bo rejestr typów
+        mieszka w kodzie SF i nie czyta kolumn, których jeszcze nie ma.
         """
         odp = self._wywolaj("GET", "blocks/typy")
         return odp if isinstance(odp, list) else []
+
+    def blok(self, blok_id: str) -> dict:
+        """Jeden blok przez rdzeń (`GET /blocks/{id}`) — SF-7.
+
+        Przyjmuje OBA identyfikatory, rdzeniowy i dziennikowy: rdzeń rozwiązuje je sam,
+        więc człowiek wkleja ten, który akurat widzi na ekranie. 404 znaczy tu dwie rzeczy
+        naraz — „nie ma" i „nie dla ciebie" — i tak ma zostać: rozróżnienie zdradzałoby
+        istnienie bloku ponad poziomem pytającego.
+        """
+        odp = self._wywolaj("GET", f"blocks/{blok_id}")
+        return odp if isinstance(odp, dict) else {}
+
+    def os_obiektu(self, entity_type: str, entity_id: str, *, pelna: bool = True,
+                   rozwin: str = "", limit: int = 50, kursor: str = "") -> dict:
+        """Strona osi obiektu (`GET /timeline/{typ}/{id}`) — z E4a zwijaniem (SF-7).
+
+        `pelna=True` jest domyślką SERWERA i zostaje domyślką Kita (decyzja Damiana 22.09):
+        jedna domyślka dla wszystkich klientów, przełączenie na zwiniętą to osobna decyzja
+        po UI kapsuły. Klient wiersza poleceń nie ma prawa rozstrzygać jej prywatnie —
+        inaczej ta sama sprawa wygląda inaczej w panelu i w Kicie, a rozmowa „widzę osiem,
+        a ty pięć" nie ma rozstrzygnięcia.
+
+        `rozwin` działa TYLKO przy `pelna=False`; wysyłamy go wtedy i tylko wtedy, żeby
+        serwer nie musiał zgadywać, co znaczy „rozwiń grupę na osi, która i tak jest pełna".
+        """
+        parametry = {"limit": limit, "pelna": "true" if pelna else "false"}
+        if not pelna and rozwin:
+            parametry["rozwin"] = rozwin
+        if kursor:
+            parametry["cursor"] = kursor
+        zapytanie = urllib.parse.urlencode(parametry)
+        odp = self._wywolaj("GET", f"timeline/{entity_type}/{entity_id}?{zapytanie}")
+        return odp if isinstance(odp, dict) else {"entries": []}
 
     def moje_zadania(self, *, slug: str, status: str = "queued",
                      ile_najwyzej: int | None = None) -> WynikSzukania:

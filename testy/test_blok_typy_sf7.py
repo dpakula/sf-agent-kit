@@ -86,13 +86,26 @@ def test_rodzaj_bez_stanow_pokazuje_kreske_a_nie_pustke(monkeypatch):
     assert "stany: —" in wy
 
 
-def test_pokaz_odmawia_z_powodem_zamiast_padac(monkeypatch):
-    """SEDNO drugiej połowy: polecenie, które istnieje i zawsze pada, uczy, że Kit bywa zepsuty."""
+def test_pokaz_odsyla_do_nowej_skladni_zamiast_padac(monkeypatch):
+    """`pokaz` było słowem-obietnicą przed E1; od 22.09 blok pokazuje sam identyfikator.
+
+    Stare słowo nie ma prawa po cichu zniknąć: ktoś ma je w skrypcie albo w notatce, a „nie ma
+    bloku «pokaz»" wyglądałoby na usterkę Kita. Odmowa mówi, CO wpisać zamiast.
+    """
     kod, wy, err = _uruchom(monkeypatch, _Klient(TYPY), co="pokaz")
 
     assert kod == 2, "odmowa ma mieć własny kod wyjścia, inny niż błąd sieci (1)"
-    assert "E1" in err and "SF-7" in err, "odmowa ma mówić, NA CO czekać"
+    assert "sf-kit blok <id>" in err, "odmowa ma podać nową składnię"
     assert wy == "", "przy odmowie nic nie wypisujemy na wyjście"
+
+
+def test_odpowiedz_nadal_odmawia_z_powodem(monkeypatch):
+    """Zapis odpowiedzi wchodzi etapem E3 — polecenie, które zawsze pada, uczy, że Kit bywa zepsuty."""
+    kod, wy, err = _uruchom(monkeypatch, _Klient(TYPY), co="odpowiedz")
+
+    assert kod == 2
+    assert "E3" in err and "SF-7" in err, "odmowa ma mówić, NA CO czekać"
+    assert wy == ""
 
 
 def test_pusty_katalog_to_blad_a_nie_cisza(monkeypatch):

@@ -9,6 +9,7 @@ i nie ma kogo zapytać o drugiej w nocy.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -25,6 +26,7 @@ PROFILE = ("worker", "autor", "koordynator")
 PROFIL_DOMYSLNY = "worker"
 from . import klucz as magazyn_klucza
 from . import autor
+from . import os_czasu
 from . import koordynator
 from . import kontrakt
 from . import rotacja as mod_rotacja
@@ -448,22 +450,16 @@ def polecenie_usluga(args) -> int:
     return 0
 
 def polecenie_blok(args) -> int:
-    """`sf-kit blok …` — na razie wyłącznie `typy` (SF-7, przed rewizją E1).
+    """`sf-kit blok typy` — katalog rodzajów; `sf-kit blok <id>` — jeden blok przez rdzeń.
 
-    DLACZEGO TYLKO JEDNO PODPOLECENIE I DLACZEGO MÓWIĘ O TYM WPROST
-    ═══════════════════════════════════════════════════════════════
-    `blok pokaz` i `blok odpowiedz` (SF-23) potrzebują tras, które czytają kolumny rdzenia —
-    a te wchodzą dopiero z rewizją E1. Mógłbym je dopisać „na przyszłość", ale polecenie,
-    które istnieje i zawsze pada, jest gorsze od polecenia, którego nie ma: uczy człowieka,
-    że Kit bywa zepsuty. Dostaje więc jasną odmowę z powodem i numerem sprawy.
+    `odpowiedz` (SF-23) nadal NIE ISTNIEJE i nadal mówi o tym wprost: zapis odpowiedzi
+    wchodzi etapem E3. Polecenie, które istnieje i zawsze pada, jest gorsze od polecenia,
+    którego nie ma — uczy człowieka, że Kit bywa zepsuty.
     """
-    podpolecenie = getattr(args, "co", None)
+    podpolecenie = (getattr(args, "co", None) or "typy").strip()
 
     if podpolecenie != "typy":
-        print("Na razie działa wyłącznie `sf-kit blok typy`.\n"
-              "`pokaz` i `odpowiedz` czekają na rdzeń bloku (SF-7, etap E1) — bez niego\n"
-              "nie ma czego pytać. Postęp: sprawa SF-7.", file=sys.stderr)
-        return 2
+        return _blok_jeden(args, podpolecenie)
 
     konf = konfiguracja.wczytaj()
     klient = _klient(konf, args)
@@ -491,6 +487,169 @@ def polecenie_blok(args) -> int:
             dopisek = f"  (wymaga: {perm})" if perm else ""
             print(f"    · {a.get('nazwa')} — {a.get('etykieta')}{dopisek}")
         print()
+    return 0
+
+
+def _blok_jeden(args, wskazanie: str) -> int:
+    """`sf-kit blok <id>` — odczyt bloku przez rdzeń (`GET /blocks/{id}`, SF-7).
+
+    DWA IDENTYFIKATORY, JEDNO POLECENIE
+    ═══════════════════════════════════
+    Wpis żyje dziś na dwóch powierzchniach (rdzeń i dziennik sprawy) i ma na nich RÓŻNE
+    identyfikatory. Kit nie pyta, który to który — rdzeń rozwiązuje oba, więc człowiek wkleja
+    ten, który widzi na ekranie, z którego przyszedł.
+
+    404 MA TU JEDNO ZNACZENIE I NIE UDAJEMY, ŻE MA DWA
+    ══════════════════════════════════════════════════
+    Serwer odmawia tak samo, gdy bloku nie ma, jak i gdy jest ponad poziomem pytającego —
+    świadomie, bo rozróżnienie zdradzałoby jego istnienie. Komunikat mówi obie możliwości
+    zamiast zgadywać jedną; podpowiadanie „pewnie nie masz uprawnień" przy literówce
+    w identyfikatorze wysyła człowieka do administratora zamiast do schowka.
+    """
+    if wskazanie == "odpowiedz":
+        print("`sf-kit blok odpowiedz` jeszcze nie działa — zapis odpowiedzi-dziecka wchodzi\n"
+              "etapem E3 (sprawa SF-7). Odczyt bloku działa: `sf-kit blok <id>`.",
+              file=sys.stderr)
+        return 2
+    if wskazanie == "pokaz":
+        print("`pokaz` zniknęło jako osobne słowo — blok pokazuje sam identyfikator:\n"
+              "  sf-kit blok <id>        (identyfikator z nawiasu przy wierszu `sf-kit os`)",
+              file=sys.stderr)
+        return 2
+    if not autor.WZORZEC_UUID.match(wskazanie):
+        # Sprawdzamy TU, a nie przez strzał w API: „404 — nie ma albo nie dla ciebie" przy
+        # literówce wysyła człowieka do administratora po dostęp, którego wcale nie potrzebuje.
+        print(f"„{wskazanie}” nie wygląda na identyfikator bloku (oczekuję UUID).\n"
+              "Identyfikator bierze się z nawiasu przy wierszu `sf-kit os <sprawa>`\n"
+              "albo z adresu wpisu w panelu.", file=sys.stderr)
+        return 2
+
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        blok = klient.blok(wskazanie)
+    except BladAPI as blad:
+        if blad.kod == 404:
+            print(f"Nie ma bloku „{wskazanie}” — albo jest poza Twoim dostępem.\n"
+                  "SalesForge odmawia tak samo w obu przypadkach, żeby nie zdradzać, że blok\n"
+                  "istnieje. Sprawdź identyfikator; jeśli jest dobry — poproś o dostęp do sprawy.",
+                  file=sys.stderr)
+            return 1
+        if blad.kod == 503:
+            print(f"Rdzeń bloku nie jest gotowy na tym serwerze: {blad}", file=sys.stderr)
+            return 1
+        print(f"Nie udało się pobrać bloku: {blad}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(blok, ensure_ascii=False, indent=2))
+        return 0
+
+    rodzaj = os_czasu.NAZWY_RODZAJOW.get(blok.get("rodzaj") or "", blok.get("rodzaj") or "?")
+    print(f"\n{rodzaj} · {blok.get('autor_etykieta') or '—'} · "
+          f"{(blok.get('wystapil_o') or '')[:16].replace('T', ' ')}")
+    print(f"  id:         {blok.get('id')}")
+    if blok.get("natywny_id"):
+        print(f"  w dzienniku: {blok['natywny_id']}")
+    if blok.get("sedno"):
+        print(f"  sedno:      {blok['sedno']}")
+    if blok.get("kotwica_typ"):
+        print(f"  kotwica:    {blok['kotwica_typ']} {blok.get('kotwica_id')}")
+    print(f"  widoczność: {blok.get('widocznosc')}")
+    for etykieta, klucz in (("stan:", "stan_bloku"), ("status:", "status"),
+                            ("stan typu:", "stan_typu")):
+        if blok.get(klucz):
+            print(f"  {etykieta:<11} {blok[klucz]}")
+    if blok.get("w_odpowiedzi_na"):
+        print(f"  odpowiedź na: {blok['w_odpowiedzi_na']}")
+    print(f"  odpowiedzi: {blok.get('odpowiedzi', 0)}")
+    for a in blok.get("adresaci") or []:
+        print(f"    → {a.get('slug') or a.get('user_id')} · {a.get('status')}")
+    # `z_rdzenia=false` znaczy „ten wiersz przyszedł drogą zapasową, od właściciela bytu" —
+    # wtedy pola rewizji E1 (sedno, stan) są puste Z NATURY, nie z usterki odczytu. Człowiek
+    # patrzący na pusty ekran ma wiedzieć, czy patrzy na brak danych, czy na brak lustra.
+    if blok.get("z_rdzenia") is False:
+        print("\n  (wpis bez lustra w rdzeniu — pola `sedno` i `stan` będą puste do etapu E5)")
+    tresc = (blok.get("tresc") or "").strip()
+    print(f"\n{tresc}\n" if tresc else "\n  (bez treści)\n")
+    return 0
+
+
+def polecenie_os(args) -> int:
+    """`sf-kit os <sprawa>` — oś sprawy, wierszami albo ze zwiniętymi ciągami (SF-7 E4a).
+
+    DOMYŚLNIE PEŁNA — I TO NIE JEST MOJA DECYZJA
+    ════════════════════════════════════════════
+    `pelna=true` jest domyślką serwera (decyzja Damiana 22.09: przełączenie na zwiniętą
+    dopiero po UI kapsuły). Klient wiersza poleceń nie rozstrzyga tego prywatnie: gdyby Kit
+    zwijał domyślnie, ta sama sprawa wyglądałaby inaczej w panelu i w Kicie, a rozmowa
+    „widzę osiem, a ty pięć" nie miałaby rozstrzygnięcia.
+
+    STARY SERWER NIE PROTESTUJE — WIĘC MÓWIMY MY
+    ════════════════════════════════════════════
+    API bez E4a ignoruje nieznane parametry zapytania i oddaje pełną oś ze statusem 200.
+    Bez ostrzeżenia człowiek zobaczyłby 200 wierszy i wziął je za wynik zwinięcia.
+    """
+    if args.rozwin and args.pelna:
+        print("`--rozwin` rozwija JEDNĄ grupę na zwiniętej osi — przy `--pelna` nie ma czego\n"
+              "rozwijać, bo wszystkie wiersze i tak są widoczne. Wybierz jedno.",
+              file=sys.stderr)
+        return 2
+
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+
+    try:
+        sprawa = autor.znajdz_sprawe(klient, args.sprawa)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+
+    # `--rozwin` sam włącza zwijanie: prośba o rozwinięcie grupy na PEŁNEJ osi nie ma treści,
+    # a odmawianie jej byłoby uczeniem człowieka składni zamiast zrozumienia go.
+    pelna = not (args.zwinieta or args.rozwin)
+    try:
+        strona = klient.os_obiektu("ticket", str(sprawa["id"]), pelna=pelna,
+                                   rozwin=args.rozwin or "", limit=args.limit)
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać osi: {blad}", file=sys.stderr)
+        return 1
+
+    pozycje = strona.get("entries") or []
+    if args.json:
+        print(json.dumps(strona, ensure_ascii=False, indent=2))
+        return 0
+
+    numer = autor.numer_sprawy(sprawa) or str(sprawa["id"])[:8]
+    print(f"\nOś sprawy {numer} — {'pełna' if pelna else 'zwinięta'}"
+          f"{f', rozwinięta grupa {args.rozwin[:8]}' if args.rozwin and not pelna else ''}")
+
+    if not pozycje:
+        print("\n  (na tej osi nie ma nic, co możesz zobaczyć)\n")
+        return 0
+
+    for linia in os_czasu.wypisz(pozycje):
+        print(linia)
+
+    wierszy = os_czasu.ile_wierszy(pozycje)
+    grup = sum(1 for p in pozycje if os_czasu.jest_grupa(p))
+    print()
+    if grup:
+        print(f"{len(pozycje)} pozycji = {wierszy} wierszy osi "
+              f"({grup} {'grupa' if grup == 1 else 'grup'} zwinięta; "
+              f"rozwiń przez `--rozwin <id>`)")
+    else:
+        print(f"{wierszy} wierszy osi")
+
+    # Świadomie NIE piszę „X z Y wpisów sprawy": oś obiektu nie oddaje licznika całości
+    # (`razem` jest w dzienniku sprawy, nie tutaj), a liczba policzona z długości listy
+    # mówiłaby o stronie, nie o osi — i po zwinięciu kłamałaby podwójnie.
+    if strona.get("next_cursor"):
+        print(f"To nie koniec osi — jest następna strona (limit {args.limit}).")
+
+    if not pelna and not os_czasu.serwer_zwija(pozycje):
+        print("\nUWAGA: pełna oś, serwer nie zwija — to API jest starsze niż E4a i zignorowało\n"
+              "`--zwinieta`. Widzisz KOMPLET wierszy, nie wynik zwinięcia.")
     return 0
 
 
@@ -1457,10 +1616,29 @@ def main(argv: list[str] | None = None) -> int:
     pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)
     pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
-    bl = pod.add_parser("blok", help="[agent] rodzaje bloku na osi (SF-7)")
+    bl = pod.add_parser("blok", help="[agent] jeden blok osi albo katalog rodzajów (SF-7)")
     bl.add_argument("co", nargs="?", default="typy",
-                    help="typy — katalog rodzajów (jedyne działające przed etapem E1)")
+                    help="identyfikator bloku (rdzeniowy albo dziennikowy) "
+                         "albo `typy` — katalog rodzajów")
+    bl.add_argument("--json", action="store_true", help="surowa odpowiedź serwera")
     bl.set_defaults(funkcja=polecenie_blok)
+
+    # `os` stoi przy `blok`, bo to ta sama warstwa: oś pokazuje ciąg bloków, `blok` — jeden
+    # z nich w całości. Identyfikator z nawiasu przy wierszu osi wkleja się wprost w `sf-kit blok`.
+    osc = pod.add_parser("os", help="[agent] oś sprawy — wiersze, ze zwijaniem ciągów (SF-7)")
+    osc.add_argument("sprawa", help="numer (SF-7) albo identyfikator sprawy")
+    grupa_widoku = osc.add_mutually_exclusive_group()
+    # Wzajemnie wykluczające się, bo `--pelna --zwinieta` naraz nie ma znaczenia, a ciche
+    # wygranie jednej z nich uczy człowieka, że flagi bywają ignorowane.
+    grupa_widoku.add_argument("--pelna", action="store_true",
+                              help="wiersz po wierszu (domyślnie — tak samo jak w panelu)")
+    grupa_widoku.add_argument("--zwinieta", action="store_true",
+                              help="zwiń ciągi zmian technicznych w wiersze-grupy")
+    osc.add_argument("--rozwin", default=None, metavar="ID",
+                     help="rozwiń TĘ grupę (identyfikator z nawiasu); działa ze `--zwinieta`")
+    osc.add_argument("--limit", type=int, default=50, help="ile wpisów na stronę (domyślnie 50)")
+    osc.add_argument("--json", action="store_true", help="surowa odpowiedź serwera")
+    osc.set_defaults(funkcja=polecenie_os)
     pod.add_parser("heartbeat", help="czy worker tego agenta żyje").set_defaults(funkcja=polecenie_heartbeat)
     pod.add_parser("rotate", help="wymień sekret klucza przed wygaśnięciem (okno 7 dni)"
                    ).set_defaults(funkcja=polecenie_rotate)
