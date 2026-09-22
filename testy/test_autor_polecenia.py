@@ -144,3 +144,48 @@ class TestOstatniaZmiana(unittest.TestCase):
         """Kontrakt może się zmienić w drugą stronę — obie postacie mają działać."""
         self.assertEqual(
             autor.ostatnia_zmiana({"ostatnia_edycja": "2026-05-06T07:08:09Z"}), "2026-05-06 07:08")
+
+
+# ── `sf-kit wpis --do <slug>` BEZ sprawy (poprawka 22.09) ──────────────────────────────
+#
+# Pomoc i docstring obiecywały „bez `--sprawa`: samodzielna wiadomość" od v0.5.1, a parser
+# wymagał pozycyjnego argumentu — próba kończyła się `error: the following arguments are
+# required: sprawa`. Obietnica w pomocy, która kończy się błędem składni, jest gorsza niż
+# brak obietnicy: uczy, że dokumentacja Kitu kłamie.
+
+def test_wpis_do_agenta_dziala_bez_sprawy():
+    from sf_kit import cli
+
+    import argparse
+    import contextlib
+    import io
+
+    wy = io.StringIO()
+    with contextlib.redirect_stderr(wy), contextlib.suppress(SystemExit, argparse.ArgumentError):
+        cli.main(["wpis", "--do", "seweryn", "--opis", "-"])
+
+    assert "required: sprawa" not in wy.getvalue(), (
+        "parser znów wymaga sprawy przy samodzielnej wiadomości")
+
+
+def test_wpis_bez_sprawy_i_bez_adresata_tlumaczy_obie_drogi():
+    """Bez obu nie wiadomo, gdzie tekst ma wylądować — a wybranie sprawy za człowieka
+    znaczyłoby wpis w sprawie, której nie wskazał."""
+    import io
+    from contextlib import redirect_stderr
+
+    from sf_kit import cli
+
+    class _Args:
+        sprawa = None
+        do = None
+        opis = None
+        zalacz = []
+        widocznosc = "internal"
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        kod = cli.polecenie_wpis(_Args())
+
+    assert kod == 2
+    assert "--do" in err.getvalue() and "SF-7" in err.getvalue()

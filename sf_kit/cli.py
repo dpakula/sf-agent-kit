@@ -1125,6 +1125,14 @@ def polecenie_wpis(args) -> int:
     jest to samodzielna wiadomość; razem ze sprawą — wpis na sprawie ORAZ wiadomość, żeby
     adresat nie musiał jej zauważyć sam.
     """
+    if not args.sprawa and not args.do:
+        # Sprawa jest opcjonalna WYŁĄCZNIE przy `--do` (samodzielna wiadomość). Bez obu
+        # nie wiadomo, gdzie ten tekst miałby wylądować — a domyślenie się tego za człowieka
+        # znaczyłoby wpis w sprawie wybranej przez Kita.
+        print("Nie wiem, gdzie to dopisać. Podaj sprawę (`sf-kit wpis SF-7 --opis …`)\n"
+              "albo adresata wiadomości (`sf-kit wpis --do <slug> --opis …`).", file=sys.stderr)
+        return 2
+
     konf = konfiguracja.wczytaj()
     klient = _klient(konf, args)
 
@@ -1745,7 +1753,12 @@ def main(argv: list[str] | None = None) -> int:
     wp.add_argument("--do", dest="do", default=None, metavar="SLUG",
                     help="wyślij to TAKŻE jako wiadomość do sesji agenta (bez --sprawa: "
                          "samodzielna wiadomość)")
-    wp.add_argument("sprawa", help="numer (FM-12) albo identyfikator sprawy")
+    # `nargs="?"`, bo `--do <slug>` BEZ sprawy jest udokumentowaną drogą („samodzielna
+    # wiadomość") i `polecenie_wpis` obsługuje ją od v0.5.1 — tylko parser jej nie przepuszczał.
+    # Pomoc obiecywała coś, co kończyło się `error: the following arguments are required`.
+    wp.add_argument("sprawa", nargs="?", default=None,
+                    help="numer (FM-12) albo identyfikator sprawy "
+                         "(można pominąć przy `--do`: wtedy sama wiadomość)")
     wp.add_argument("--opis", default=None, metavar="PLIK",
                     help="plik z treścią (albo `-` = ze standardowego wejścia)")
     wp.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK")
