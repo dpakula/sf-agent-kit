@@ -1397,6 +1397,63 @@ Alternatywa dla flagi: `SF_KIT_HOME=/ścieżka/do/katalogu sf-kit …` — wskaz
 wprost i wygrywa ze wszystkim. Przydaje się w kontenerze i przy uruchamianiu w tle
 (jeden proces na agenta — patrz [`uruchamianie/`](uruchamianie/README.md)).
 
+### `sf-kit os` — oś sprawy (v0.8)
+
+Oś to ciąg **bloków**: wpisów, wiadomości, zmian pól, zdarzeń. Kit pokazuje ją tak samo,
+jak panel — łącznie z domyślką, bo dwa widoki tej samej sprawy różniące się domyślnie
+kończą się rozmową „widzę osiem, a ty pięć", której nie da się rozstrzygnąć.
+
+```bash
+sf-kit os SF-7                       # pełna oś, wiersz po wierszu (domyślnie)
+sf-kit os SF-7 --zwinieta            # ciągi zmian technicznych zwinięte w wiersze-grupy
+sf-kit os SF-7 --rozwin 296dad5c     # rozwiń JEDNĄ grupę (identyfikator z nawiasu)
+sf-kit os SF-7 --limit 100 --json    # surowa odpowiedź dla skryptu
+```
+
+Zwinięta oś wygląda tak (fragment prawdziwej sprawy SF-7):
+
+```
+── 2026-09-17 ────────────────────────────────────────
+        15:32  notatka      api:borys-sf@dpakula.pl ## SF-7 „Blok" — design gotowy…
+        15:21  notatka      api:borys-sf@dpakula.pl ## Plan pracy — SF-7 „Blok"…
+        12:08  ⋯  3 zmian technicznych (2× pole, 1× system) · 2 autorzy      [296dad5c]
+
+28 pozycji = 32 wierszy osi (2 grupy zwinięte; rozwiń przez `--rozwin <id>`)
+```
+
+Trzy rzeczy warto wiedzieć, zanim się na to popatrzy dłużej:
+
+- **licznik mówi o WIERSZACH, nie o pozycjach listy.** „28 pozycji = 32 wiersze" znaczy, że
+  dwie pozycje to grupy, które zastąpiły po kilka wierszy. Zwijanie niczego nie usuwa;
+- **identyfikator w nawiasie wystarczy w skrócie** — Kit dopasuje go sam. Gdy skrót pasuje
+  do dwóch grup, Kit **odmawia i pokazuje kandydatów**, bo rozwinięcie nie tej grupy wygląda
+  identycznie jak rozwinięcie właściwej;
+- **grupy żyją tylko na TEJ stronie.** Przy innym `--limit` ten sam ciąg bywa pokazany jako
+  dwie grupy albo wcale — nic nie ginie, zwinięcia jest po prostu mniej.
+
+Jeśli serwer jest starszy niż zwijanie (E4a), `--zwinieta` nie zadziała, a SalesForge **nie
+zaprotestuje** — odda pełną oś ze statusem 200. Kit rozpoznaje to i mówi wprost: „pełna oś,
+serwer nie zwija".
+
+### `sf-kit blok` — jeden blok w całości (v0.8)
+
+```bash
+sf-kit blok typy                     # katalog rodzajów: stany i akcje z uprawnieniami
+sf-kit blok 72e73823-6c9e-4fdf-…     # jeden blok: sedno, treść, kotwica, stan, odpowiedzi
+sf-kit blok 72e73823-… --json
+```
+
+Identyfikator bierze się z nawiasu przy wierszu osi albo z adresu wpisu w panelu. Wpis żyje
+dziś na dwóch powierzchniach (rdzeń i dziennik sprawy) i ma na nich **różne identyfikatory** —
+Kit przyjmuje oba, bo rozwiązuje je SalesForge, nie człowiek.
+
+`404` znaczy tu naraz „nie ma" i „nie dla ciebie" — świadomie, bo rozróżnienie zdradzałoby
+istnienie bloku ponad poziomem pytającego. Przy literówce Kit nie wysyła zapytania w ogóle:
+mówi, że to nie wygląda na identyfikator.
+
+`503` znaczy „ten serwer nie ma jeszcze rdzenia Bloku" (rewizja E1). To stan instalacji,
+nie Twój błąd — i czekanie tu nie pomoże, pomoże migracja.
+
 ### Zmiana ustawień po `init`
 
 Najprościej uruchomić `sf-kit init` jeszcze raz (Enter zostawia dotychczasowe wartości).
@@ -1432,7 +1489,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.7
+## 11. Ograniczenia wersji 0.8
 
 Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
 tu coś, co dziś jest nieprawdą:
@@ -1468,8 +1525,20 @@ tu coś, co dziś jest nieprawdą:
   samo OSTRZEŻENIE też nie działało na prawdziwym kliencie (worker wołał metodę, której `Klient`
   nie miał, a fail-soft połykał błąd); testy były zielone, bo atrapa tę metodę miała.
 
+- ~~Osi sprawy nie da się zobaczyć z terminala~~ → **`sf-kit os`**, z tą samą domyślką
+  co panel i ze zwijaniem ciągów zmian technicznych (`--zwinieta`, `--rozwin`).
+- ~~`blok` umie tylko wypisać katalog rodzajów~~ → **`sf-kit blok <id>`** czyta pojedynczy
+  blok przez rdzeń: sedno, treść, kotwicę, stan, odpowiedzi i adresatów.
+
 Co ogranicza nadal:
 
+- **Zapisu przez `blok` nie ma.** `sf-kit blok odpowiedz` odmawia i mówi, na co czeka:
+  odpowiedź-dziecko powstaje etapem E3 sprawy SF-7. Do tego czasu odpowiada się wpisem
+  na sprawie (`sf-kit wpis`).
+- **Licznik odpowiedzi i lista adresatów bywają puste i to nie jest usterka.** Kolumny
+  rewizji E1 istnieją, ale zapis do nich zaczyna się dopiero w E3 — a blok bez lustra
+  w rdzeniu (18,5 % ruchu na 22.09) nie ma ich skąd wziąć. Kit mówi o tym wprost przy
+  takim wpisie, zamiast pokazywać pustkę bez wyjaśnienia.
 - **Samoodnowienie nie da się wyłączyć dla POJEDYNCZEGO klucza bez zawężenia.** „Flagą per
   klucz" jest jego zakres, więc klucz bez zawężenia idzie za nadaniem konta. Wyłączenie
   dotyczy albo całego konta (zdjęcie `keys:self-renew`), albo klucza zawężonego. Osobny
