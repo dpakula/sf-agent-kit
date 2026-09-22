@@ -112,6 +112,19 @@ def _odmiana_autorow(ilu: int) -> str:
     return f"{ilu} autorów"
 
 
+def odmiana_grup(ile: int) -> str:
+    """„1 grupa zwinięta", „2 grupy zwinięte", „5 grup zwiniętych".
+
+    Odmiana nie jest ozdobą: „2 grup zwinięta" czyta się jak usterka formatowania i odciąga
+    uwagę od liczby, dla której to zdanie stoi na ekranie.
+    """
+    if ile == 1:
+        return "1 grupa zwinięta"
+    if 2 <= ile <= 4:
+        return f"{ile} grupy zwinięte"
+    return f"{ile} grup zwiniętych"
+
+
 def wiersz_grupy(grupa: dict) -> str:
     """Jedna linia zwiniętego ciągu, z identyfikatorem do `--rozwin`.
 

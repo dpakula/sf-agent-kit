@@ -536,7 +536,11 @@ def _blok_jeden(args, wskazanie: str) -> int:
                   file=sys.stderr)
             return 1
         if blad.kod == 503:
-            print(f"Rdzeń bloku nie jest gotowy na tym serwerze: {blad}", file=sys.stderr)
+            # 503 na tej trasie niesie POWÓD (np. „brakuje tabel rewizji E1"), a nasz własny
+            # tekst dla 503 brzmi „odczekaj i spróbuj później" — co przy braku migracji jest
+            # radą fałszywą: czekanie nie pomoże, pomoże migracja.
+            print(_detal_serwera(blad)
+                  or f"Rdzeń Bloku nie jest gotowy na tym serwerze: {blad}", file=sys.stderr)
             return 1
         print(f"Nie udało się pobrać bloku: {blad}", file=sys.stderr)
         return 1
@@ -575,6 +579,57 @@ def _blok_jeden(args, wskazanie: str) -> int:
     return 0
 
 
+def _detal_serwera(blad) -> str:
+    """Pole `detail` z odpowiedzi serwera, jeśli da się je odczytać. Pusty napis, gdy nie.
+
+    ⚠️ Używać TYLKO tam, gdzie treść jest komunikatem dla człowieka (503 o stanie instalacji).
+    Przy 422 serwer potrafi wydrukować wartość odrzuconego pola, a to bywa czyjaś dana —
+    dlatego nie robimy z tego domyślnego zachowania dla wszystkich kodów.
+    """
+    try:
+        dane = json.loads(getattr(blad, "szczegoly", "") or "")
+    except (ValueError, TypeError):
+        return ""
+    detal = dane.get("detail") if isinstance(dane, dict) else None
+    return detal if isinstance(detal, str) else ""
+
+
+def _pelny_id_grupy(klient, sprawa, skrot: str, *, limit: int) -> str | None:
+    """Skrót z nawiasu (`[296dad5c]`) → pełny identyfikator grupy. `None` = już powiedziałem czemu nie.
+
+    DLACZEGO W OGÓLE: wiersz-grupa pokazuje OSIEM znaków, bo pełny UUID zabiera ćwierć
+    szerokości terminala i wypycha treść. Gdyby `--rozwin` wymagał pełnego, jedyne, co widać
+    na ekranie, byłoby bezużyteczne — a serwer na nieznany identyfikator nie protestuje:
+    oddaje oś dalej zwiniętą, bez słowa. Człowiek widzi „nic się nie stało" i nie wie czemu.
+    Złapane przy pierwszym uruchomieniu na żywej osi SF-7.
+
+    Cena: jedno dodatkowe pytanie o stronę — tylko wtedy, gdy podano skrót.
+    """
+    try:
+        strona = klient.os_obiektu("ticket", str(sprawa["id"]), pelna=False, limit=limit)
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać osi: {blad}", file=sys.stderr)
+        return None
+
+    kandydaci = [str(p.get("id")) for p in (strona.get("entries") or [])
+                 if os_czasu.jest_grupa(p) and str(p.get("id")).startswith(skrot)]
+    if not kandydaci:
+        print(f"Nie ma grupy zaczynającej się od „{skrot}” na tej stronie osi.\n"
+              "Grupy istnieją tylko w widoku zwiniętym i tylko na TEJ stronie — przy dużym\n"
+              f"`--limit` bywają inne. Sprawdź `sf-kit os <sprawa> --zwinieta --limit {limit}`.",
+              file=sys.stderr)
+        return None
+    if len(kandydaci) > 1:
+        # Rozwinięcie NIE TEJ grupy wygląda dokładnie jak rozwinięcie tej właściwej — człowiek
+        # nie ma jak zauważyć pomyłki. Dlatego odmowa z kandydatami, a nie „pierwszy z brzegu".
+        print(f"„{skrot}” pasuje do {len(kandydaci)} grup:", file=sys.stderr)
+        for k in kandydaci:
+            print(f"  {k}", file=sys.stderr)
+        print("Podaj więcej znaków.", file=sys.stderr)
+        return None
+    return kandydaci[0]
+
+
 def polecenie_os(args) -> int:
     """`sf-kit os <sprawa>` — oś sprawy, wierszami albo ze zwiniętymi ciągami (SF-7 E4a).
 
@@ -608,9 +663,14 @@ def polecenie_os(args) -> int:
     # `--rozwin` sam włącza zwijanie: prośba o rozwinięcie grupy na PEŁNEJ osi nie ma treści,
     # a odmawianie jej byłoby uczeniem człowieka składni zamiast zrozumienia go.
     pelna = not (args.zwinieta or args.rozwin)
+    rozwin = (args.rozwin or "").strip()
     try:
+        if rozwin and not autor.WZORZEC_UUID.match(rozwin):
+            rozwin = _pelny_id_grupy(klient, sprawa, rozwin, limit=args.limit)
+            if rozwin is None:
+                return 2
         strona = klient.os_obiektu("ticket", str(sprawa["id"]), pelna=pelna,
-                                   rozwin=args.rozwin or "", limit=args.limit)
+                                   rozwin=rozwin, limit=args.limit)
     except BladAPI as blad:
         print(f"Nie udało się pobrać osi: {blad}", file=sys.stderr)
         return 1
@@ -636,10 +696,15 @@ def polecenie_os(args) -> int:
     print()
     if grup:
         print(f"{len(pozycje)} pozycji = {wierszy} wierszy osi "
-              f"({grup} {'grupa' if grup == 1 else 'grup'} zwinięta; "
-              f"rozwiń przez `--rozwin <id>`)")
+              f"({os_czasu.odmiana_grup(grup)}; rozwiń przez `--rozwin <id>`)")
     else:
         print(f"{wierszy} wierszy osi")
+
+    # Serwer na nieznany `rozwin` nie protestuje — oddaje oś dalej zwiniętą. Bez tego zdania
+    # człowiek widzi „nic się nie stało" i nie wie, czy to on się pomylił, czy Kit.
+    if rozwin and any(str(p.get("id")) == rozwin for p in pozycje if os_czasu.jest_grupa(p)):
+        print(f"\nUWAGA: grupa {rozwin[:8]} wróciła nadal zwinięta — serwer jej nie rozwinął.\n"
+              "Zwykle znaczy to, że ciąg zmienił się od czasu, gdy widziałeś ten identyfikator.")
 
     # Świadomie NIE piszę „X z Y wpisów sprawy": oś obiektu nie oddaje licznika całości
     # (`razem` jest w dzienniku sprawy, nie tutaj), a liczba policzona z długości listy

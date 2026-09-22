@@ -50,28 +50,37 @@ def _grupa(ident, *, ile=8, od="2026-09-01T12:04:00Z", do="2026-09-01T12:11:00Z"
 
 
 class _Klient:
-    """Atrapa SF. Zapamiętuje ostatnie wywołanie — połowa testów bada ŻĄDANIE, nie wydruk."""
+    """Atrapa SF. Zapamiętuje wywołania — połowa testów bada ŻĄDANIE, nie wydruk."""
 
-    def __init__(self, pozycje=None, *, blok=None, blad=None, next_cursor=None):
+    def __init__(self, pozycje=None, *, blok=None, blad=None, next_cursor=None,
+                 po_rozwinieciu=None):
         self.pozycje = pozycje if pozycje is not None else []
         self._blok = blok or {}
         self._blad = blad
         self._next = next_cursor
-        self.wolanie = None
+        #: Czym odpowiedzieć, gdy padnie pytanie Z `rozwin` — `None` znaczy „tym samym".
+        self._po_rozwinieciu = po_rozwinieciu
+        self.wolania: list[dict] = []
+
+    @property
+    def wolanie(self):
+        return self.wolania[-1] if self.wolania else None
 
     def sprawy(self, limit=50):
         return [{"id": SPRAWA, "ticket_number": 7, "ticket_prefix": "SF"}]
 
     def os_obiektu(self, entity_type, entity_id, *, pelna=True, rozwin="", limit=50, kursor=""):
-        self.wolanie = {"typ": entity_type, "id": entity_id, "pelna": pelna,
-                        "rozwin": rozwin, "limit": limit}
+        self.wolania.append({"typ": entity_type, "id": entity_id, "pelna": pelna,
+                             "rozwin": rozwin, "limit": limit})
         if self._blad:
             raise self._blad
+        pozycje = self._po_rozwinieciu if (rozwin and self._po_rozwinieciu is not None) \
+            else self.pozycje
         return {"entity_type": entity_type, "entity_id": entity_id,
-                "entries": self.pozycje, "next_cursor": self._next}
+                "entries": pozycje, "next_cursor": self._next}
 
     def blok(self, blok_id):
-        self.wolanie = {"blok": blok_id}
+        self.wolania.append({"blok": blok_id})
         if self._blad:
             raise self._blad
         return self._blok
@@ -151,6 +160,68 @@ def test_pelna_z_rozwin_to_odmowa_a_nie_ciche_wygranie_jednej(monkeypatch):
     assert kod == 2
     assert klient.wolanie is None, "przy sprzecznych flagach nie pytamy serwera w ogóle"
     assert "rozwij" in err.lower()
+
+
+# ── 1b. skrót identyfikatora grupy — to, co człowiek naprawdę widzi na ekranie ─────────
+#
+# Wszystkie cztery przypadki niżej wzięły się z JEDNEGO uruchomienia na żywej osi SF-7:
+# wiersz-grupa pokazuje `[296dad5c]`, więc dokładnie to człowiek wkleja — a serwer na nieznany
+# identyfikator NIE PROTESTUJE, tylko oddaje oś dalej zwiniętą. Efekt: „nic się nie stało".
+
+GRUPA_PELNA = "296dad5c-e922-4300-87f5-2f8b46e05288"
+
+
+def test_skrot_z_nawiasu_zamienia_sie_na_pelny_identyfikator(monkeypatch):
+    """Osiem znaków z ekranu ma WYSTARCZYĆ — inaczej to, co widać, jest bezużyteczne."""
+    klient = _Klient([_grupa(GRUPA_PELNA)], po_rozwinieciu=[_wiersz("w1")])
+    kod, _, _ = _uruchom(monkeypatch, cli.polecenie_os, _ArgsOs(rozwin="296dad5c"), klient)
+
+    assert kod == 0
+    assert len(klient.wolania) == 2, "skrót wymaga najpierw strony zwiniętej, żeby go dopasować"
+    assert klient.wolania[-1]["rozwin"] == GRUPA_PELNA
+
+
+def test_pelny_identyfikator_nie_placi_za_dodatkowe_pytanie(monkeypatch):
+    """Kto podał pełny — nie ma powodu płacić za rundę dopasowania."""
+    klient = _Klient([_grupa(GRUPA_PELNA)], po_rozwinieciu=[_wiersz("w1")])
+    kod, _, _ = _uruchom(monkeypatch, cli.polecenie_os, _ArgsOs(rozwin=GRUPA_PELNA), klient)
+
+    assert kod == 0 and len(klient.wolania) == 1
+
+
+def test_niejednoznaczny_skrot_to_ODMOWA_z_kandydatami(monkeypatch):
+    """Rozwinięcie NIE TEJ grupy wygląda identycznie jak rozwinięcie właściwej.
+
+    Człowiek nie ma jak zauważyć pomyłki — dlatego „pierwszy z brzegu" jest tu zakazany.
+    """
+    klient = _Klient([_grupa("29000000-0000-0000-0000-000000000001"),
+                      _grupa("29000000-0000-0000-0000-000000000002")])
+    kod, _, err = _uruchom(monkeypatch, cli.polecenie_os, _ArgsOs(rozwin="29"), klient)
+
+    assert kod == 2
+    assert len(klient.wolania) == 1, "przy niejednoznaczności NIE rozwijamy niczego"
+    assert "0000000001" in err and "0000000002" in err
+
+
+def test_skrot_bez_trafienia_tlumaczy_gdzie_sa_grupy(monkeypatch):
+    klient = _Klient([_grupa(GRUPA_PELNA)])
+    kod, _, err = _uruchom(monkeypatch, cli.polecenie_os, _ArgsOs(rozwin="deadbeef"), klient)
+
+    assert kod == 2
+    assert "zwiniętym" in err and "--limit" in err
+
+
+def test_grupa_ktora_wrocila_zwinieta_nie_konczy_sie_cisza(monkeypatch):
+    """Serwer nie protestuje, gdy nie zna `rozwin` — więc mówi Kit.
+
+    Bez tego zdania człowiek widzi ten sam ekran co przed `--rozwin` i nie wie, czy pomylił
+    się on, czy popsuł się Kit.
+    """
+    klient = _Klient([_grupa(GRUPA_PELNA)], po_rozwinieciu=[_grupa(GRUPA_PELNA)])
+    kod, wy, _ = _uruchom(monkeypatch, cli.polecenie_os, _ArgsOs(rozwin=GRUPA_PELNA), klient)
+
+    assert kod == 0
+    assert "nadal zwinięta" in wy
 
 
 # ── 2. wypisanie: grupa, licznik, sprzeczność „pozycje vs wiersze" ─────────────────────
@@ -299,6 +370,22 @@ def test_503_mowi_ze_to_serwer_a_nie_ty(monkeypatch):
     assert "nie jest gotowy" in err
 
 
+def test_503_pokazuje_POWOD_z_serwera_zamiast_radzic_czekanie(monkeypatch):
+    """Nasz domyślny tekst dla 503 brzmi „odczekaj i spróbuj później".
+
+    Przy braku migracji to rada FAŁSZYWA — czekanie nie pomoże, pomoże migracja. Serwer
+    przysyła powód w `detail` i to on ma trafić na ekran. Złapane na żywym dev.
+    """
+    klient = _Klient(blad=cli.BladAPI(
+        "serwer nie dał rady", kod=503,
+        szczegoly='{"detail": "brakuje tabel rewizji E1 (SF-7)"}'))
+    kod, _, err = _uruchom(monkeypatch, cli.polecenie_blok, _ArgsBlok(), klient)
+
+    assert kod == 1
+    assert "rewizji E1" in err
+    assert "odczekaj" not in err, "fałszywa rada nie ma prawa stanąć obok prawdziwego powodu"
+
+
 # ── 5. formatowanie osi bez sieci ──────────────────────────────────────────────────────
 
 def test_nieznany_rodzaj_wraca_surowy_zamiast_zniknac(monkeypatch):
@@ -338,6 +425,13 @@ def test_nagłowek_dnia_przy_zmianie_daty():
 
     assert len(naglowki) == 2
     assert "2026-09-01" in naglowki[0] and "2026-09-02" in naglowki[1]
+
+
+def test_odmiana_liczebnika_grup():
+    """„2 grup zwinięta" czyta się jak usterka formatowania i odciąga uwagę od liczby."""
+    assert os_czasu.odmiana_grup(1) == "1 grupa zwinięta"
+    assert os_czasu.odmiana_grup(2) == "2 grupy zwinięte"
+    assert os_czasu.odmiana_grup(5) == "5 grup zwiniętych"
 
 
 def test_zly_znacznik_czasu_nie_wywraca_osi():
