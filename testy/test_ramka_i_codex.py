@@ -279,10 +279,10 @@ class TestBramkiWersjiIShell(unittest.TestCase):
 
         self._cli = cli
         self._worker = worker
-        self._stare = (cli.konfiguracja.wczytaj, cli._klient, worker.uruchom)
+        self._stare = (cli.konfiguracja.wczytaj, cli._klient_i_organizacja, worker.uruchom)
 
     def tearDown(self):
-        (self._cli.konfiguracja.wczytaj, self._cli._klient,
+        (self._cli.konfiguracja.wczytaj, self._cli._klient_i_organizacja,
          self._worker.uruchom) = self._stare
 
     def test_wersja_jest_w_JEDNYM_miejscu(self):
@@ -340,7 +340,12 @@ class TestBramkiWersjiIShell(unittest.TestCase):
         # `*_` zamiast jednego parametru: od v0.4 `_klient` przyjmuje też `args` (stamtąd
         # bierze `--org`). Atrapa o sztywnej liczbie parametrów wywracała się na zmianie
         # sygnatury, choć mierzy coś zupełnie innego — bramkę wykonawcy `shell`.
-        self._cli._klient = lambda *_a, **_k: object()
+        # Od 0.9.0 (SF-32) worker bierze też Organizację — slug w niej ZGODNY, bo tu
+        # badamy bramkę shella, a nie rozjazd sluga (ten ma własne testy).
+        from sf_kit.tozsamosc import Organizacja
+        org = Organizacja(uuid="o", slug="org", nazwa="Org", agent_slug="s",
+                          uprawnienia=["tickets:read"])
+        self._cli._klient_i_organizacja = lambda *_a, **_k: (object(), org)
         self._worker.uruchom = _podniesc
         return a
 

@@ -128,6 +128,37 @@ def z_odpowiedzi(dane: dict) -> Tozsamosc:
     )
 
 
+def slug_w_sf(toz: Tozsamosc, organizacja: str = "") -> str | None:
+    """Slug agenta według SF (SF-32). `None` = SF nie mówi jednoznacznie.
+
+    Slug siedzi na CZŁONKOSTWIE, nie na koncie — więc teoretycznie bywa różny w różnych
+    Organizacjach. Stąd kolejność: wskazana Organizacja → jej slug; bez wskazania → slug
+    wspólny dla wszystkich Organizacji z nadaniami, a przy kilku różnych `None` (worker
+    i tak sprawdzi go przy starcie, już w konkretnej Organizacji).
+    """
+    if organizacja:
+        org = toz.znajdz(organizacja)
+        return (org.agent_slug or None) if org else None
+    slugi = {o.agent_slug for o in toz.z_nadaniami if o.agent_slug}
+    return slugi.pop() if len(slugi) == 1 else None
+
+
+def rozjazd_sluga(slug_z_ustawien: str, org: Organizacja) -> str | None:
+    """Zdanie o rozjeździe sluga z ustawień i z SF albo `None`, gdy się zgadzają.
+
+    Po co: worker odsiewa zadania po slugu z ustawień (`assigned_agent_slug`). Inny slug niż
+    w SF znaczy „0 zadań" przy koncie, które działa — `whoami` pokazywał konto, a worker
+    kręcił się pusty (ADVERTPR-918). Brak sluga po stronie SF (członkostwo bez niego) to NIE
+    rozjazd: nie ma z czym porównać, a SF i tak nie przydzieli zadania po slugu.
+    """
+    w_sf = (org.agent_slug or "").strip()
+    if not w_sf or w_sf == (slug_z_ustawien or "").strip():
+        return None
+    return (f"Slug w ustawieniach („{slug_z_ustawien}”) różni się od sluga w SF "
+            f"(„{w_sf}” w Organizacji {org.slug}). Worker odsiewa zadania po slugu, więc "
+            f"z tym ustawieniem nie zobaczy żadnego swojego zadania.")
+
+
 def lista_do_pokazania(organizacje: list[Organizacja]) -> str:
     """Lista Organizacji dla człowieka przy terminalu — z nadaniami na wierzchu."""
     if not organizacje:

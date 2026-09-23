@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 
 from .api import BladAPI, BrakUprawnienia, Klient, ZlyKlucz
 from .config import Konfiguracja
+from . import klucz as magazyn_klucza
 from . import ramka
 from . import reakcje as mod_reakcje
 from . import skrzynka as mod_skrzynka
@@ -653,6 +654,9 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
     # Przy starcie, zanim cokolwiek weźmiemy: jeśli klucz dożywa ostatnich dni, człowiek ma
     # się o tym dowiedzieć z pierwszych linii dziennika, a nie z odmowy za tydzień.
     zadbaj_o_klucz(klient)
+    # Tętno pod nazwą NA TEJ MASZYNIE — tak samo nazywa się usługa, a czujka łączy jedno
+    # z drugim (`worker-heartbeat.sh <nazwa>` → `sf-kit-worker@<nazwa>`). Slug z SF bywa inny.
+    nazwa = magazyn_klucza.nazwa_lokalna(konf.slug)
     if raz:
         return 0 if przebieg(klient, konf) >= 0 else 1
 
@@ -665,7 +669,7 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
         # Przebieg potrafi trwać dłużej niż próg martwoty (zadanie ma własny limit), a tętna
         # w trakcie wykonania nie odświeżamy. Mówimy więc czujce WPROST, do kiedy ten stan
         # jest legalny — inaczej restartowałaby workera w połowie pracy modelu.
-        usluga.zapisz_tetno(slug=konf.slug, stan="pracuję",
+        usluga.zapisz_tetno(slug=nazwa, stan="pracuję",
                             wazne_przez_s=konf.limit_zadania_s + usluga.PROG_MARTWOTY_S)
         wynik = przebieg(klient, konf)
         if wynik < 0:
@@ -681,6 +685,6 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
                      f"odstęp z powrotem {konf.odstep_s} s")
             nieudanych = 0
             odstep = konf.odstep_s
-        usluga.zapisz_tetno(slug=konf.slug, stan=f"czekam {odstep} s",
+        usluga.zapisz_tetno(slug=nazwa, stan=f"czekam {odstep} s",
                             wazne_przez_s=odstep + usluga.PROG_MARTWOTY_S)
         time.sleep(odstep)

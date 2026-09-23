@@ -155,7 +155,7 @@ przy pierwszym uruchomieniu tam warto zerknąć na wynik `sf-kit whoami` uważni
 | dane | przykład | uwaga |
 |---|---|---|
 | adres SalesForge | `https://sf.dpakula.pl` | Kit ma ten adres wpisany jako domyślny — potwierdź go mimo to |
-| twój slug agenta | `codex-formarketing` | po nim rozpoznawane są twoje zadania |
+| twój slug agenta | `codex-formarketing` | po nim rozpoznawane są twoje zadania. Od v0.9 `init` **sprawdza go w SF sam** i ostrzega, gdy wpisany jest inny |
 | **klucz API** | `sk_live_…` | **osobnym kanałem, nie mailem** — to hasło do konta |
 
 Jeśli któregoś z tych trzech brakuje, nie ma sensu zaczynać. Poproś administratora o komplet.
@@ -246,6 +246,7 @@ Organizacje:
 
 pracuję w:    formarketing (FORmarketing sp. z o.o.)
 uprawnienia:  tickets:read, tickets:comment, tasks:own
+slug w SF:    codex-formarketing
 
 odczyt zadań: działa
 zadania:      Twoje w kolejce: 3 · przejrzano zadań Organizacji: 100 z 518
@@ -1160,22 +1161,30 @@ Od v0.5 Kit umie też **Kimi Code CLI** (Moonshot). Wybór jak przy Codexie — 
 albo `runtime` w ustawieniach. Kimi, tak jak Codex, dostaje treść zadania **w ramce**, bo model
 ją czyta; powłoka by ją wykonała.
 
-Wywołanie: `kimi --prompt "<ramka>" --print --output-format text --yolo` w katalogu zadania.
-`--print` to tryb nieinteraktywny (włącza `--afk`), `--yolo` daje automatyczną zgodę na polecenia
-i edycje — razem odpowiednik `codex --ask-for-approval never exec`. Bez nich worker chodzący
-bez nadzoru czekałby na zgodę, której nikt nie kliknie.
+Wywołanie (v0.9, Kimi Code): `kimi --prompt "<ramka>" --output-format text` w katalogu zadania.
+Tryb `--prompt` **sam** jest bezobsługowy — nie pyta człowieka o zgodę — i **odrzuca** `--yolo`
+oraz `--auto` („Cannot combine --prompt with --yolo"). Sprawdzone na Kimi Code 0.43.1 i 2.0.1:
+obie wersje mają tę samą składnię.
 
-Zanim Kit weźmie zadanie, sprawdza `kimi --version`, a nie tylko obecność polecenia w `PATH`.
-Zepsuta albo niedokończona instalacja przechodzi zwykłe „czy plik jest" i wywala się dopiero
-na pierwszym zadaniu — czyli po tym, jak worker zdążył je sobie przypisać. Lepiej odmówić przed.
+Do v0.8 Kit wołał `kimi --prompt … --print … --yolo` — składnię **starego** `kimi-cli`
+(Python). Kimi Code odpowiada na nią `unknown option '--print'` i żadne zadanie nie ruszało
+(SF-32). Kit nadal umie starą składnię, gdyby gdzieś stał stary produkt — wybiera ją sam,
+patrz niżej.
 
-> **Jedna różnica względem Codexa, o której warto wiedzieć.** Kimi w udokumentowanej składni
-> przyjmuje prompt wyłącznie jako argument (`--prompt`), a **argumenty procesu widzi `ps` każdy
+Zanim Kit weźmie zadanie, sprawdza `kimi --version` **i `kimi --help`**, a nie tylko obecność
+polecenia w `PATH`. Z pomocy rozpoznaje, którą składnię ta instalacja przyjmuje (`--prompt` →
+Kimi Code, `--print` → stary `kimi-cli`) — po pomocy, nie po numerze wersji, bo oba produkty
+numerują się od zera. Zepsuta instalacja albo pomoc bez żadnej z tych flag kończy się odmową
+**przed** wzięciem zadania, a nie trzema nieudanymi próbami na cudzej sprawie.
+
+> **Jedna różnica względem Codexa, o której warto wiedzieć.** Kimi Code przyjmuje prompt
+> wyłącznie jako argument (`--prompt`; pustego nie przyjmuje, więc stdin odpada), a **argumenty procesu widzi `ps` każdy
 > użytkownik maszyny**. Treść zadania jest więc na czas przebiegu widoczna dla wszystkich na tym
 > serwerze — przy Codexie nie jest, bo tam prompt idzie na wejście standardowe. Jeśli pracujesz
 > na współdzielonej maszynie z cudzymi danymi, weź to pod uwagę przy wyborze wykonawcy.
 
 Logowanie: `kimi login` (OAuth w przeglądarce, subskrypcja Kimi Code) — jak `codex login`.
+Bez niego `kimi --prompt` kończy się „No model configured" — to jest brak logowania, nie błąd Kitu.
 
 ### Kolejka należy do workera, nie do sesji (v0.5.3)
 
@@ -1454,6 +1463,40 @@ mówi, że to nie wygląda na identyfikator.
 `503` znaczy „ten serwer nie ma jeszcze rdzenia Bloku" (rewizja E1). To stan instalacji,
 nie Twój błąd — i czekanie tu nie pomoże, pomoże migracja.
 
+### Kiedy coś nie działa
+
+Objawy, które już widzieliśmy, z przyczyną i poprawką. Najpierw zawsze `sf-kit whoami` — jego
+wynik można w całości wkleić do wpisu na sprawie (klucz jest w nim tylko skrótem).
+
+**Worker chodzi, tętno bije, a zadań „nie ma", choć `whoami` pokazuje konto.**
+Slug w ustawieniach różni się od sluga w SF — worker odsiewa zadania po slugu, więc cudzy slug
+znaczy pustą kolejkę. Przykład z SF-32: na macu `init` zapisał `kimi-mac-dpakula` (konwencja
+z VPS), a konto w SF ma `kimi-mac`. Od v0.9:
+- `init` bierze slug z SF (`GET /me`) i mówi, gdy wpisana nazwa jest inna;
+- `whoami` pokazuje `slug w SF:` i ostrzega przy rozjeździe;
+- worker z rozjechanym slugiem **odmawia startu** i mówi, co wpisać.
+
+Poprawka: `sf-kit init` (Enter wszędzie — slug poprawi się sam) albo pole `"slug"` w pliku
+ustawień. **Nazwa katalogu ustawień się nie zmienia** i nie musi: katalog, usługa (`launchd`,
+`systemd`), log i plik tętna nazywają się jak agent *na tej maszynie*, a pole `slug` to slug
+*w SF*. Po poprawce wystarczy restart usługi — bez ponownego `sf-kit usluga`.
+
+**Zadanie wraca do kolejki, we wpisie `unknown option '--print'` albo `Cannot combine --prompt
+with --yolo`.** Kit starszy niż 0.9 z Kimi Code — zaktualizuj Kit (`git pull`) i zrestartuj
+usługę. Szczegóły: „Wykonawca `kimi`" wyżej.
+
+**Worker nie startuje: „w `kimi --help` nie ma ani `--prompt`, ani `--print`".** Kimi zmienił
+składnię w sposób, którego Kit nie zna. Zgłoś wersję (`kimi --version`) wpisem na sprawie;
+do tego czasu `--runtime codex`.
+
+**`kimi` odpowiada „No model configured".** Kimi nie jest zalogowany na koncie, na którym
+chodzi worker — `kimi login` (albo `/login` w `kimi`) jako ten sam użytkownik systemu.
+
+**Worker zatrzymuje się na pierwszym zadaniu: „Nie mogę przyjąć zadania".** Brakuje uprawnienia
+do zmiany statusu zadania. `whoami` tego nie sprawdza — jedyną próbą byłaby prawdziwa zmiana
+statusu na czyimś zadaniu, więc mówi o tym dopiero worker, zanim cokolwiek wykona. Poprawka
+po stronie administratora (nadanie na członkostwie).
+
 ### Zmiana ustawień po `init`
 
 Najprościej uruchomić `sf-kit init` jeszcze raz (Enter zostawia dotychczasowe wartości).
@@ -1472,6 +1515,7 @@ Można też poprawić plik `~/.config/sf-kit/config.json` — nazwy pól:
 }
 ```
 
+`slug` — slug agenta **w SF** (po nim worker odsiewa zadania); `init` wpisuje go z SF.
 `odstep_s` — co ile sekund sprawdzać kolejkę. `limit_zadania_s` — po ilu sekundach przerwać
 wykonanie jednego zadania (1800 = 30 minut).
 
@@ -1489,7 +1533,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.8
+## 11. Ograniczenia wersji 0.9
 
 Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
 tu coś, co dziś jest nieprawdą:

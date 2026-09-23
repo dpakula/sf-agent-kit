@@ -58,7 +58,13 @@ def _tozsamosc(klient: Klient) -> tozsamosc.Tozsamosc:
 
 
 def _klient(konf: konfiguracja.Konfiguracja, args=None) -> Klient:
-    """Klient z USTALONĄ Organizacją. Nigdy „pierwsza z brzegu" — patrz `tozsamosc.wybierz`.
+    """Klient z USTALONĄ Organizacją. Nigdy „pierwsza z brzegu" — patrz `tozsamosc.wybierz`."""
+    return _klient_i_organizacja(konf, args)[0]
+
+
+def _klient_i_organizacja(konf: konfiguracja.Konfiguracja,
+                          args=None) -> tuple[Klient, tozsamosc.Organizacja]:
+    """Jak `_klient`, plus Organizacja z `GET /me` — z niej worker bierze slug do porównania.
 
     Kosztuje jedno dodatkowe żądanie (`GET /me`) na wywołanie polecenia i to jest świadoma
     cena: bez niego Kit nie wie, czy w Organizacji z pliku agent ma jeszcze jakiekolwiek
@@ -76,7 +82,7 @@ def _klient(konf: konfiguracja.Konfiguracja, args=None) -> Klient:
     except tozsamosc.BrakWyboru as brak:
         raise SystemExit(str(brak)) from None
     klient.organizacja = org.uuid
-    return klient
+    return klient, org
 
 
 def polecenie_init(args) -> int:
@@ -92,18 +98,24 @@ def polecenie_init(args) -> int:
         podane = input(f"{etykieta} [{teraz or 'brak'}]: ").strip()
         return podane or teraz
 
-    # Slug PRZED wczytaniem konfiguracji — bo to on wskazuje, którą konfigurację wczytać.
+    # Nazwa PRZED wczytaniem konfiguracji — bo to ona wskazuje, którą konfigurację wczytać.
+    # To jest nazwa NA TEJ MASZYNIE (katalog, usługa). Slug w SF bierzemy niżej z `GET /me`
+    # (SF-32) — podpowiedzią jest nazwa katalogu, nie pole `slug`, bo po ręcznej poprawce
+    # te dwie rzeczy się różnią i Enter przeniósłby ustawienia do katalogu, którego nie ma.
     wstepny = konfiguracja.wczytaj_jesli_jest()
-    slug = pytaj("Twój slug agenta w SF (np. codex-formarketing)",
-                 getattr(args, "agent", None) or (wstepny.slug if wstepny else ""))
-    if not slug:
-        print("Bez sluga nie wiem, którym agentem jesteś ani gdzie zapisać ustawienia.",
+    nazwa = pytaj("Nazwa agenta na tej maszynie — katalog ustawień i usługa "
+                  "(zwykle slug z SF, np. codex-formarketing)",
+                  getattr(args, "agent", None)
+                  or (magazyn_klucza.nazwa_lokalna(wstepny.slug) if wstepny else ""))
+    if not nazwa:
+        print("Bez nazwy nie wiem, którym agentem jesteś ani gdzie zapisać ustawienia.",
               file=sys.stderr)
         return 2
-    magazyn_klucza.ustaw_agenta(slug)
+    magazyn_klucza.ustaw_agenta(nazwa)
 
     konf = konfiguracja.wczytaj()
-    konf.slug = slug
+    # Do odpowiedzi SF slug = nazwa; `GET /me` niżej go poprawi, jeśli SF mówi inaczej.
+    konf.slug = konf.slug or nazwa
     konf.profil = pytaj(f"Profil: {' / '.join(PROFILE)}", konf.profil or PROFIL_DOMYSLNY)
     if konf.profil not in PROFILE:
         print(f"Nie znam profilu „{konf.profil}”. Dostępne: {', '.join(PROFILE)}",
@@ -127,7 +139,8 @@ def polecenie_init(args) -> int:
         return 1
 
     print(f"Klucz {skrot} zapisany: {gdzie}")
-    konf.organizacja = _wybierz_organizacje_w_init(konf, pytaj)
+    konf.organizacja, toz = _wybierz_organizacje_w_init(konf, pytaj)
+    konf.slug = _slug_z_sf_w_init(toz, konf, nazwa)
 
     plik = konfiguracja.zapisz(konf)
     print(f"\nUstawienia zapisane: {plik}")
@@ -138,8 +151,41 @@ def polecenie_init(args) -> int:
     return 0
 
 
-def _wybierz_organizacje_w_init(konf: konfiguracja.Konfiguracja, pytaj) -> str:
-    """Pokaż Organizacje z SF i ustal DOMYŚLNĄ. Zwraca uuid albo pusty napis.
+def _slug_z_sf_w_init(toz: "tozsamosc.Tozsamosc | None", konf: konfiguracja.Konfiguracja,
+                      nazwa: str) -> str:
+    """Slug do zapisania w ustawieniach: ten z SF, a gdy SF nie mówi jednoznacznie — dotychczasowy.
+
+    SF-32: `init` na macu zapisał `kimi-mac-dpakula` (konwencja z VPS), a w SF konto miało
+    `kimi-mac`. Worker odsiewa zadania po tym polu, więc widział „0 zadań". Pytanie człowieka
+    o slug było pytaniem o coś, co SF wie lepiej — i co człowiek przepisuje z pamięci.
+    """
+    if toz is None:
+        print(f"Slug zostaje „{konf.slug}” — nie sprawdziłem go w SF. "
+              f"Worker sprawdzi go przy starcie.", file=sys.stderr)
+        return konf.slug
+    w_sf = tozsamosc.slug_w_sf(toz, konf.organizacja)
+    if not w_sf:
+        print(f"SF nie podaje jednego sluga dla tego konta — zostawiam „{konf.slug}”. "
+              f"Worker porówna go ze slugiem w Organizacji, w której wystartuje.")
+        return konf.slug
+    if w_sf != nazwa:
+        print(f"\nUWAGA: na tej maszynie agent nazywa się „{nazwa}”, a w SF jego slug to "
+              f"„{w_sf}”.\n  Zapisuję „{w_sf}” — po nim worker odsiewa zadania. Katalog "
+              f"ustawień i usługa zostają pod „{nazwa}”.", file=sys.stderr)
+    elif w_sf != konf.slug:
+        print(f"Slug poprawiony według SF: „{konf.slug}” → „{w_sf}”.")
+    else:
+        print(f"Slug w SF: „{w_sf}” — zgodny.")
+    return w_sf
+
+
+def _wybierz_organizacje_w_init(
+        konf: konfiguracja.Konfiguracja,
+        pytaj) -> tuple[str, "tozsamosc.Tozsamosc | None"]:
+    """Pokaż Organizacje z SF i ustal DOMYŚLNĄ. Zwraca (uuid albo pusty napis, tożsamość).
+
+    Tożsamość oddajemy dalej, bo z tej samej odpowiedzi `init` bierze slug (SF-32) — drugie
+    `GET /me` byłoby drugim miejscem, w którym może się nie udać.
 
     Domyślna Organizacja jest WYGODĄ, nie wyborem podejmowanym za człowieka:
     · dokładnie jedna z nadaniami → ustawiamy ją i mówimy o tym wprost;
@@ -158,7 +204,7 @@ def _wybierz_organizacje_w_init(konf: konfiguracja.Konfiguracja, pytaj) -> str:
         print(f"  nie udało się ({blad}). Ustawienia zapiszę bez domyślnej Organizacji —\n"
               f"  podawaj --org <slug> przy poleceniach albo uruchom `init` ponownie.",
               file=sys.stderr)
-        return konf.organizacja
+        return konf.organizacja, None
 
     print(f"  konto: {toz.konto_nazwa or '(bez nazwy)'}"
           f"{' · agent' if toz.konto_kind == 'agent' else ''}")
@@ -168,12 +214,12 @@ def _wybierz_organizacje_w_init(konf: konfiguracja.Konfiguracja, pytaj) -> str:
     if not z_nadaniami:
         print("W żadnej nie masz jeszcze nadanych uprawnień — poproś administratora.\n"
               "Ustawienia zapiszę bez domyślnej Organizacji.")
-        return ""
+        return "", toz
 
     if len(z_nadaniami) == 1:
         jedyna = z_nadaniami[0]
         print(f"Uprawnienia masz tylko w „{jedyna.slug}” — ustawiam ją jako domyślną.")
-        return jedyna.uuid
+        return jedyna.uuid, toz
 
     # Kilka do wyboru: podpowiadamy tę z pliku (migracja z 0.3), ale nie wybieramy za człowieka.
     teraz = toz.znajdz(konf.organizacja) if konf.organizacja else None
@@ -181,17 +227,17 @@ def _wybierz_organizacje_w_init(konf: konfiguracja.Konfiguracja, pytaj) -> str:
                    teraz.slug if teraz else "")
     if not podane:
         print("Dobrze — każde polecenie będzie wymagało --org <slug>.")
-        return ""
+        return "", toz
     wybrana = toz.znajdz(podane)
     if wybrana is None:
         print(f"Nie znam Organizacji „{podane}” na Twojej liście — zapisuję bez domyślnej.",
               file=sys.stderr)
-        return ""
+        return "", toz
     if not wybrana.ma_nadania:
         print(f"W „{wybrana.slug}” nie masz nadań — zapisuję bez domyślnej, "
               f"żeby polecenia nie kończyły się odmową w połowie.", file=sys.stderr)
-        return ""
-    return wybrana.uuid
+        return "", toz
+    return wybrana.uuid, toz
 
 
 def _jak_wolac() -> str:
@@ -254,7 +300,9 @@ def polecenie_whoami(args) -> int:
     if not kl:
         raise SystemExit(magazyn_klucza.powod_braku_klucza())
 
+    lokalna = magazyn_klucza.nazwa_lokalna(konf.slug)
     print(f"agent:        {konf.slug or '(nie ustawiony)'}"
+          f"{f'   (na tej maszynie: {lokalna})' if lokalna != konf.slug else ''}"
           f"   profil: {konf.profil}")
     print(f"ustawienia:   {konfiguracja.sciezka()}")
     print(f"klucz:        {magazyn_klucza.skrot(kl)}")
@@ -280,6 +328,12 @@ def polecenie_whoami(args) -> int:
     print(f"\npracuję w:    {org.slug} ({org.nazwa})"
           f"{'  ← z --org' if getattr(args, 'org', None) else ''}")
     print(f"uprawnienia:  {', '.join(org.uprawnienia) or '(brak)'}")
+    print(f"slug w SF:    {org.agent_slug or '(członkostwo bez sluga)'}")
+    rozjazd = tozsamosc.rozjazd_sluga(konf.slug, org)
+    if rozjazd:
+        # SF-32: tu `whoami` pokazywał działające konto, a worker obok widział „0 zadań".
+        print(f"\nUWAGA: {rozjazd}\n  Worker odmówi startu. Popraw: `{_jak_wolac()} init` albo "
+              f'"slug": "{org.agent_slug}" w {konfiguracja.sciezka()}')
 
     klient = Klient(baza=konf.adres, klucz=kl, organizacja=org.uuid)
     wynik = klient.sprawdz_klucz()
@@ -380,7 +434,7 @@ def polecenie_heartbeat(args) -> int:
 
     # Slug z konfiguracji: od v0.5.3 tętno jest per worker, nie per konto systemowe.
     konf = konfiguracja.wczytaj()
-    zywy, co = usluga.czy_zywy(slug=konf.slug or None)
+    zywy, co = usluga.czy_zywy(slug=magazyn_klucza.nazwa_lokalna(konf.slug) or None)
     print(co)
     return 0 if zywy else 1
 
@@ -398,6 +452,9 @@ def polecenie_usluga(args) -> int:
     if not konf.slug:
         print("Najpierw `sf-kit init` — bez sluga agenta nie ma czego uruchamiać.", file=sys.stderr)
         return 2
+    # Usługa, jej plik i log nazywają się jak agent NA TEJ MASZYNIE — `--agent` w wierszu
+    # polecenia musi trafić w katalog ustawień. Slug z SF (SF-32) bywa inny.
+    nazwa = magazyn_klucza.nazwa_lokalna(konf.slug)
 
     # System wybieramy z `sys.platform`, nie z pytania do człowieka: plik dla obcego systemu
     # jest bezużyteczny, a wybrany ręcznie bywa wybrany źle. `--system` zostaje dla przypadku,
@@ -406,16 +463,16 @@ def polecenie_usluga(args) -> int:
     polecenie = os.path.abspath(sys.argv[0])
 
     if docelowy == "macos":
-        sciezka = usluga.sciezka_plist(konf.slug)
-        tresc = usluga.tresc_plist(slug=konf.slug, polecenie=polecenie,
+        sciezka = usluga.sciezka_plist(nazwa)
+        tresc = usluga.tresc_plist(slug=nazwa, polecenie=polecenie,
                                    katalog_domowy=str(Path.home()))
     else:
-        sciezka = usluga.sciezka_unitu(konf.slug)
+        sciezka = usluga.sciezka_unitu(nazwa)
         tresc = usluga.tresc_unitu(
-            slug=konf.slug,
+            slug=nazwa,
             polecenie=polecenie,
             katalog_domowy=str(Path.home()),
-            plik_srodowiska=str(Path.home() / ".config" / "sf-kit" / f"{konf.slug}.env"),
+            plik_srodowiska=str(Path.home() / ".config" / "sf-kit" / f"{nazwa}.env"),
         )
 
     if args.pokaz:
@@ -426,14 +483,14 @@ def polecenie_usluga(args) -> int:
     sciezka.write_text(tresc, encoding="utf-8")
 
     if docelowy == "macos":
-        etykieta = usluga.etykieta_launchd(konf.slug)
+        etykieta = usluga.etykieta_launchd(nazwa)
         (Path.home() / "Library" / "Logs" / "sf-kit").mkdir(parents=True, exist_ok=True)
         print(f"Zapisałem agenta launchd: {sciezka}\n")
         print("Włącz go (bez sudo, agent użytkownika) — JEDNO polecenie:")
         print(f"  launchctl bootstrap gui/$(id -u) {sciezka}\n")
         print("Sprawdzenie i podgląd logu:")
         print(f"  launchctl print gui/$(id -u)/{etykieta} | head -20")
-        print(f"  tail -f ~/Library/Logs/sf-kit/worker-{konf.slug}.log\n")
+        print(f"  tail -f ~/Library/Logs/sf-kit/worker-{nazwa}.log\n")
         print("Wyłączenie:")
         print(f"  launchctl bootout gui/$(id -u)/{etykieta}\n")
         print("Jeśli `launchctl bootstrap` odpowie „Input/output error”, agent jest już "
@@ -443,8 +500,8 @@ def polecenie_usluga(args) -> int:
     print(f"Zapisałem jednostkę: {sciezka}\n")
     print("Włącz ją (bez sudo, usługa użytkownika):")
     print("  systemctl --user daemon-reload")
-    print(f"  systemctl --user enable --now {usluga.nazwa_unitu(konf.slug)}")
-    print(f"  systemctl --user status {usluga.nazwa_unitu(konf.slug)}\n")
+    print(f"  systemctl --user enable --now {usluga.nazwa_unitu(nazwa)}")
+    print(f"  systemctl --user status {usluga.nazwa_unitu(nazwa)}\n")
     print("Żeby worker chodził także wtedy, gdy nie jesteś zalogowany:")
     print(f"  sudo loginctl enable-linger {os.environ.get('USER', 'twoj-uzytkownik')}")
     return 0
@@ -943,7 +1000,16 @@ def polecenie_status(args) -> int:
 def polecenie_worker(args) -> int:
     from .worker import uruchom
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf, args)
+    klient, org = _klient_i_organizacja(konf, args)
+    rozjazd = tozsamosc.rozjazd_sluga(konf.slug, org)
+    if rozjazd:
+        # SF-32 (ADVERTPR-918): worker z cudzym slugiem kręci się pusty i wygląda na zdrowy —
+        # tętno bije, zadań „nie ma". Odmowa na starcie jest jedynym miejscem, w którym
+        # ktoś to zobaczy. Slugu NIE poprawiamy sami: zmiana ustawień przez proces w tle,
+        # bez człowieka przy terminalu, to decyzja, której nikt by nie zauważył.
+        raise SystemExit(
+            f"{rozjazd}\n\nWorker nie startuje. Popraw slug: `{_jak_wolac()} init` albo\n"
+            f'  "slug": "{org.agent_slug}"\nw {konfiguracja.sciezka()}')
     if args.runtime:
         konf.runtime = args.runtime
     if args.interval:

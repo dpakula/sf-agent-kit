@@ -126,17 +126,32 @@ def sciezka_konfiguracji() -> Path:
     return korzen
 
 
+def nazwa_lokalna(zapasowa: str) -> str:
+    """Nazwa agenta NA TEJ MASZYNIE: katalog ustawień, konto w pęku, usługa, plik tętna.
+
+    To NIE jest slug w SF (SF-32). Do 0.8.0 oba siedziały w jednym polu `slug` i `init` na
+    macu zapisał nazwę z konwencji VPS (`kimi-mac-dpakula`) tam, gdzie worker odsiewa zadania
+    po slugu z SF (`kimi-mac`) — „0 zadań" przy działającym koncie. Od 0.9.0 pole `slug` to
+    slug z SF, a nazwa lokalna wynika z katalogu. Rozdzielenie chroni też ręczną poprawkę:
+    `slug: kimi-mac` w katalogu `kimi-mac-dpakula` nie przestawia usługi launchd na agenta,
+    którego katalogu nie ma.
+
+    `zapasowa` — gdy katalog nie jest katalogiem agenta (`SF_KIT_HOME`, układ sprzed podziału).
+    """
+    korzen = katalog_bazowy()
+    katalog = sciezka_konfiguracji()
+    if katalog != korzen and katalog.parent == korzen:
+        return katalog.name
+    return zapasowa
+
+
 def konto_w_peku() -> str:
     """Konto w pęku kluczy macOS: slug agenta albo konto sprzed podziału.
 
     Jeden wpis „api-key" na maszynę znaczył JEDEN agent na maszynę — a Damian planuje kilku
     w jednym Codeksie. Konto per slug rozdziela klucze tak, jak katalogi rozdzielają resztę.
     """
-    korzen = katalog_bazowy()
-    katalog = sciezka_konfiguracji()
-    if katalog != korzen and katalog.parent == korzen:
-        return katalog.name
-    return KONTO_JEDNEGO_AGENTA
+    return nazwa_lokalna(KONTO_JEDNEGO_AGENTA)
 
 
 def _plik_klucza() -> Path:
