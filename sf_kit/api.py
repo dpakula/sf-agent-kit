@@ -181,6 +181,17 @@ class Klient:
         return BladAPI(f"nieoczekiwana odpowiedź ({gdzie}, {kod}): {tresc}",
                        kod=kod, szczegoly=tresc)
 
+    # ── flota (SF-18) ────────────────────────────────────────────────────────
+
+    def zapisz_migawke_rejestru(self, cialo: dict) -> dict:
+        """`PUT /flota/rejestr` — migawka `agents.json` w CAŁOŚCI; oddaje `{przyjeto, rozjazdy}`.
+
+        PUT, bo SF zastępuje migawkę Organizacji — powtórzenie tego samego ciała niczego nie
+        psuje, więc tic może wołać to po każdej zmianie pliku bez liczenia, co już wysłał.
+        """
+        odp = self._wywolaj("PUT", "flota/rejestr", cialo=cialo)
+        return odp if isinstance(odp, dict) else {}
+
     # ── zadania ──────────────────────────────────────────────────────────────
 
     def zadania(self, *, status: str = "queued", limit: int = 50,

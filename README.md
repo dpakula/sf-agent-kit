@@ -774,11 +774,12 @@ i tak warto podać `WYNIK: <ścieżka>` — jawne wskazanie wygrywa z konwencją
 
 ## Profil koordynator — rozdajesz pracę flocie
 
-Pięć poleceń. Wszystkie wymagają uprawnienia `plans:write` w wybranej Organizacji; bez niego
+Sześć poleceń. Wszystkie wymagają uprawnienia `plans:write` w wybranej Organizacji; bez niego
 Kit odmawia na wejściu i mówi, gdzie to uprawnienie masz.
 
 ```bash
 sf-kit flota                      # kto może dostać zadanie
+sf-kit flota rejestr agents.json [--pokaz]   # migawka rejestru floty do SF (v0.10)
 sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md
 sf-kit kolejka [--agent-slug kodeks] [--status in_progress]
 sf-kit odbierz zadanie-abc-20260915
@@ -803,6 +804,34 @@ znaczyć: zadania schodzą z tablicy niezależnie od tego, czy coś po nich zost
 Jeden przypadek jest opisany osobno: gdy część wpisów na sprawie jest **poza twoim poziomem
 widoczności**, Kit powie to wprost, zamiast twierdzić, że wyniku nie ma. Brak dowodu to nie
 dowód braku.
+
+### Migawka rejestru floty — `flota rejestr` (v0.10, SF-18)
+
+Dashboard floty w SF pokazuje **rodzaj silnika** (`claude`/`codex`/`kimi`) i **rozjazdy
+rejestru**, ale SF nie ma ich skąd wziąć: topologia floty mieszka wyłącznie w rejestrze
+`agents.json` na macu (ten sam plik czyta tic). To polecenie zabiera stamtąd migawkę:
+
+```bash
+sf-kit --org advertpro-co flota rejestr /ścieżka/do/agents.json --pokaz   # co by poszło
+sf-kit --org advertpro-co flota rejestr /ścieżka/do/agents.json           # wyślij
+```
+
+- **Ścieżka jest parametrem**, bo polecenie odpala tic albo worker-tick na macu, a na VPS
+  rejestru nie ma.
+- **Slug:** `sf_agent_slug`, a gdy go brak — `id` wpisu. Pole `sf.agent_slug` **nie** jest
+  źródłem: w rejestrze z 24.09 pięć wpisów ma tam tę samą, skopiowaną wartość. Rozjazd między
+  nim a slugiem Kit pokazuje jako `UWAGA`, bo to błąd rejestru do poprawienia u źródła.
+- **Idzie cała lista**, także wycofani (z `aktywny: false`). SF zastępuje migawkę w całości,
+  więc powtórzenie niczego nie psuje i tic może wołać polecenie po każdej zmianie pliku.
+- **Wychodzą tylko pola kontraktu** (`slug`, `nazwa`, `rodzaj`, `maszyna`, `katalog`,
+  `aktywny`). Instrukcje, notatki i flagi uruchomienia zostają na macu.
+- **Odpowiedź niesie rozjazdy** wobec rejestru SF, pogrupowane po rodzaju (konto bez wpisu,
+  wpis bez konta, inna nazwa). Kod wyjścia to 0 także przy rozjazdach, bo rozjazd jest
+  wiadomością dla człowieka, a nie awarią wysyłki. 1 oznacza, że nie wysłano (np. 404, gdy
+  serwer nie ma jeszcze tej trasy), a 2 oznacza zły plik.
+
+Migawka jest **per Organizacja** — wybierz tę, w której flota ma konta (`--org`). Wpisy
+agentów z innych Organizacji wrócą jako „wpis lokalny bez konta w SF".
 
 ### Zadanie bez sprawy — co się wtedy dzieje
 
@@ -1089,6 +1118,7 @@ sf-kit sprawy [--limit 50]
 
 ```bash
 sf-kit flota                                    # kto w tej Organizacji może dostać zadanie
+sf-kit flota rejestr agents.json [--pokaz]      # migawka rejestru floty → SF (dashboard)
 sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md \
             [--priorytet low|medium|high|urgent] [--termin 2026-09-20T18:00:00Z]
 sf-kit kolejka [--agent-slug kodeks] [--status in_progress]
@@ -1533,7 +1563,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.9
+## 11. Ograniczenia wersji 0.10
 
 Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
 tu coś, co dziś jest nieprawdą:

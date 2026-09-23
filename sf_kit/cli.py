@@ -862,6 +862,67 @@ def polecenie_flota(args) -> int:
     return 0
 
 
+def polecenie_flota_rejestr(args) -> int:
+    """Migawka `agents.json` → SF, z rozjazdami w odpowiedzi (SF-18).
+
+    Kody wyjścia dla tic / worker-tick: 0 = przyjęte (także z rozjazdami — rozjazd jest
+    wiadomością dla człowieka, nie awarią wysyłki), 1 = nie wysłano, 2 = zły plik.
+    """
+    import socket
+
+    from . import rejestr_floty
+
+    try:
+        dane = rejestr_floty.wczytaj(args.plik)
+    except rejestr_floty.ZlyRejestr as blad:
+        print(f"Nie wysyłam: {blad}", file=sys.stderr)
+        return 2
+    migawka = rejestr_floty.zbuduj(dane, nadawca=socket.gethostname().split(".")[0])
+
+    print(f"Rejestr: {args.plik} — {len(migawka.cialo['agenci'])} wpisów "
+          f"(aktywnych {sum(1 for a in migawka.cialo['agenci'] if a['aktywny'])}).")
+    for ident, slug, skad in migawka.pochodzenie:
+        if skad != "id" or ident != slug:
+            print(f"  {ident:<24} → slug {slug}  (z `{skad}`)")
+    for zdanie in migawka.ostrzezenia:
+        print(f"  UWAGA: {zdanie}", file=sys.stderr)
+
+    if args.pokaz:
+        print(json.dumps(migawka.cialo, ensure_ascii=False, indent=2))
+        print("\n--pokaz: nic nie wysłałem.")
+        return 0
+
+    konf = konfiguracja.wczytaj()
+    # Ta sama bramka co reszta profilu koordynatora (README: „wszystkie wymagają plans:write").
+    # To jest wygoda, nie zabezpieczenie — rozstrzyga serwer.
+    klient, org = _koordynator(konf, args)
+    try:
+        odp = klient.zapisz_migawke_rejestru(migawka.cialo)
+    except BladAPI as blad:
+        # 503 z tej trasy to INSTALACJA (brak tabel rewizji), nie przeciążenie — ogólny
+        # komunikat „odczekaj" wysłałby człowieka na fałszywy trop. Treść serwera mówi prawdę.
+        szczegol = f"\n  serwer: {blad.szczegoly}" if getattr(blad, "kod", None) == 503 else ""
+        print(f"Migawka NIE poszła do „{org.slug}”: {blad}{szczegol}", file=sys.stderr)
+        return 1
+
+    rozjazdy = odp.get("rozjazdy") or []
+    print(f"\nSF („{org.slug}”) przyjął {odp.get('przyjeto')} wpisów. "
+          f"Rozjazdy wobec rejestru SF: {len(rozjazdy)}.")
+    # Pogrupowane po rodzaju, z licznikiem na początku: rozjazdów nazwy bywa kilkanaście
+    # i bez grupowania przykrywają te dwa, które naprawdę coś znaczą (konto bez wpisu).
+    from collections import Counter
+    liczniki = Counter(r.get("rodzaj") for r in rozjazdy)
+    if liczniki:
+        print("  " + ", ".join(f"{rodzaj}: {ile}" for rodzaj, ile in sorted(liczniki.items())))
+    for r in sorted(rozjazdy, key=lambda r: (r.get("rodzaj") or "", r.get("slug") or "")):
+        strony = " / ".join(x for x in (
+            f"SF: {r.get('w_sf')}" if r.get("w_sf") else "",
+            f"lokalnie: {r.get('lokalnie')}" if r.get("lokalnie") else "") if x)
+        print(f"  {r.get('rodzaj'):<18} {r.get('slug') or '(bez sluga)':<22} "
+              f"{r.get('szczegol') or ''}{f'  [{strony}]' if strony else ''}")
+    return 0
+
+
 def polecenie_zlec(args) -> int:
     """Zadanie dla agenta — ZAWSZE na sprawie."""
     konf = konfiguracja.wczytaj()
@@ -1843,8 +1904,16 @@ def main(argv: list[str] | None = None) -> int:
     sp.set_defaults(funkcja=polecenie_sprawy)
 
     # ── profil KOORDYNATOR ────────────────────────────────────────────────────
-    pod.add_parser("flota", help="[koordynator] agenci tej Organizacji"
-                   ).set_defaults(funkcja=polecenie_flota)
+    fl = pod.add_parser("flota", help="[koordynator] agenci tej Organizacji; "
+                                      "`flota rejestr PLIK` — migawka rejestru do SF")
+    fl.set_defaults(funkcja=polecenie_flota)
+    # Podpolecenie OPCJONALNE: gołe `sf-kit flota` ma działać jak dotąd.
+    fl_pod = fl.add_subparsers(dest="flota_co", required=False)
+    fr = fl_pod.add_parser("rejestr", help="wyślij migawkę agents.json do SF (SF-18)")
+    fr.add_argument("plik", help="ścieżka do agents.json (rejestr Agaty, na macu)")
+    fr.add_argument("--pokaz", action="store_true",
+                    help="pokaż, co poszłoby do SF, i NIC nie wysyłaj")
+    fr.set_defaults(funkcja=polecenie_flota_rejestr)
 
     zl = pod.add_parser("zlec", help="[koordynator] zleć zadanie agentowi (zawsze na sprawie)")
     zl.add_argument("--tytul", required=True, help="jednym zdaniem: co ma powstać")
