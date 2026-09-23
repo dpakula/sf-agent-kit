@@ -21,6 +21,7 @@ z SF poza samą treścią zadania.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -190,14 +191,56 @@ class WykonawcaShell(Wykonawca):
         return _uruchom(["bash", "-lc", polecenie], katalog=katalog, limit_s=limit_s)
 
 
-class WykonawcaKimi(Wykonawca):
-    """Kimi Code CLI w trybie bezobsługowym (ADVERTPR-807 C3, składnia z wpisu `1c831e48` na 803).
+#: Składnia trybu bezobsługowego NOWEGO Kimi Code (`@moonshot-ai/kimi-code`, binarka `kimi`).
+#: `-p/--prompt` sam jest trybem bezobsługowym (`nonInteractive: true`, bez polityki pytania
+#: o zgodę) — i ten tryb ODRZUCA `--yolo`, `--auto` oraz `--plan` („Cannot combine --prompt
+#: with --yolo", `validateOptions` w src/cli/options.ts). Sprawdzone 24.09 na 0.43.1 (VPS)
+#: i 2.0.1 (wydanie z GitHuba, to samo co na macu): pomoc i walidacja są w obu identyczne.
+SKLADNIA_KIMI_CODE = "kimi-code"
 
-    `--print` to tryb nieinteraktywny (włącza `--afk`, czyli bez pytań do człowieka), `--yolo`
-    daje automatyczną zgodę na polecenia i edycje — razem odpowiednik `codex --ask-for-approval
-    never exec`. Bez obu worker chodzący bez nadzoru wisiałby do limitu czasu na pytaniu,
-    którego nikt nie zatwierdzi, i meldował „przekroczony limit czasu": diagnoza wskazująca
-    na wolny model zamiast na to, co się naprawdę stało.
+#: Składnia STAREGO `kimi-cli` (Python) — `--print` + `--yolo`, z wpisu `1c831e48` na 803.
+#: Nowy Kimi Code na `--print` odpowiada „unknown option '--print' (did you mean --prompt?)".
+#: Zostawiona dla instalacji, które jeszcze stoją na starym produkcie; NIE sprawdzona na żywej
+#: instalacji — żadna z naszych maszyn go nie ma.
+SKLADNIA_KIMI_CLI = "kimi-cli"
+
+
+def rozpoznaj_skladnie_kimi(pomoc: str) -> str | None:
+    """Która składnia, sądząc po `kimi --help`. `None` = nie rozpoznaję.
+
+    Po POMOCY, nie po numerze wersji — i to nie jest gust. Oba produkty numerują się od zera:
+    Kimi Code 0.43.1 i 2.0.1 mają tę samą składnię, a stary `kimi-cli` też miał wersje 0.x.
+    Zgłoszenie SF-32 zakładało, że „0.43.1 zna `--print`, 2.x nie" — sonda na VPS pokazała,
+    że 0.43.1 odrzuca `--print` dokładnie tak samo. Rozgałęzienie po wersji utrwaliłoby tę
+    pomyłkę w kodzie. Pomoc mówi, co TA instalacja przyjmie, tak jak sonda Codexa wyżej.
+    """
+    if _FLAGA_PRINT.search(pomoc):
+        return SKLADNIA_KIMI_CLI
+    if _FLAGA_PROMPT.search(pomoc):
+        return SKLADNIA_KIMI_CODE
+    return None
+
+
+#: Cała flaga, nie podciąg: `--print-config` w przyszłej pomocy Kimi Code nie ma prawa
+#: przełączyć nas na składnię starego produktu.
+_FLAGA_PRINT = re.compile(r"(?<![\w-])--print(?![\w-])")
+_FLAGA_PROMPT = re.compile(r"(?<![\w-])--prompt(?![\w-])")
+
+
+class WykonawcaKimi(Wykonawca):
+    """Kimi w trybie bezobsługowym (ADVERTPR-807 C3; składnia Kimi Code od SF-32, 24.09).
+
+    Dwa produkty pod jedną nazwą polecenia — patrz `rozpoznaj_skladnie_kimi`:
+
+    · **Kimi Code** (`kimi-code`, na wszystkich naszych maszynach): `kimi --prompt <treść>
+      --output-format text`. Tryb promptu sam nie pyta człowieka; `--yolo`/`--auto` są w nim
+      BŁĘDEM, nie zabezpieczeniem.
+    · **stary `kimi-cli`**: `--print` (tryb nieinteraktywny) i `--yolo` (zgoda na polecenia)
+      — razem odpowiednik `codex --ask-for-approval never exec`.
+
+    Do 0.8.0 adapter znał tylko drugą składnię i każde zadanie na Kimi Code kończyło się
+    „unknown option '--print'" (ADVERTPR-918: trzy próby, zadanie wróciło do kolejki).
+    Testy były zielone, bo atrapa `kimi` przyjmowała każdą flagę.
 
     PROMPT IDZIE ARGUMENTEM I TO JEST RÓŻNICA WZGLĘDEM CODEXA — ŚWIADOMA, NIE PRZEOCZONA
     ═════════════════════════════════════════════════════════════════════════════════════
@@ -206,9 +249,9 @@ class WykonawcaKimi(Wykonawca):
     Kimi w udokumentowanej składni przyjmuje prompt wyłącznie jako `--prompt` / `--command`,
     więc treść zadania — cudza, czasem klienta — jest tu przez czas przebiegu widoczna w `ps`.
 
-    Nie udaję, że tego nie ma, i nie zdejmuję tego po cichu: zgłoszone wpisem na 807 z prośbą
-    o jedno sprawdzenie na maszynie z Kimi (`kimi --prompt -`, czy czyta stdin). Gdy odpowiedź
-    będzie twierdząca, ten adapter przechodzi na stdin jedną linią, tak jak Codex.
+    Nie udaję, że tego nie ma, i nie zdejmuję tego po cichu. Kimi Code (0.43.1 i 2.0.1) nie ma
+    drogi przez stdin w trybie promptu — `-p` wymaga wartości, a pusta jest odrzucana („Prompt
+    cannot be empty"). Gdy taka droga się pojawi, ten adapter przechodzi na nią jedną linią.
 
     `--output-format text`: wynik czytamy ze stdout. `stream-json` dałby strukturę, ale worker
     i tak przekazuje dalej całe wyjście — struktura bez odbiorcy to koszt bez pożytku.
@@ -219,15 +262,19 @@ class WykonawcaKimi(Wykonawca):
 
     def __init__(self) -> None:
         self._sprawdzony: tuple[bool, str] | None = None
+        self.skladnia: str | None = None
+        self.wersja: str = ""
 
     def dostepny(self) -> tuple[bool, str]:
-        """Obecność w `PATH` **i** faktyczne uruchomienie.
+        """Obecność w `PATH`, faktyczne uruchomienie **i** rozpoznana składnia.
 
         Sam `which` mówi tylko, że plik jest. Zepsuta albo niedokończona instalacja przechodzi
         ten test i wywraca się dopiero na pierwszym zadaniu — czyli po tym, jak worker zdążył
         je sobie przypisać. Jedno `--version` kosztuje ułamek sekundy i zamienia awarię
-        w środku pracy na czytelną odmowę przed jej rozpoczęciem. Wynik pamiętamy na czas
-        życia procesu, żeby nie sondować przy każdym takcie pętli.
+        w środku pracy na czytelną odmowę przed jej rozpoczęciem. To samo dotyczy składni:
+        Kimi, którego flag nie rozpoznajemy, dostaje odmowę TERAZ, a nie trzy nieudane próby
+        na cudzym zadaniu. Wynik pamiętamy na czas życia procesu, żeby nie sondować przy
+        każdym takcie pętli.
         """
         if self._sprawdzony is not None:
             return self._sprawdzony
@@ -254,14 +301,42 @@ class WykonawcaKimi(Wykonawca):
                 "`kimi --version` kończy się błędem — instalacja jest niesprawna"
                 + (f": {powod[0]}" if powod else ".")))
             return self._sprawdzony
+        linie = (proba.stdout or proba.stderr or "").strip().splitlines()
+        self.wersja = linie[0] if linie else "?"
+
+        try:
+            pomoc = subprocess.run(["kimi", "--help"],
+                                   capture_output=True, text=True, timeout=LIMIT_SONDY_S)
+            tekst = (pomoc.stdout or "") + (pomoc.stderr or "")
+        except (OSError, subprocess.SubprocessError) as blad:
+            self._sprawdzony = (False, f"`kimi --help` nie daje się uruchomić: {blad}")
+            return self._sprawdzony
+
+        self.skladnia = rozpoznaj_skladnie_kimi(tekst)
+        if self.skladnia is None:
+            self._sprawdzony = (False, (
+                f"`kimi` {self.wersja}: w `kimi --help` nie ma ani `--prompt` (Kimi Code), "
+                "ani `--print` (stary kimi-cli) — nie wiem, jak go uruchomić bez człowieka. "
+                "Zgłoś wersję właścicielowi Kitu albo uruchom workera z `--runtime codex`."))
+            return self._sprawdzony
 
         self._sprawdzony = (True, "")
         return self._sprawdzony
 
+    def argumenty(self, polecenie: str) -> list[str]:
+        """Wiersz polecenia dla rozpoznanej składni. Bez sondy — sonda robi to raz."""
+        if self.skladnia == SKLADNIA_KIMI_CLI:
+            return ["kimi", "--prompt", polecenie, "--print", "--output-format", "text", "--yolo"]
+        return ["kimi", "--prompt", polecenie, "--output-format", "text"]
+
     def wykonaj(self, polecenie: str, *, katalog: str, limit_s: int) -> Wynik:
-        return _uruchom(
-            ["kimi", "--prompt", polecenie, "--print", "--output-format", "text", "--yolo"],
-            katalog=katalog, limit_s=limit_s)
+        if self._sprawdzony is None:
+            # Worker woła `dostepny` przed każdym zadaniem, ale wykonawca nie może na tym
+            # polegać: bez sondy nie znamy składni, a zgadnięta to dokładnie błąd z SF-32.
+            gotowy, czemu = self.dostepny()
+            if not gotowy:
+                return Wynik(False, "", czemu)
+        return _uruchom(self.argumenty(polecenie), katalog=katalog, limit_s=limit_s)
 
 _WYKONAWCY = {w.nazwa: w for w in (WykonawcaCodex(), WykonawcaKimi(), WykonawcaShell())}
 
