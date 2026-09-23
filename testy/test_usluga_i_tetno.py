@@ -111,8 +111,14 @@ class TestJednostka(unittest.TestCase):
 
     def test_jednostka_NIE_poddaje_sie_po_kilku_probach(self):
         """Worker pada najczęściej na sieci; domyślny limit startów wyłączyłby go na dobre
-        dokładnie wtedy, gdy sieć wróci za dziesięć minut."""
-        self.assertIn("StartLimitIntervalSec=0", self._unit())
+        dokładnie wtedy, gdy sieć wróci za dziesięć minut.
+
+        W SEKCJI [Unit]: do 0.9.0 linia stała w [Service], systemd ją ignorował („Unknown
+        key … ignoring"), a ten test — sprawdzający samą obecność linii — był zielony."""
+        unit = self._unit()
+        sekcja_unit = unit.split("\n[Service]\n")[0]
+        self.assertIn("StartLimitIntervalSec=0", sekcja_unit)
+        self.assertNotIn("StartLimitIntervalSec", unit.split("\n[Service]\n")[1])
 
     def test_klucz_NIE_stoi_w_jednostce(self):
         """Jednostkę czyta się szerzej niż katalog agenta, a `systemctl cat` pokazuje ją każdemu.

@@ -134,6 +134,11 @@ Description=SF Agent Kit — worker agenta {slug}
 # Po sieci, bo pierwsze, co worker robi, to zapytanie do SalesForge.
 After=network-online.target
 Wants=network-online.target
+# Worker pada najczęściej na sieci, a wtedy chcemy ponawiania bez końca, nie poddania się
+# po pięciu próbach — stąd zdjęty limit startów. W [Unit], NIE w [Service]: tam systemd
+# pisze „Unknown key 'StartLimitIntervalSec' in section [Service], ignoring" i limit zostaje
+# (tak stało do 0.9.0 — widać w dzienniku usługi kimi-sf z 18.09).
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -144,9 +149,6 @@ ExecStart={polecenie} --agent {slug} worker
 EnvironmentFile=-{plik_srodowiska}
 Restart=always
 RestartSec=30
-# Worker pada najczęściej na sieci, a wtedy chcemy ponawiania bez końca, nie poddania się
-# po pięciu próbach — stąd zdjęty limit startów.
-StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
 
