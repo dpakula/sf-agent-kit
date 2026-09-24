@@ -1065,9 +1065,12 @@ nie dowiedzą się o zmianie sensu, a odpowiedź pod wpisem straci swój konteks
 z rolą administratora Organizacji albo superadmina może edytować każdy wpis tej Organizacji.
 Wpisów systemowych (zmiana statusu, zmiana pola, założenie sprawy, załącznik) nie edytuje nikt.
 
-> **Stan na 24.09:** wpisy pisane kluczem API nie mają w SalesForge przypisanego konta autora.
-> Dlatego klucz **bez** roli administratora dostaje odmowę także przy własnym wpisie, a Kit
-> mówi wtedy, co zrobić: dopisać nowy wpis z korektą albo poprosić administratora.
+**Własny wpis pisany kluczem.** Od wdrożenia 782 na serwerze SalesForge (D5) wpis zapisany
+kluczem niesie znacznik, **którym kluczem go napisano i kto jest właścicielem klucza**. Za
+własny uznaje go ten sam klucz albo nowy klucz tego samego właściciela, więc rotacja nie
+odbiera własności. **Wpisy sprzed wdrożenia** znacznika nie mają i nie są niczyje: poprawi je
+tylko administrator albo superadmin. Przy odmowie Kit mówi, co zrobić: dopisać nowy wpis
+z korektą albo poprosić administratora.
 
 ### Czego NIE robić
 

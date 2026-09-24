@@ -1357,11 +1357,12 @@ def polecenie_wpis_edytuj(args) -> int:
         powod = _powod_serwera(blad)
         print(f"Wpis {wpis_id[:8]} NIE został poprawiony: {powod or blad}", file=sys.stderr)
         if getattr(blad, "kod", None) == 403:
-            # Stan PROD 24.09: wpis pisany kluczem nie ma w SF autora-konta, więc „własny"
-            # nie rozpoznaje się dla ŻADNEGO klucza bez roli administratora. Mówimy, co zrobić.
-            print("  Bez roli administratora Organizacji poprawisz tylko wpis, którego SF uznaje\n"
-                  "  za Twój — a wpisów pisanych kluczem dziś nie uznaje za niczyje. Dopisz nowy\n"
-                  "  wpis z korektą albo poproś administratora "
+            # Własność wpisu pisanego kluczem rozpoznaje SF dopiero od wdrożenia 782 D5
+            # (znacznik `autor_klucza`); starsze wpisy nie są niczyje. Mówimy, co zrobić.
+            print("  Bez roli administratora Organizacji poprawisz tylko własny wpis: napisany\n"
+                  "  tym kluczem albo kluczem tego samego właściciela, i to dopiero po wdrożeniu\n"
+                  "  782 na serwerze (starsze wpisy poprawia administrator). Dopisz nowy wpis\n"
+                  "  z korektą albo poproś administratora "
                   "(README: „Poprawianie własnych wpisów”).", file=sys.stderr)
         return 1
 
