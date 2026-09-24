@@ -22,7 +22,7 @@ class AtrapaKlienta:
     def __init__(self, sprawy):
         self._sprawy = sprawy
 
-    def sprawy(self, *, limit=50):
+    def sprawy(self, *, limit=50, szukaj=None):
         return self._sprawy
 
 
@@ -69,7 +69,7 @@ class TestRozpoznanieSprawy(unittest.TestCase):
 
     def test_uuid_nie_kosztuje_pytania_o_liste(self):
         class Zabroniona(AtrapaKlienta):
-            def sprawy(self, *, limit=50):
+            def sprawy(self, *, limit=50, szukaj=None):
                 raise AssertionError("po UUID nie pytamy o listę")
 
         uuid = "42c50a50-fc93-4a28-89f3-f446ccfe7524"

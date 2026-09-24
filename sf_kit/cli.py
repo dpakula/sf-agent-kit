@@ -1304,6 +1304,101 @@ def polecenie_wpis(args) -> int:
     return 0
 
 
+def _powod_serwera(blad: BladAPI) -> str:
+    """`detail` z odpowiedzi SF, gdy jest napisem — tam SF mówi, DLACZEGO odmówił."""
+    try:
+        detail = json.loads(getattr(blad, "szczegoly", "") or "{}").get("detail")
+    except (ValueError, AttributeError):
+        return ""
+    return detail if isinstance(detail, str) else ""
+
+
+def _sprawa_i_wpis(klient, args) -> tuple[dict, str] | None:
+    """Sprawa i PEŁNY identyfikator wpisu albo `None` (komunikat już wypisany)."""
+    from . import wpisy
+
+    try:
+        sprawa = autor.znajdz_sprawe(klient, args.sprawa)
+        return sprawa, wpisy.rozwin_wpis(klient, str(sprawa["id"]), args.wpis)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return None
+
+
+def polecenie_wpis_edytuj(args) -> int:
+    """Popraw treść wpisu na sprawie — SF zachowuje poprzednią wersję (ADVERTPR-782).
+
+    Kody wyjścia: 0 poprawione (albo treść bez zmian), 1 odmowa/błąd SF, 2 złe wejście.
+    """
+    from . import wpisy
+
+    from types import SimpleNamespace
+
+    # `_opis_z_wejscia` zna plik i `-` (stdin) — ta sama droga co przy `wpis --opis`.
+    tresc = args.tresc if args.tresc is not None else _opis_z_wejscia(
+        SimpleNamespace(opis=args.plik))
+    try:
+        cialo = wpisy.cialo_edycji(tresc or "", args.powod)
+    except wpisy.ZlyWpis as blad:
+        print(f"Nie wysyłam: {blad}", file=sys.stderr)
+        return 2
+
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    wynik = _sprawa_i_wpis(klient, args)
+    if wynik is None:
+        return 1
+    sprawa, wpis_id = wynik
+    sprawa_id = str(sprawa["id"])
+    try:
+        przed = klient.wpis_sprawy(sprawa_id, wpis_id)
+        po = klient.edytuj_wpis(sprawa_id, wpis_id, cialo)
+    except BladAPI as blad:
+        powod = _powod_serwera(blad)
+        print(f"Wpis {wpis_id[:8]} NIE został poprawiony: {powod or blad}", file=sys.stderr)
+        if getattr(blad, "kod", None) == 403:
+            # Stan PROD 24.09: wpis pisany kluczem nie ma w SF autora-konta, więc „własny"
+            # nie rozpoznaje się dla ŻADNEGO klucza bez roli administratora. Mówimy, co zrobić.
+            print("  Bez roli administratora Organizacji poprawisz tylko wpis, którego SF uznaje\n"
+                  "  za Twój — a wpisów pisanych kluczem dziś nie uznaje za niczyje. Dopisz nowy\n"
+                  "  wpis z korektą albo poproś administratora "
+                  "(README: „Poprawianie własnych wpisów”).", file=sys.stderr)
+        return 1
+
+    ile_przed, ile_po = int(przed.get("edited_count") or 0), int(po.get("edited_count") or 0)
+    if ile_po == ile_przed and (po.get("content") or "") == (przed.get("content") or ""):
+        # SF nie tworzy wersji dla identycznej treści — mówimy to, zamiast udawać zmianę.
+        print(f"Wpis {wpis_id[:8]}: treść bez zmian — nie powstała nowa wersja.")
+        return 0
+    print(f"Wpis {wpis_id[:8]} poprawiony (edytowano {ile_po}×). Poprzednia treść została "
+          f"w historii: `{_jak_wolac()} wpis-wersje {args.sprawa} {wpis_id[:8]}`.")
+    return 0
+
+
+def polecenie_wpis_wersje(args) -> int:
+    """Bieżąca treść wpisu i jego poprzednie wersje (ADVERTPR-782)."""
+    from . import wpisy
+
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    wynik = _sprawa_i_wpis(klient, args)
+    if wynik is None:
+        return 1
+    sprawa, wpis_id = wynik
+    try:
+        wpis = klient.wpis_sprawy(str(sprawa["id"]), wpis_id)
+        wersje = klient.wersje_wpisu(str(sprawa["id"]), wpis_id)
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać historii: {_powod_serwera(blad) or blad}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({"wpis": wpis, "wersje": wersje}, ensure_ascii=False, indent=2,
+                         default=str))
+        return 0
+    print(wpisy.historia_do_pokazania(wpis, wersje, skrot=0 if args.pelne else 160))
+    return 0
+
+
 def _wyslij_wiadomosc(klient, slug: str, tresc: str) -> int:
     """Wiadomość do sesji agenta. Odmowę uprawnienia tłumaczymy WPROST.
 
@@ -1892,6 +1987,29 @@ def main(argv: list[str] | None = None) -> int:
     wp.add_argument("--widocznosc", choices=["internal", "external"], default="internal",
                     help="internal = widzi zespół (domyślnie), external = widzi też klient")
     wp.set_defaults(funkcja=polecenie_wpis)
+
+    # ADVERTPR-782: poprawianie wpisów. Nazwy po polsku jak reszta Kitu, trasy i pola —
+    # dokładnie te z API (`PATCH …/entries/{id}`, `…/versions`; decyzja D1, 24.09).
+    we = pod.add_parser("wpis-edytuj", help="[agent] popraw treść wpisu — SF zachowa "
+                                            "poprzednią wersję (ADVERTPR-782)")
+    we.add_argument("sprawa", help="numer (FM-12) albo identyfikator sprawy")
+    we.add_argument("wpis", help="identyfikator wpisu albo jego początek (min. 6 znaków)")
+    zrodlo = we.add_mutually_exclusive_group(required=True)
+    zrodlo.add_argument("--plik", default=None, metavar="PLIK",
+                        help="nowa treść z pliku (`-` = ze standardowego wejścia) — ZALECANE")
+    zrodlo.add_argument("--tresc", default=None, metavar="TEKST",
+                        help="nowa treść wprost (krótkie poprawki; argument widać w `ps`)")
+    we.add_argument("--powod", default=None, metavar="TEKST",
+                    help="po co ta zmiana — trafia do historii wersji (do 500 znaków)")
+    we.set_defaults(funkcja=polecenie_wpis_edytuj)
+
+    ww = pod.add_parser("wpis-wersje", help="[agent] bieżąca treść wpisu i jego poprzednie "
+                                            "wersje (ADVERTPR-782)")
+    ww.add_argument("sprawa", help="numer (FM-12) albo identyfikator sprawy")
+    ww.add_argument("wpis", help="identyfikator wpisu albo jego początek (min. 6 znaków)")
+    ww.add_argument("--pelne", action="store_true", help="pełne treści zamiast skrótów")
+    ww.add_argument("--json", action="store_true", help="surowa odpowiedź SF")
+    ww.set_defaults(funkcja=polecenie_wpis_wersje)
 
     za = pod.add_parser("zalacz", help="[autor] dołóż pliki do istniejącej sprawy")
     za.add_argument("sprawa", help="numer (FM-12) albo identyfikator sprawy")

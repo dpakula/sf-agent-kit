@@ -1035,6 +1035,40 @@ sf-kit wpis FM-12 --opis postep.md --zalacz podglad.png
 Nie po każdej zmianie pliku. Wpis ma odpowiadać na pytanie „co się zmieniło od ostatniego
 razu", a nie odtwarzać historię edycji — od tego jest repozytorium, nie sprawa.
 
+### Poprawianie własnych wpisów (v0.11, ADVERTPR-782)
+
+Wpis na sprawie da się poprawić. SalesForge **zachowuje poprzednią wersję** i nikt, także
+superadmin, nie może jej skasować. Przy wpisie widać „edytowano”, a historia jest do
+przejrzenia w panelu i w Kicie.
+
+```bash
+sf-kit wpis-edytuj ADVERTPR-782 dba3ae21 --plik poprawiony.md --powod "zła liczba w tabeli"
+sf-kit wpis-wersje ADVERTPR-782 dba3ae21          # bieżąca treść + poprzednie wersje
+```
+
+- **Wpis wskazujesz** pełnym identyfikatorem albo jego początkiem (co najmniej 6 znaków).
+  Tak pokazują go Kit i wpisy. Gdy początek pasuje do dwóch wpisów, Kit odmawia i wypisuje
+  oba: poprawienie nie tego wpisu zostawia ślad w historii cudzej wypowiedzi.
+- **Treść najlepiej podać plikiem** (`--plik`, albo `-` ze standardowego wejścia). `--tresc`
+  jest na krótkie poprawki, bo argument polecenia widzi `ps` na maszynie.
+- **`--powod`** trafia do historii. Jest opcjonalny, ale pomaga czytającemu.
+- **Historię czytaj tak:** każda wersja to stan **sprzed** zmiany, a „zastąpiona … przez X”
+  mówi, kto i kiedy ją podmienił. Nie mówi, kto ją napisał.
+
+**Kiedy edytować, a kiedy dopisać nowy wpis.** Edytuj, gdy poprawiasz własny błąd, którego
+nikt jeszcze nie przeczytał albo który nie zmienia sensu: literówkę, złą liczbę, zły link.
+**Dopisz nowy wpis**, gdy zmienia się stan rzeczy („jednak nie działa”, „nowe ustalenie”)
+albo gdy ktoś już odpowiedział na starą treść. Edycja nie wysyła powiadomień, więc obserwujący
+nie dowiedzą się o zmianie sensu, a odpowiedź pod wpisem straci swój kontekst.
+
+**Kto może edytować:** autor wpisu, administrator Organizacji i superadmin. Klucz API
+z rolą administratora Organizacji albo superadmina może edytować każdy wpis tej Organizacji.
+Wpisów systemowych (zmiana statusu, zmiana pola, założenie sprawy, załącznik) nie edytuje nikt.
+
+> **Stan na 24.09:** wpisy pisane kluczem API nie mają w SalesForge przypisanego konta autora.
+> Dlatego klucz **bez** roli administratora dostaje odmowę także przy własnym wpisie, a Kit
+> mówi wtedy, co zrobić: dopisać nowy wpis z korektą albo poprosić administratora.
+
 ### Czego NIE robić
 
 - **Nie zakładaj sprawy „na próbę".** Każda powiadamia obserwujących; sprawa testowa to
@@ -1112,6 +1146,8 @@ sf-kit zglos --tytul "…" [--opis plik.md|-] [--tag makieta] [--zalacz plik…]
 sf-kit wpis <sprawa> [--opis plik.md|-] [--zalacz plik…] [--widocznosc internal|external]
 sf-kit zalacz <sprawa> <plik…> [--notka "…"]
 sf-kit sprawy [--limit 50]
+sf-kit wpis-edytuj <sprawa> <wpis> (--plik plik.md|- | --tresc "…") [--powod "…"]   # v0.11
+sf-kit wpis-wersje <sprawa> <wpis> [--pelne] [--json]                                 # v0.11
 ```
 
 **Profil `koordynator` — rozdajesz pracę flocie i odbierasz ją:**
@@ -1563,7 +1599,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.10
+## 11. Ograniczenia wersji 0.11
 
 Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
 tu coś, co dziś jest nieprawdą:

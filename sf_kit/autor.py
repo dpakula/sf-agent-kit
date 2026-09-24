@@ -65,7 +65,9 @@ def znajdz_sprawe(klient, wskazanie: str) -> dict:
 
     prefiks, numer = trafienie.group(1), int(trafienie.group(2))
     kandydaci = [
-        s for s in klient.sprawy(limit=200)
+        # `szukaj=numer` zawęża po stronie SF (dopasowuje też numer) — bez tego szukaliśmy
+        # w 25 ostatnich sprawach i starsze „nie istniały" (ADVERTPR-782, 24.09).
+        s for s in klient.sprawy(limit=200, szukaj=str(numer))
         if s.get("ticket_number") == numer
         and (prefiks is None
              or (s.get("ticket_prefix") or "").lower() == prefiks.lower())

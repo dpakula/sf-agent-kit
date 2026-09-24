@@ -342,13 +342,35 @@ class Klient:
             cialo["szkic"] = True
         return self._wywolaj("POST", "tickets", cialo=cialo)
 
-    def sprawy(self, *, limit: int = 50) -> list[dict]:
-        """Sprawy widoczne dla tego klucza w jego Organizacji."""
-        zapytanie = urllib.parse.urlencode({"limit": limit})
-        odp = self._wywolaj("GET", f"tickets?{zapytanie}")
-        if isinstance(odp, dict):
-            return odp.get("items") or odp.get("pozycje") or []
-        return odp if isinstance(odp, list) else []
+    #: Sufit strony `GET /tickets` (`per_page` ≤ 100 po stronie SF).
+    SPRAW_NA_STRONE = 100
+
+    def sprawy(self, *, limit: int = 50, szukaj: str | None = None) -> list[dict]:
+        """Sprawy widoczne dla tego klucza w jego Organizacji — do `limit`, strona po stronie.
+
+        `GET /tickets` stronicuje przez `page`/`per_page` (≤ 100) i NIE ZNA `limit`: do 0.11
+        Kit wysyłał `limit`, FastAPI go po cichu pomijał i wracało 25 ostatnich spraw. Skutek:
+        `wpis`, `zalacz`, `os`, `odbierz` nie znajdowały sprawy starszej niż 25 ostatnich
+        („nie znalazłem ADVERTPR-782 w tej Organizacji", choć jest). `szukaj` idzie jako
+        `search` — SF dopasowuje nim także numer sprawy, więc zawęża listę do kandydatów.
+        """
+        wynik: list[dict] = []
+        strona = 1
+        while len(wynik) < limit:
+            parametry = {"page": strona, "per_page": min(self.SPRAW_NA_STRONE, limit)}
+            if szukaj:
+                parametry["search"] = szukaj
+            odp = self._wywolaj("GET", f"tickets?{urllib.parse.urlencode(parametry)}")
+            if isinstance(odp, dict):
+                pozycje = odp.get("items") or odp.get("pozycje") or []
+                stron = int(odp.get("pages") or 1)
+            else:
+                pozycje, stron = (odp if isinstance(odp, list) else []), 1
+            wynik += pozycje
+            if not pozycje or strona >= stron:
+                break
+            strona += 1
+        return wynik[:limit]
 
     def wpis_z_plikami(self, ticket_id: str, tresc: str | None, pliki: list,
                        *, widocznosc: str = "internal") -> dict:
@@ -509,9 +531,27 @@ class Klient:
                 cialo[klucz] = wartosc
         return self._wywolaj("POST", "tasks", cialo=cialo)
 
-    def wpisy_sprawy(self, ticket_id: str, *, limit: int = 100) -> dict:
+    def wpisy_sprawy(self, ticket_id: str, *, limit: int = 100, offset: int = 0) -> dict:
         """Dziennik sprawy — do sprawdzenia, czy wynik zadania w ogóle na niej wylądował."""
-        return self._wywolaj("GET", f"tickets/{ticket_id}/entries?limit={int(limit)}")
+        return self._wywolaj(
+            "GET", f"tickets/{ticket_id}/entries?limit={int(limit)}&offset={int(offset)}")
+
+    # ── edycja wpisu z historią (ADVERTPR-782) ───────────────────────────────
+
+    def wpis_sprawy(self, ticket_id: str, entry_id: str) -> dict:
+        """Jeden wpis w kształcie `EntryOut` — z `edited_count`/`last_edited_at`."""
+        odp = self._wywolaj("GET", f"tickets/{ticket_id}/entries/{entry_id}")
+        return odp if isinstance(odp, dict) else {}
+
+    def edytuj_wpis(self, ticket_id: str, entry_id: str, cialo: dict) -> dict:
+        """`PATCH …/entries/{id}` z `content` (+ `reason`). SF zapisuje stan SPRZED zmiany."""
+        odp = self._wywolaj("PATCH", f"tickets/{ticket_id}/entries/{entry_id}", cialo=cialo)
+        return odp if isinstance(odp, dict) else {}
+
+    def wersje_wpisu(self, ticket_id: str, entry_id: str) -> list:
+        """`GET …/entries/{id}/versions` — od najnowszej. Pusta lista = wpis nie był edytowany."""
+        odp = self._wywolaj("GET", f"tickets/{ticket_id}/entries/{entry_id}/versions")
+        return odp if isinstance(odp, list) else []
 
     def komentarz_zadania(self, task_id: str, tresc: str, *, wewnetrzny: bool = True) -> dict:
         """Komentarz pod ZADANIEM (nie pod sprawą). Ostatnia deska ratunku dla wyniku.

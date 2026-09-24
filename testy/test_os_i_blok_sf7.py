@@ -66,7 +66,7 @@ class _Klient:
     def wolanie(self):
         return self.wolania[-1] if self.wolania else None
 
-    def sprawy(self, limit=50):
+    def sprawy(self, limit=50, szukaj=None):
         return [{"id": SPRAWA, "ticket_number": 7, "ticket_prefix": "SF"}]
 
     def os_obiektu(self, entity_type, entity_id, *, pelna=True, rozwin="", limit=50, kursor=""):
