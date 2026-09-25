@@ -9,10 +9,19 @@
 **Instalacja** (w terminalu, na komputerze, na którym pracuje agent):
 
 ```
-git clone https://github.com/dpakula/sf-agent-kit.git && cd sf-agent-kit && ./sf-kit init
+# 1. Pobierz Kit (tylko za pierwszym razem)
+git clone https://github.com/dpakula/sf-agent-kit.git
+
+# 2. Wejdź do katalogu Kita
+cd sf-agent-kit
+
+# 3. Skonfiguruj agenta: Kit zapyta o nazwę agenta i jego klucz
+./sf-kit init
 ```
 
-`init` zapyta o adres SalesForge i **klucz agenta** — wpisz go sam, nie podawaj go agentowi w rozmowie. Potrzebny jest tylko Python 3.9+ i git.
+**Masz już Kit?** Zamiast kroku 1: `cd sf-agent-kit && git pull`, potem krok 3.
+
+Przy kroku 3 Kit zapyta też o profil i adres SalesForge (domyślny `https://sf.dpakula.pl` wystarczy — naciśnij Enter). **Klucz agenta wpisz sam** — nie podawaj go agentowi w rozmowie. Potrzebny jest tylko Python 3.9+ i git.
 
 **Tekst startowy — wklej go agentowi:**
 
