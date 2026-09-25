@@ -216,6 +216,41 @@ def wybierz(toz: Tozsamosc, *, wskazana: str = "", z_pliku: str = "") -> Organiz
     )
 
 
+def wybierz_dla_zapisu(toz: Tozsamosc, *, wskazana: str = "", z_linku: str = "") -> Organizacja:
+    """Organizacja dla ZAPISU — wyłącznie jawna: `--org` albo `?org=` z linku do sprawy (SF-51).
+
+    Różnica wobec `wybierz` jest celowa i twarda: przy zapisie nie ma żadnej domyślnej
+    Organizacji — ani z pliku, ani „dokładnie jedna z nadaniami". Wpis do cudzej Organizacji
+    jest wyciekiem do klienta (25.09: nowa sprawa założona w złej Organizacji zamiast
+    odpowiedzi w istniejącej), więc wybór ma zapadać po stronie człowieka, nie Kitu.
+    """
+    if wskazana:
+        org = toz.znajdz(wskazana)
+        if org is None:
+            raise BrakWyboru(
+                f"Nie jesteś członkiem Organizacji „{wskazana}” albo taka nie istnieje.\n"
+                f"Twoje Organizacje:\n{lista_do_pokazania(toz.organizacje)}"
+            )
+        return _sprawdz_nadania(toz, org, skad="--org")
+
+    if z_linku:
+        org = toz.znajdz(z_linku)
+        if org is None:
+            raise BrakWyboru(
+                f"Link wskazuje Organizację „{z_linku}”, ale nie masz w niej członkostwa "
+                f"z uprawnieniami.\nTwoje Organizacje:\n{lista_do_pokazania(toz.organizacje)}"
+            )
+        return _sprawdz_nadania(toz, org, skad="linku do sprawy")
+
+    raise BrakWyboru(
+        "Każdy zapis wymaga jawnej Organizacji — Kit odmawia zamiast zgadywać.\n"
+        "Podaj ją jedną z dwóch dróg:\n"
+        "  --org <slug>          np. --org advertpro-co\n"
+        "  pełny link do sprawy z parametrem ?org=…\n"
+        "    np. https://sf.dpakula.pl/tickets/<id>?org=advertpro-co"
+    )
+
+
 def _sprawdz_nadania(toz: Tozsamosc, org: Organizacja, *, skad: str) -> Organizacja:
     """Organizacja bez nadań = odmowa, nawet gdy wskazana wprost.
 

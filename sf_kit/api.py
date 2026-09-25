@@ -594,6 +594,30 @@ class Klient:
         """
         return type(self)(baza=self.baza, klucz=self._klucz, organizacja=organizacja)
 
+    # ── flow odpowiedzi i publikacji ze zgodą (SF-51, ADVERTPR-948) ───────────
+
+    def zmien_opis_sprawy(self, ticket_id: str, opis: str) -> dict:
+        """`PATCH /tickets/{id}` z `description` — jedyne pole, które to polecenie rusza.
+
+        Strażnik długości mieszka w `flow.straznik_opisu` i stoi w CLI PRZED wywołaniem:
+        serwer przyjmie każdy opis, a nie chodzi o to, co serwer przyjmie, tylko o to,
+        czego Kit nie powinien wysłać.
+        """
+        return self._wywolaj("PATCH", f"tickets/{ticket_id}", cialo={"description": opis})
+
+    def publikuj(self, ticket_id: str, *, zgoda: str) -> dict:
+        """`POST /tickets/{id}/publikuj` — wprowadzenie szkicu do obiegu ZE ZGODĄ (SF-51).
+
+        `zgoda` to identyfikator wpisu na tej sprawie, w którym człowiek wyraża zgodę na
+        publikację — publikacja bez śladu zgody odmawia po stronie serwera.
+
+        UWAGA NA KSZTAŁT: pole ciała niosące zgodę do potwierdzenia z backendem SF-51
+        (gałąź `borys/sf51-publikacja-zgoda`); bez wdrożonego backendu trasa odpowiada
+        403/422 — komunikat pochodzi z serwera, nie z Kitu.
+        """
+        return self._wywolaj("POST", f"tickets/{ticket_id}/publikuj",
+                             cialo={"zgoda": zgoda})
+
     # ── edycja wpisu z historią (ADVERTPR-782) ───────────────────────────────
 
     def wpis_sprawy(self, ticket_id: str, entry_id: str) -> dict:

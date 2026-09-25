@@ -26,6 +26,7 @@ PROFILE = ("worker", "autor", "koordynator")
 PROFIL_DOMYSLNY = "worker"
 from . import klucz as magazyn_klucza
 from . import autor
+from . import flow
 from . import os_czasu
 from . import koordynator
 from . import kontrakt
@@ -1195,10 +1196,71 @@ def polecenie_outbox(args) -> int:
     return 0
 
 
-def polecenie_zglos(args) -> int:
-    """Nowa sprawa z gotową pracą — z załącznikami, obserwującymi i numerem na wyjściu."""
+#: Zmienna środowiskowa, która niesie kontekst zadania do `sf-kit nowa-sprawa` — ta sama
+#: treść, co argument `--kontekst`, dla wykonawców wołanych z poza Kitowego parsera.
+ZMIENNA_KONTEKSTU = "SF_KIT_KONTEKST"
+
+
+def _klient_dla_zapisu(konf: konfiguracja.Konfiguracja, args,
+                       org_z_linku: str = "") -> tuple[Klient, tozsamosc.Organizacja]:
+    """Klient do ZAPISU: Organizacja wyłącznie jawna — `--org` albo `?org=` z linku (SF-51).
+
+    Odmowa jest łagodna i pouczająca: komunikat mówi, CO podać, nie tylko że brakuje.
+    """
+    klient = _klient_bez_organizacji(konf)
+    toz = _tozsamosc(klient)
+    try:
+        org = tozsamosc.wybierz_dla_zapisu(
+            toz, wskazana=(getattr(args, "org", None) or ""), z_linku=org_z_linku or "")
+    except tozsamosc.BrakWyboru as brak:
+        raise SystemExit(str(brak)) from None
+    klient.organizacja = org.uuid
+    return klient, org
+
+
+def _sprawa_dla_zapisu(klient: Klient, wskazanie: str) -> tuple[dict, str]:
+    """`(sprawa, org_z_linku)`. Link daje identyfikator od razu (bez przeszukiwania listy)
+    i niesie własną Organizację; numer/uuid rozwiązujemy po liście, jak dotychczas."""
+    link = flow.sprawa_z_linku(wskazanie)
+    if link:
+        return {"id": link}, flow.organizacja_z_linku(wskazanie) or ""
+    return autor.znajdz_sprawe(klient, wskazanie), ""
+
+
+def _ostrzez_o_szkicu(klient: Klient, sprawa_id: str) -> None:
+    """Jedno zdanie przy zapisie na szkicu — człowiek ma wiedzieć, że nikt tego nie zobaczy,
+    zanim człowiek (nie Kit) sprawy nie opublikuje (pkt 6 kontraktu SF-51)."""
+    try:
+        if flow.czy_szkic(klient.sprawa(sprawa_id)):
+            print(f"\n{flow.OSTRZEZENIE_SZKICU}", file=sys.stderr)
+    except BladAPI:
+        pass                              # ostrzeżenie jest dodatkiem, nie bramką
+
+
+def polecenie_nowa_sprawa(args) -> int:
+    """Nowa sprawa z gotową pracą — z załącznikami, obserwującymi i numerem na wyjściu.
+
+    SF-51: zapis wymaga jawnej Organizacji (`--org` — link tu nie wchodzi, bo nowej sprawy
+    jeszcze nie ma). A gdy w kontekście zadania stoi link do ISTNIEJĄCEJ sprawy, odmawiamy
+    z podpowiedzią — to jest dokładnie sytuacja z 25.09 (Wójt założył nową sprawę w złej
+    Organizacji zamiast odpowiedzieć w FMXA-1).
+    """
+    kontekst = getattr(args, "kontekst", None)
+    if kontekst is None:
+        kontekst = os.environ.get(ZMIENNA_KONTEKSTU, "")
+    if kontekst:
+        link = flow.link_z_tekstu(kontekst)
+        if link:
+            print("W kontekście tego zadania jest już sprawa:\n"
+                  f"  {link}\n"
+                  "Nie zakładaj obok niej nowej — ODPOWIEDZ w tej:\n"
+                  f"  sf-kit odpowiedz \"{link}\" --opis odpowiedz.md\n"
+                  "Jeśli naprawdę ma powstać osobna sprawa, uruchom ponownie bez --kontekst "
+                  f"i bez zmiennej {ZMIENNA_KONTEKSTU}.", file=sys.stderr)
+            return 2
+
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf, args)
+    klient = _klient_dla_zapisu(konf, args)[0]
 
     opis = _opis_z_wejscia(args) or autor.opis_domyslny(args.tytul)
     try:
@@ -1251,6 +1313,9 @@ def polecenie_wpis(args) -> int:
     `--do <slug>` (ADVERTPR-812) wysyła to samo jako WIADOMOŚĆ do sesji agenta. Bez `--sprawa`
     jest to samodzielna wiadomość; razem ze sprawą — wpis na sprawie ORAZ wiadomość, żeby
     adresat nie musiał jej zauważyć sam.
+
+    SF-51: wpis to ZAPIS — Organizacja musi być jawna (`--org` albo link do sprawy z `?org=`),
+    a na sprawie-szkicu Kit ostrzega przed zapisem, nie po nim.
     """
     if not args.sprawa and not args.do:
         # Sprawa jest opcjonalna WYŁĄCZNIE przy `--do` (samodzielna wiadomość). Bez obu
@@ -1261,9 +1326,9 @@ def polecenie_wpis(args) -> int:
         return 2
 
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf, args)
 
     if args.do and not args.sprawa:
+        klient = _klient(konf, args)
         tresc = _opis_z_wejscia(args)
         if not tresc:
             print("Wiadomość bez treści nie niesie niczego. Podaj `--opis plik.md`.",
@@ -1271,8 +1336,13 @@ def polecenie_wpis(args) -> int:
             return 2
         return _wyslij_wiadomosc(klient, args.do, tresc)
 
+    org_z_linku = ""
+    if flow.sprawa_z_linku(args.sprawa):
+        org_z_linku = flow.organizacja_z_linku(args.sprawa) or ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
+
     try:
-        sprawa = autor.znajdz_sprawe(klient, args.sprawa)
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
     except (ValueError, BladAPI) as blad:
         print(str(blad), file=sys.stderr)
         return 1
@@ -1284,6 +1354,7 @@ def polecenie_wpis(args) -> int:
         return 2
 
     sprawa_id = str(sprawa["id"])
+    _ostrzez_o_szkicu(klient, sprawa_id)
     try:
         if args.zalacz:
             klient.wpis_z_plikami(sprawa_id, tresc, args.zalacz,
@@ -1426,15 +1497,215 @@ def _wyslij_wiadomosc(klient, slug: str, tresc: str) -> int:
 def polecenie_zalacz(args) -> int:
     """Same pliki do istniejącej sprawy — jednym wpisem, więc jednym powiadomieniem."""
     konf = konfiguracja.wczytaj()
-    klient = _klient(konf, args)
+    org_z_linku = ""
+    if flow.sprawa_z_linku(args.sprawa):
+        org_z_linku = flow.organizacja_z_linku(args.sprawa) or ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
     try:
-        sprawa = autor.znajdz_sprawe(klient, args.sprawa)
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+        _ostrzez_o_szkicu(klient, str(sprawa["id"]))
         klient.wpis_z_plikami(str(sprawa["id"]), args.notka or "Załączniki.", args.pliki)
     except (ValueError, BladAPI, FileNotFoundError) as blad:
         print(str(blad), file=sys.stderr)
         return 1
     print(f"Wysłane pliki: {len(args.pliki)}")
     _pokaz_sprawe(konf, str(sprawa["id"]), autor.numer_sprawy(sprawa), co_dalej="Gotowe.")
+    return 0
+
+
+# ── flow odpowiedzi i treści w wersjach (SF-51, ADVERTPR-948) ─────────────────
+
+
+def polecenie_odpowiedz(args) -> int:
+    """Odpowiedź w ISTNIEJĄCEJ sprawie — domyślnie wiadomość widoczna na zewnątrz,
+    z `--wewn` notatka wewnętrzna. Organizacja bierze się z linku do sprawy (`?org=`).
+
+    To polecenie istnieje, żeby odpowiedź była łatwiejsza niż założenie nowej sprawy:
+    wystarczy wkleić link ze sprawy, którą się prowadzi.
+    """
+    if not args.sprawa:
+        print("Podaj link do sprawy (z ?org=…) albo numer z --org: "
+              "sf-kit odpowiedz <link|numer> --opis odpowiedz.md [--wewn]", file=sys.stderr)
+        return 2
+    konf = konfiguracja.wczytaj()
+    org_z_linku = flow.organizacja_z_linku(args.sprawa) or ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+
+    tresc = _opis_z_wejscia(args)
+    if not tresc:
+        print("Odpowiedź bez treści nie niesie niczego. Podaj `--opis plik.md` "
+              "(albo `-` ze standardowego wejścia).", file=sys.stderr)
+        return 2
+
+    sprawa_id = str(sprawa["id"])
+    _ostrzez_o_szkicu(klient, sprawa_id)
+    widocznosc = "internal" if args.wewn else "external"
+    try:
+        klient.wpis(sprawa_id, tresc, widocznosc=widocznosc)
+    except BladAPI as blad:
+        print(f"Nie udało się odpowiedzieć: {blad}", file=sys.stderr)
+        return 1
+    co = "Notatka wewnętrzna dodana." if args.wewn else "Odpowiedź wysłana (widoczna na zewnątrz)."
+    _pokaz_sprawe(konf, sprawa_id, autor.numer_sprawy(sprawa), co_dalej=co)
+    return 0
+
+
+def polecenie_tresc_wersja(args) -> int:
+    """Kolejna wersja treści: załącznik `nazwa-vN.md` + wpis „co się zmieniło" (SF-51).
+
+    Numer bierze się z historii załączników na sprawie (najwyższy istniejący `nazwa-vN` + 1) —
+    nie z dat, bo wersja to liczba porządkowa. Opis „co się zmieniło" najlepiej podać
+    `--zmiany`; bez niego Kit liczy go z różnicy względem poprzedniej wersji.
+    """
+    from types import SimpleNamespace
+
+    konf = konfiguracja.wczytaj()
+    org_z_linku = ""
+    if flow.sprawa_z_linku(args.sprawa):
+        org_z_linku = flow.organizacja_z_linku(args.sprawa) or ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    sprawa_id = str(sprawa["id"])
+
+    try:
+        karta = klient.sprawa(sprawa_id)
+    except BladAPI as blad:
+        print(f"Nie udało się odczytać sprawy: {blad}", file=sys.stderr)
+        return 1
+    _ostrzez_o_szkicu(klient, sprawa_id)
+
+    bazowa, koncowka = flow.podziel_nazwe(args.plik)
+    zalaczniki = [(z.get("original_filename") or z.get("filename") or "", str(z.get("id") or ""))
+                  for e in karta.get("entries") or []
+                  for z in e.get("attachments") or []]
+    n = flow.nastepna_wersje([nazwa for nazwa, _ in zalaczniki], bazowa, koncowka)
+    nazwa = flow.nazwa_wersji(bazowa, koncowka, n)
+
+    try:
+        tresc_pliku = Path(args.plik).expanduser().read_text(encoding="utf-8")
+    except OSError as blad:
+        print(f"Nie udało się przeczytać pliku {args.plik}: {blad}", file=sys.stderr)
+        return 2
+
+    zmiany = _opis_z_wejscia(SimpleNamespace(opis=args.zmiany))
+    if not zmiany:
+        poprzednia = (dict(zalaczniki).get(flow.nazwa_wersji(bazowa, koncowka, n - 1))
+                      if n > 1 else "")
+        if poprzednia:
+            try:
+                import tempfile
+                with tempfile.TemporaryDirectory() as katalog:
+                    cel = Path(katalog) / "poprzednia"
+                    klient.pobierz_zalacznik(poprzednia, cel, limit_bajtow=10 << 20)
+                    zmiany = flow.podsumowanie_zmian(
+                        cel.read_text(encoding="utf-8", errors="replace"), tresc_pliku)
+            except (BladAPI, OSError):
+                zmiany = ""
+        if not zmiany:
+            zmiany = ("pierwsza wersja tej treści na sprawie" if n == 1 else
+                      f"wersja v{n}; nie udało się porównać z v{n - 1} — opisz zmiany "
+                      f"`--zmiany`, jeśli mają być widoczne")
+
+    wpis = (f"**Wersja v{n}** — `{bazowa}{koncowka}`.\n\n"
+            f"**Co się zmieniło** — {zmiany}.\n\n"
+            f"Załącznik: `{nazwa}`.")
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as katalog:
+        kopia = Path(katalog) / nazwa
+        kopia.write_text(tresc_pliku, encoding="utf-8")
+        try:
+            klient.wpis_z_plikami(sprawa_id, wpis, [str(kopia)])
+        except (BladAPI, FileNotFoundError) as blad:
+            print(f"Nie udało się wysłać wersji v{n}: {blad}", file=sys.stderr)
+            return 1
+
+    print(f"Wersja v{n} wysłana jako {nazwa} (wpis z opisem zmian).")
+    _pokaz_sprawe(konf, sprawa_id, autor.numer_sprawy(sprawa),
+                  co_dalej="Kolejna wersja: sf-kit tresc-wersja "
+                           f"{autor.numer_sprawy(sprawa) or sprawa_id} {args.plik}")
+    return 0
+
+
+def polecenie_opis_sprawy(args) -> int:
+    """`PATCH /tickets/{id}` z nowym opisem — pod strażnikiem długości (SF-51).
+
+    Strażnik: dłuższy niż 1500 znaków opis na sprawie, która już opis ma, zatrzymuje
+    polecenie z propozycją `tresc-wersja`. `--mimo-to` znaczy: czytam ostrzeżenie
+    i świadomie nadpisuję.
+    """
+    konf = konfiguracja.wczytaj()
+    org_z_linku = ""
+    if flow.sprawa_z_linku(args.sprawa):
+        org_z_linku = flow.organizacja_z_linku(args.sprawa) or ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+        karta = klient.sprawa(str(sprawa["id"]))
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+
+    from types import SimpleNamespace
+    opis = _opis_z_wejscia(SimpleNamespace(opis=args.plik))
+    if opis is None:
+        print("Podaj opis plikiem: --plik opis.md (albo `-` ze standardowego wejścia).",
+              file=sys.stderr)
+        return 2
+
+    ostrzezenie = flow.straznik_opisu(karta.get("description") or "", opis)
+    if ostrzezenie and not args.mimo_to:
+        print(ostrzezenie, file=sys.stderr)
+        return 2
+
+    try:
+        klient.zmien_opis_sprawy(str(sprawa["id"]), opis)
+    except BladAPI as blad:
+        print(f"Nie udało się zmienić opisu: {blad}", file=sys.stderr)
+        return 1
+    print("Opis sprawy zmieniony.")
+    return 0
+
+
+def polecenie_publikuj(args) -> int:
+    """Publikacja szkicu do obiegu ze zgodą — `--zgoda` to wpis na tej sprawie z zgodą
+    człowieka na publikację (SF-51). Bez zgody trasa odmawia; bez wdrożonego backendu
+    SF-51 odpowiada 403/422 i Kit podaje to jako stan serwera, nie jako własny błąd."""
+    from . import wpisy
+
+    konf = konfiguracja.wczytaj()
+    org_z_linku = ""
+    if flow.sprawa_z_linku(args.sprawa):
+        org_z_linku = flow.organizacja_z_linku(args.sprawa) or ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    sprawa_id = str(sprawa["id"])
+
+    try:
+        wpis_id = wpisy.rozwin_wpis(klient, sprawa_id, args.zgoda)
+    except wpisy.ZlyWpis as blad:
+        print(f"Nie wysyłam: {blad}", file=sys.stderr)
+        return 2
+
+    try:
+        klient.publikuj(sprawa_id, zgoda=wpis_id)
+    except BladAPI as blad:
+        print(f"Nie udało się opublikować: {_powod_serwera(blad) or blad}", file=sys.stderr)
+        return 1
+    print("Sprawa opublikowana.")
     return 0
 
 
@@ -1996,16 +2267,28 @@ def main(argv: list[str] | None = None) -> int:
     us.set_defaults(funkcja=polecenie_usluga)
 
     # ── profil AUTOR ────────────────────────────────────────────────────────
-    z = pod.add_parser("zglos", help="[autor] zgłoś gotową pracę jako nową sprawę")
-    z.add_argument("--tytul", required=True, help="jednym zdaniem: co jest gotowe")
-    z.add_argument("--opis", default=None, metavar="PLIK",
-                   help="plik z opisem (albo `-` = ze standardowego wejścia)")
-    z.add_argument("--tag", default=None, help="kategoria sprawy, np. makieta")
-    z.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK",
-                   help="pliki do dołączenia (idą JEDNYM wpisem)")
-    z.add_argument("--szkic", action="store_true",
-                   help="wersja robocza: NIC nie wysyła, publikuje człowiek w SF (SF-4)")
-    z.set_defaults(funkcja=polecenie_zglos)
+    # `zglos` i `nowa-sprawa` to jedno polecenie pod dwiema nazwami — SF-51 wprowadza
+    # nazwę mówiącą, co powstaje, i strażnik kontekstu; dotychczasowa nazwa zostaje,
+    # bo ludzie i skrypty jej używają.
+    def _parser_nowej_sprawy(nazwa: str, help_txt: str):
+        p = pod.add_parser(nazwa, help=help_txt)
+        p.add_argument("--tytul", required=True, help="jednym zdaniem: co jest gotowe")
+        p.add_argument("--opis", default=None, metavar="PLIK",
+                       help="plik z opisem (albo `-` = ze standardowego wejścia)")
+        p.add_argument("--tag", default=None, help="kategoria sprawy, np. makieta")
+        p.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK",
+                       help="pliki do dołączenia (idą JEDNYM wpisem)")
+        p.add_argument("--szkic", action="store_true",
+                       help="wersja robocza: NIC nie wysyła, publikuje człowiek w SF (SF-4)")
+        p.add_argument("--kontekst", default=None, metavar="TEKST",
+                       help="kontekst zadania (link do sprawy) — gdy w nim jest istniejąca "
+                            "sprawa, Kit odmawia i podpowiada `odpowiedz` (SF-51); "
+                            f"alternatywnie zmienna {ZMIENNA_KONTEKSTU}")
+        p.set_defaults(funkcja=polecenie_nowa_sprawa)
+        return p
+
+    _parser_nowej_sprawy("zglos", "[autor] zgłoś gotową pracę jako nową sprawę")
+    _parser_nowej_sprawy("nowa-sprawa", "[autor] nowa sprawa z gotową pracą (SF-51)")
 
     ib = pod.add_parser("inbox", help="[agent] moje wiadomości — pokaż i potwierdź odbiór")
     ib.add_argument("--limit", type=int, default=skrzynka.LIMIT_TAKTU,
@@ -2028,7 +2311,7 @@ def main(argv: list[str] | None = None) -> int:
     # wiadomość") i `polecenie_wpis` obsługuje ją od v0.5.1 — tylko parser jej nie przepuszczał.
     # Pomoc obiecywała coś, co kończyło się `error: the following arguments are required`.
     wp.add_argument("sprawa", nargs="?", default=None,
-                    help="numer (FM-12) albo identyfikator sprawy "
+                    help="numer (FM-12), identyfikator albo link do sprawy z ?org=… "
                          "(można pominąć przy `--do`: wtedy sama wiadomość)")
     wp.add_argument("--opis", default=None, metavar="PLIK",
                     help="plik z treścią (albo `-` = ze standardowego wejścia)")
@@ -2061,10 +2344,47 @@ def main(argv: list[str] | None = None) -> int:
     ww.set_defaults(funkcja=polecenie_wpis_wersje)
 
     za = pod.add_parser("zalacz", help="[autor] dołóż pliki do istniejącej sprawy")
-    za.add_argument("sprawa", help="numer (FM-12) albo identyfikator sprawy")
+    za.add_argument("sprawa", help="numer (FM-12), identyfikator albo link do sprawy z ?org=…")
     za.add_argument("pliki", nargs="+", metavar="PLIK")
     za.add_argument("--notka", default=None, help="jedno zdanie, co to za pliki")
     za.set_defaults(funkcja=polecenie_zalacz)
+
+    # ── flow odpowiedzi i treści w wersjach (SF-51, ADVERTPR-948) ─────────────
+    od = pod.add_parser("odpowiedz", help="[autor] odpowiedz w ISTNIEJĄCEJ sprawie — "
+                                           "wiadomość na zewnątrz / notatka --wewn (SF-51)")
+    od.add_argument("sprawa", help="link do sprawy (z ?org=…) albo numer — przy numerze "
+                                   "Organizację podaj przez --org")
+    od.add_argument("--opis", default=None, metavar="PLIK",
+                    help="treść odpowiedzi (albo `-` = ze standardowego wejścia)")
+    od.add_argument("--wewn", action="store_true",
+                    help="notatka wewnętrzna (domyślnie: wiadomość widoczna na zewnątrz)")
+    od.set_defaults(funkcja=polecenie_odpowiedz)
+
+    tv = pod.add_parser("tresc-wersja", help="[autor] kolejna wersja treści: załącznik "
+                                             "nazwa-vN.md + wpis „co się zmieniło” (SF-51)")
+    tv.add_argument("sprawa", help="numer, identyfikator albo link do sprawy z ?org=…")
+    tv.add_argument("plik", metavar="PLIK", help="plik z treścią (np. raport.md)")
+    tv.add_argument("--zmiany", default=None, metavar="PLIK",
+                    help="co się zmieniło — plik albo `-`; bez tego Kit liczy z różnicy "
+                         "względem poprzedniej wersji")
+    tv.set_defaults(funkcja=polecenie_tresc_wersja)
+
+    os_ = pod.add_parser("opis-sprawy", help="[autor] zmień opis sprawy — długi opis "
+                                             "zatrzymuje strażnik, treść idź w wersjach (SF-51)")
+    os_.add_argument("sprawa", help="numer, identyfikator albo link do sprawy z ?org=…")
+    os_.add_argument("--plik", required=True, metavar="PLIK",
+                     help="nowy opis (albo `-` = ze standardowego wejścia)")
+    os_.add_argument("--mimo-to", dest="mimo_to", action="store_true",
+                     help="nadpisz mimo ostrzeżenia strażnika (świadoma decyzja)")
+    os_.set_defaults(funkcja=polecenie_opis_sprawy)
+
+    pu = pod.add_parser("publikuj", help="[autor] opublikuj szkic ze zgodą — --zgoda to wpis "
+                                         "z zgodą człowieka na publikację (SF-51)")
+    pu.add_argument("sprawa", help="numer, identyfikator albo link do sprawy z ?org=…")
+    pu.add_argument("--zgoda", required=True, metavar="WPIS",
+                    help="identyfikator wpisu (albo jego początek, min. 6 znaków) z zgodą "
+                         "na publikację")
+    pu.set_defaults(funkcja=polecenie_publikuj)
 
     sp = pod.add_parser("sprawy", help="[autor] sprawy w tej Organizacji")
     sp.add_argument("--limit", type=int, default=50)
