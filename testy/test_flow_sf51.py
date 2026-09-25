@@ -27,7 +27,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sf_kit import autor, cli, flow, tozsamosc, wpisy  # noqa: E402
+from sf_kit import asystent, cli, flow, tozsamosc, wpisy  # noqa: E402
 from sf_kit import config as konfiguracja  # noqa: E402
 from sf_kit.api import BladAPI, BrakUprawnienia, Klient  # noqa: E402
 

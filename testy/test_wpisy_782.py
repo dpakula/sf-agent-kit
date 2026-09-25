@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sf_kit import autor, cli, wpisy  # noqa: E402
+from sf_kit import asystent, cli, wpisy  # noqa: E402
 from sf_kit import config as konfiguracja  # noqa: E402
 from sf_kit.api import BladAPI, BrakUprawnienia, Klient  # noqa: E402
 
@@ -263,7 +263,7 @@ class TestStronicowanieSpraw(unittest.TestCase):
                 return [{"id": "x", "ticket_number": 7820, "ticket_prefix": "ADVERTPR"},
                         {"id": "y", "ticket_number": 782, "ticket_prefix": "ADVERTPR"}]
         k = K()
-        self.assertEqual(autor.znajdz_sprawe(k, "ADVERTPR-782")["id"], "y")
+        self.assertEqual(asystent.znajdz_sprawe(k, "ADVERTPR-782")["id"], "y")
         self.assertEqual(k.szukaj, "782", "numer ma iść do SF, a nie być szukany w 25 ostatnich")
 
 

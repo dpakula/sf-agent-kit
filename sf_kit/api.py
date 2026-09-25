@@ -313,7 +313,7 @@ class Klient:
             cialo["version"] = wersja
         return self._wywolaj("PATCH", f"tasks/{task_id}", cialo=cialo)
 
-    # ── sprawy: profil AUTOR (v0.3) ──────────────────────────────────────────
+    # ── sprawy: profil ASYSTENT (v0.3) ──────────────────────────────────────────
 
     def zaloz_sprawe(self, *, tytul: str, opis: str, priorytet: str = "medium",
                      kategoria: str | None = None,
