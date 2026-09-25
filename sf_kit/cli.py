@@ -1460,6 +1460,54 @@ def polecenie_sprawy(args) -> int:
     return 0
 
 
+def polecenie_sprawa(args) -> int:
+    """SF-38: karta sprawy dla WYKONAWCY — odczyt kluczem Kita, klucz nie trafia do promptu.
+
+    Ten sam tekst, który worker dokleja do ramki (`kontekst._tekst`) — jeden format, więc
+    wykonawca doczytujący w trakcie widzi to samo, co dostał na starcie, tylko bez obcięcia
+    liczby wpisów. Co wolno przeczytać, rozstrzyga serwer (clearance klucza).
+    """
+    from . import kontekst
+
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        wskazana = autor.znajdz_sprawe(klient, args.sprawa)
+        karta = klient.sprawa(str(wskazana.get("id")))
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać sprawy: {blad}", file=sys.stderr)
+        return 1
+    poprzedni = kontekst.ILE_WPISOW
+    try:
+        kontekst.ILE_WPISOW = 10_000 if args.wszystkie else poprzedni
+        print(kontekst._tekst(karta, kontekst.Pakiet(), Path.cwd()))
+    finally:
+        kontekst.ILE_WPISOW = poprzedni
+    zal = [(z.get("id"), z.get("original_filename")) for e in karta.get("entries") or []
+           for z in e.get("attachments") or [] if z.get("filename")]
+    if zal:
+        print("\nZałączniki (id → nazwa), pobranie: `sf-kit zalacznik <id> --do <plik>`:")
+        for zid, nazwa in zal:
+            print(f"  {zid}  {nazwa}")
+    return 0
+
+
+def polecenie_zalacznik(args) -> int:
+    """SF-38: pobierz jeden załącznik do pliku — dla wykonawcy, bez klucza w prompcie."""
+    from . import kontekst
+
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    cel = Path(args.do or f"zalacznik-{args.id}")
+    try:
+        ile = klient.pobierz_zalacznik(args.id, cel, limit_bajtow=kontekst.LIMIT_PLIKU)
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać załącznika: {blad}", file=sys.stderr)
+        return 1
+    print(f"Zapisano {cel} ({ile} B)")
+    return 0
+
+
 # ── profil KOORDYNATOR: warstwa administracyjna (ADVERTPR-879) ───────────────
 #
 # Trzy polecenia niżej to trzy wpadki z jednej doby (18.09), w której koordynatorka trzy razy
@@ -2021,6 +2069,14 @@ def main(argv: list[str] | None = None) -> int:
     sp = pod.add_parser("sprawy", help="[autor] sprawy w tej Organizacji")
     sp.add_argument("--limit", type=int, default=50)
     sp.set_defaults(funkcja=polecenie_sprawy)
+    sa = pod.add_parser("sprawa", help="[wykonawca] karta sprawy: opis, wpisy, załączniki (SF-38)")
+    sa.add_argument("sprawa", help="numer (ADVERTPR-927) albo identyfikator sprawy")
+    sa.add_argument("--wszystkie", action="store_true", help="wszystkie wpisy, nie ostatnie 15")
+    sa.set_defaults(funkcja=polecenie_sprawa)
+    za = pod.add_parser("zalacznik", help="[wykonawca] pobierz jeden załącznik do pliku (SF-38)")
+    za.add_argument("id", help="identyfikator załącznika (z `sf-kit sprawa`)")
+    za.add_argument("--do", help="ścieżka pliku docelowego (domyślnie zalacznik-<id>)")
+    za.set_defaults(funkcja=polecenie_zalacznik)
 
     # ── profil KOORDYNATOR ────────────────────────────────────────────────────
     fl = pod.add_parser("flota", help="[koordynator] agenci tej Organizacji; "

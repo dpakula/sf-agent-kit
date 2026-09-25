@@ -26,10 +26,12 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .api import BladAPI, BrakUprawnienia, Klient, ZlyKlucz
 from .config import Konfiguracja
 from . import klucz as magazyn_klucza
+from . import kontekst as mod_kontekst
 from . import ramka
 from . import reakcje as mod_reakcje
 from . import skrzynka as mod_skrzynka
@@ -167,7 +169,8 @@ def _zdaj_sprawozdanie(klient: Klient, zadanie: dict, tresc: str,
         return _sprawozdanie_do_komentarza(klient, zadanie, tresc)
     try:
         if pliki:
-            klient.wpis_z_plikami(str(ticket_id), tresc, [str(p) for p in pliki])
+            odp = klient.wpis_z_plikami(str(ticket_id), tresc, [str(p) for p in pliki])
+            _sprawdz_potwierdzone(klient, str(ticket_id), odp, pliki)
         else:
             klient.wpis(str(ticket_id), tresc)
         return True
@@ -184,6 +187,85 @@ def _zdaj_sprawozdanie(klient: Klient, zadanie: dict, tresc: str,
             except BladAPI as drugi:
                 _log(f"   to też się nie udało: {drugi}")
         return False
+
+
+def _sprawdz_potwierdzone(klient: Klient, ticket_id: str, odp, pliki: list) -> None:
+    """SF-38: ile plików SF POTWIERDZIŁ w odpowiedzi — a nie ile próbowaliśmy wysłać.
+
+    „Załączam wynik" w logu mówiło, co worker ZAMIERZAŁ. Obserwacja „wpis bez załączników"
+    z 24.09 nie dała się potem ani potwierdzić, ani obalić z samego logu. Od teraz log mówi,
+    co serwer przyjął, a rozjazd trafia na sprawę notką zamiast zostać cichym sukcesem.
+    Odpowiedź bez pola `attachments` (starszy SF, atrapa) → nie wiemy, więc nic nie twierdzimy.
+    """
+    if not isinstance(odp, dict) or "attachments" not in odp:
+        return
+    przyjete = len(odp.get("attachments") or [])
+    _log(f"   SF potwierdził załączniki: {przyjete} z {len(pliki)}")
+    if przyjete < len(pliki):
+        nazwy = {Path(str(p)).name for p in pliki}
+        doszly = {a.get("original_filename") for a in odp.get("attachments") or []}
+        brak = ", ".join(sorted(nazwy - doszly)) or f"{len(pliki) - przyjete} plików"
+        try:
+            klient.wpis(ticket_id, f"**Załącznik NIE dołączony ({len(pliki) - przyjete} z "
+                                   f"{len(pliki)}):** {brak}. Serwer przyjął wpis, ale nie te pliki — "
+                                   f"leżą w katalogu wyników workera.")
+        except BladAPI as blad:
+            _log(f"   notka o brakujących załącznikach też nie przeszła: {blad}")
+
+
+def _cel_wyniku(klient: Klient, zadanie: dict):
+    """SF-38 pkt 4: `SPRAWA_WYNIKU: <uuid>` (+ opcjonalnie `ORGANIZACJA_WYNIKU: <uuid>`) w treści.
+
+    Incydent 927: zadanie stało przy sprawie POMOCNICZEJ (Organizacja wykonawcy), a odbiór był na
+    GŁÓWNEJ w Organizacji klienta — wynik doszedł, tylko nie tam, gdzie go szukano. Autor zadania
+    wskazuje więc sprawę wyniku wprost, tą samą konwencją co `WYNIK: <plik>`.
+    Oddaje `(klient_docelowy, ticket_id)` albo `None` (wynik tam, gdzie zadanie — jak dotąd).
+    """
+    import re
+    tresc = zadanie.get("body_md") or ""
+    sprawa = re.search(r"^\s*[-*]?\s*SPRAWA_WYNIKU\s*:\s*([0-9a-fA-F-]{36})\s*$", tresc, re.M)
+    if not sprawa:
+        return None
+    org = re.search(r"^\s*[-*]?\s*ORGANIZACJA_WYNIKU\s*:\s*([0-9a-fA-F-]{36})\s*$", tresc, re.M)
+    docelowy = klient.w_organizacji(org.group(1)) if org else klient
+    return docelowy, sprawa.group(1)
+
+
+def _sprawozdanie_na_cel(klient: Klient, zadanie: dict, tresc: str, pliki: list) -> bool | None:
+    """Wynik na sprawę wskazaną w zadaniu + notka na sprawie zadania. `None` = brak wskazania.
+
+    Gdy wskazana sprawa odmówi (brak dostępu klucza w tamtej Organizacji, zły numer), wynik NIE
+    przepada: wraca na sprawę zadania z powodem odmowy — tak jak dotąd, plus zdanie „dlaczego tu".
+    """
+    cel = _cel_wyniku(klient, zadanie)
+    if cel is None:
+        return None
+    docelowy, sprawa = cel
+    _log(f"   wynik na wskazaną sprawę {sprawa}"
+         + (f" (Organizacja {docelowy.organizacja})" if docelowy is not klient else ""))
+    try:
+        if pliki:
+            odp = docelowy.wpis_z_plikami(sprawa, tresc, [str(p) for p in pliki])
+            _sprawdz_potwierdzone(docelowy, sprawa, odp, pliki)
+        else:
+            odp = docelowy.wpis(sprawa, tresc)
+    except BladAPI as blad:
+        _log(f"   wskazana sprawa odmówiła ({blad}) — wynik zostaje przy sprawie zadania")
+        return _zdaj_sprawozdanie(
+            klient, zadanie,
+            f"{tresc}\n\n_(Wynik miał trafić na sprawę `{sprawa}`, ale ta odmówiła: {blad}.)_",
+            pliki=pliki)
+    wpis_id = odp.get("id") if isinstance(odp, dict) else None
+    if zadanie.get("ticket_id") and str(zadanie["ticket_id"]) != sprawa:
+        try:
+            klient.wpis(str(zadanie["ticket_id"]),
+                        f"Wynik zadania `{zadanie.get('external_id') or zadanie.get('id')}` "
+                        f"zapisany na wskazanej sprawie `{sprawa}`"
+                        + (f" (wpis `{wpis_id}`)" if wpis_id else "")
+                        + (f", {len(pliki)} załączników" if pliki else "") + ".")
+        except BladAPI as blad:
+            _log(f"   notka na sprawie zadania nie przeszła: {blad}")
+    return True
 
 
 def _sprawozdanie_do_komentarza(klient: Klient, zadanie: dict, tresc: str) -> bool:
@@ -333,9 +415,24 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
              + (f", {poczta.ile_dalej} zostaje na potem" if poczta.ile_dalej else ""))
 
     _log(f"   wykonuję przez `{wykonawca.nazwa}` w {katalog} (limit {konf.limit_zadania_s} s)")
+    # SF-38: gdzie worker SZUKA wyników — w logu przy starcie, żeby rozjazd katalogów
+    # (mac: outgoing/, VPS: work/zadania/outgoing/) był widoczny od pierwszej linii zadania.
+    _log(f"   wyniki zbieram z: {', '.join(str(Path(katalog) / k) for k in konf.katalogi_wynikow)}")
     puls.krok(2, f"wykonuję w katalogu roboczym (limit {konf.limit_zadania_s} s)")
     polecenie = (ramka.zbuduj(zadanie, slug=konf.slug, katalog=katalog)
                  if wykonawca.chce_ramke else tresc)
+    if wykonawca.chce_ramke:
+        # SF-38: kontekst sprawy PRZED startem — pliki do `inbox/<external_id>/`, opis i ostatnie
+        # wpisy do ramki. Tylko dla wykonawców z ramką: powłoka dostaje skrypt, a blok po polsku
+        # byłby dla niej błędem składni (ta sama zasada co przy uwagach i skrzynce niżej).
+        pakiet = mod_kontekst.przygotuj(klient, zadanie, katalog_roboczy=katalog)
+        if pakiet.tekst:
+            _log(f"   kontekst sprawy: {len(pakiet.pliki)} plików w "
+                 f"{pakiet.katalog}" + (f", {len(pakiet.pominiete)} pominiętych"
+                                        if pakiet.pominiete else ""))
+            for powod in pakiet.pominiete:
+                _log(f"   nie pobrano — {powod}")
+            polecenie += "\n\n" + pakiet.tekst
     if reakcje.uwagi and wykonawca.chce_ramke:
         # Uwagi doklejamy TYLKO do ramki. Powłoka wykonuje to, co dostaje, więc polski akapit
         # doklejony do skryptu jest dla niej błędem składni, a nie wskazówką.
@@ -425,7 +522,10 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
                         f"oddaję zadanie do kolejki zamiast je zamykać.")
 
     puls.krok(3, "wykonane, zdaję sprawozdanie na sprawie")
-    zapisano = _zdaj_sprawozdanie(klient, zadanie, sprawozdanie, pliki=zebrane.pliki)
+    # SF-38 pkt 4: wynik na sprawę wskazaną w zadaniu (`SPRAWA_WYNIKU:`), a bez wskazania — jak dotąd.
+    zapisano = _sprawozdanie_na_cel(klient, zadanie, sprawozdanie, zebrane.pliki)
+    if zapisano is None:
+        zapisano = _zdaj_sprawozdanie(klient, zadanie, sprawozdanie, pliki=zebrane.pliki)
     wyniki.posprzataj(zebrane)
     if not zapisano:
         # Praca wykonana, sprawozdania nie ma. NIE zamykamy: zadanie zamknięte bez śladu

@@ -536,6 +536,64 @@ class Klient:
         return self._wywolaj(
             "GET", f"tickets/{ticket_id}/entries?limit={int(limit)}&offset={int(offset)}")
 
+    # ── kontekst sprawy dla wykonawcy (SF-38) ────────────────────────────────
+
+    def sprawa(self, ticket_id: str) -> dict:
+        """Karta sprawy (`TicketOut`): opis + wpisy z załącznikami W ZAKRESIE TEGO KLUCZA.
+
+        Filtr widoczności robi serwer (clearance klucza) — Kit nie decyduje, co wykonawca może
+        przeczytać, tylko podaje dalej to, co SF mu wydał.
+        """
+        odp = self._wywolaj("GET", f"tickets/{ticket_id}")
+        return odp if isinstance(odp, dict) else {}
+
+    def pobierz_zalacznik(self, attachment_id: str, cel, *, limit_bajtow: int) -> int:
+        """Zapisz plik załącznika do `cel`. Oddaje liczbę bajtów; `BladAPI` przy odmowie/za dużym.
+
+        Tą samą bramką co panel (`_bramka_zalacznika`: prawa pliku = prawa jego wpisu), więc
+        klucz bez `context:read` nie pobierze pliku z wpisu wewnętrznego — i dobrze.
+        Zapis do pliku tymczasowego i zamiana na końcu: przerwane pobieranie nie zostawia
+        w katalogu roboczym połowy PDF-a, który wykonawca wziąłby za cały.
+        """
+        import os
+        from pathlib import Path
+
+        adres = f"{self.baza}/api/v1/tickets/attachments/{attachment_id}"
+        zadanie = urllib.request.Request(adres, headers=self._naglowki(), method="GET")
+        cel = Path(cel)
+        tymczasowy = cel.with_name(cel.name + ".czesc")
+        ile = 0
+        try:
+            with urllib.request.urlopen(zadanie, timeout=LIMIT_CZASU_WYSYLKI_S) as odp, \
+                    open(tymczasowy, "wb") as plik:
+                while True:
+                    kawalek = odp.read(1 << 16)
+                    if not kawalek:
+                        break
+                    ile += len(kawalek)
+                    if ile > limit_bajtow:
+                        raise BladAPI(f"załącznik {attachment_id} większy niż "
+                                      f"{limit_bajtow // (1 << 20)} MB — pomijam")
+                    plik.write(kawalek)
+            os.replace(tymczasowy, cel)
+            return ile
+        except urllib.error.HTTPError as blad:
+            raise self._na_wyjatek(blad.code, "GET", f"tickets/attachments/{attachment_id}",
+                                   "") from None
+        except urllib.error.URLError as blad:
+            raise BladAPI(f"pobranie załącznika {attachment_id}: {blad.reason}") from None
+        finally:
+            if tymczasowy.exists():
+                tymczasowy.unlink()
+
+    def w_organizacji(self, organizacja: str) -> "Klient":
+        """Ten sam klucz, inna Organizacja w `X-Tenant-Id` (wynik na sprawę w innej Organizacji).
+
+        Czy klucz TAM coś może, rozstrzyga serwer — klon nie daje żadnych praw, zmienia tylko
+        to, o którą Organizację pytamy.
+        """
+        return type(self)(baza=self.baza, klucz=self._klucz, organizacja=organizacja)
+
     # ── edycja wpisu z historią (ADVERTPR-782) ───────────────────────────────
 
     def wpis_sprawy(self, ticket_id: str, entry_id: str) -> dict:
