@@ -25,7 +25,7 @@ Moja Organizacja w SalesForge to: fm-x-advertpro   (podawaj ją zawsze jako --or
 Nie pytaj mnie o klucz i nie wpisuj go w rozmowie.
 ```
 
-**Tryb pracy agenta:** worker (sam bierze zadania z kolejki), **asystent** (pracuje z Tobą — najczęstszy; w Kicie profil `autor`) albo koordynator (rozdziela pracę innym agentom). Szczegóły opisze Podręcznik SalesForge (w przygotowaniu).
+**Tryb pracy agenta:** worker (sam bierze zadania z kolejki), **asystent** (pracuje z Tobą — najczęstszy) albo koordynator (rozdziela pracę innym agentom). Szczegóły opisze Podręcznik SalesForge (w przygotowaniu).
 
 **Organizację podajesz zawsze jawnie** (`--org`, np. `--org fm-x-advertpro`) — Kit nie zgaduje, w której Organizacji zapisać Twoją pracę.
 
@@ -47,11 +47,13 @@ Nie pytaj mnie o klucz i nie wpisuj go w rozmowie.
 
 ### Tryby pracy
 
+Stara nazwa profilu `autor` (sprzed 0.13.2) działa dalej jako `asystent` — Kit wypisze przypomnienie, żeby zmienić ją w `config.json` albo przez `sf-kit init`.
+
 Sprawdź w `sf-kit whoami` i w konfiguracji (`sf-kit init`), w którym trybie pracujesz:
 
 | tryb (profil w Kicie) | co robisz | polecenia |
 |---|---|---|
-| **asystent** (`autor`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa` |
+| **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa` |
 | **worker** (`worker`) | bierzesz zadania z kolejki i wykonujesz je w tle | `tasks`, `worker` |
 | **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status`, `publikuj` |
 
@@ -909,7 +911,7 @@ kto ma prawo je wykonać.
 
 ---
 
-### 9a. Scenariusze profilu AUTOR
+### 9a. Scenariusze profilu ASYSTENT
 
 Ta sekcja jest dla agenta, który pracuje **obok człowieka** i zgłasza wyniki do SalesForge.
 
@@ -1165,7 +1167,7 @@ sf-kit worker --once            # jeden przebieg zamiast pętli
 sf-kit worker --interval 60     # co ile sekund odpytywać (domyślnie 60)
 ```
 
-**Profil `autor` — pchasz do SalesForge gotową pracę człowieka:**
+**Profil `asystent` — pchasz do SalesForge gotową pracę człowieka:**
 
 ```bash
 sf-kit zglos --tytul "…" [--opis plik.md|-] [--tag makieta] [--zalacz plik…] [--szkic]
@@ -1813,10 +1815,10 @@ nieodróżnialnie od stanu, w którym nic jeszcze nie przypisano.
 | profil | uprawnienia na członkostwie | po co |
 |---|---|---|
 | **worker** | `tickets:read`, `tickets:comment`, `tasks:own` | czyta zadania, pisze sprawozdania, zmienia status SWOICH zadań |
-| **autor** | `tickets:read`, `tickets:comment`, **`tickets:write`**, `context:read` | jak wyżej plus **zakładanie spraw** |
-| **koordynator** | jak autor plus **`plans:write`** | **zleca zadania flocie**, przegląda kolejkę, odbiera wyniki |
+| **asystent** | `tickets:read`, `tickets:comment`, **`tickets:write`**, `context:read` | jak wyżej plus **zakładanie spraw** |
+| **koordynator** | jak asystent plus **`plans:write`** | **zleca zadania flocie**, przegląda kolejkę, odbiera wyniki |
 
-**`tickets:write` to jedyna różnica** między workerem a autorem i jedyne, co trzeba dodać
+**`tickets:write` to jedyna różnica** między workerem a asystentem i jedyne, co trzeba dodać
 istniejącemu agentowi, żeby mógł zgłaszać. Zestaw domyślny konta zakładanego z panelu
 **go nie zawiera** — dodaje się go jednym kliknięciem na członkostwie, bez wymiany klucza.
 

@@ -9,6 +9,7 @@ własnych ustawień pokazuje mu też klucz.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -37,7 +38,7 @@ class Konfiguracja:
     slug: str = ""                     # mój slug agenta — po nim odsiewam swoje zadania
     katalog_roboczy: str = ""          # gdzie wykonawca ma pracować; pusty = bieżący
     #: Który profil Kitu. Jedno narzędzie, trzy role — i pomoc pokazuje tylko to, co do tej
-    #: roli należy. `worker` CIĄGNIE zadania z kolejki, `autor` PCHA do SF gotową pracę
+    #: roli należy. `worker` CIĄGNIE zadania z kolejki, `asystent` PCHA do SF gotową pracę
     #: człowieka, `koordynator` dojdzie po `GET /me` (bez niego nie da się sprawdzić, czy
     #: ktoś ma do tego prawo, a profil obiecujący polecenia, które kończą się 403, jest gorszy
     #: od jego braku).
@@ -94,6 +95,11 @@ class Konfiguracja:
         return puste
 
 
+#: Stare nazwy profili → obecne (ADVERTPR-959: `autor` → `asystent`). Stara nazwa w pliku DZIAŁA
+#: dalej, tylko Kit mówi, żeby ją zmienić — aktualizacja Kita nie ma nikomu nic zepsuć.
+PROFIL_ALIASY = {"autor": "asystent"}
+
+
 def sciezka() -> Path:
     return sciezka_konfiguracji() / PLIK
 
@@ -131,7 +137,14 @@ def wczytaj() -> Konfiguracja:
             f"{plik} nie jest poprawnym JSON-em ({blad}). Popraw plik albo go skasuj "
             f"i uruchom `sf-kit init` jeszcze raz.") from None
     znane = {p for p in Konfiguracja.__dataclass_fields__}
-    return Konfiguracja(**{k: v for k, v in dane.items() if k in znane})
+    konf = Konfiguracja(**{k: v for k, v in dane.items() if k in znane})
+    nowa = PROFIL_ALIASY.get(konf.profil)
+    if nowa:
+        print(f"Uwaga: profil „{konf.profil}” w {plik} to stara nazwa — zmień ją na „{nowa}” "
+              f"(`sf-kit init` albo ręcznie w pliku). Do tego czasu działa jak „{nowa}”.",
+              file=sys.stderr)
+        konf.profil = nowa
+    return konf
 
 
 def zapisz(konf: Konfiguracja) -> Path:

@@ -1,4 +1,4 @@
-"""Składanie `multipart/form-data` ręcznie — bo Kit nie ma `requests` (v0.3, profil AUTOR).
+"""Składanie `multipart/form-data` ręcznie — bo Kit nie ma `requests` (v0.3, profil ASYSTENT).
 
 v0.3 (15.09.2026) - APro Agents / borys-sf
 

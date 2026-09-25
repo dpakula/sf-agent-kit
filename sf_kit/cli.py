@@ -22,10 +22,10 @@ from . import config as konfiguracja
 #: te są po stronie SalesForge — tylko POKAZUJE to, co do danej roli należy, i chowa resztę.
 #: Od v0.4 uprawnienia widać naprawdę: `GET /me` oddaje je per Organizacja (ADVERTPR-796),
 #: więc profil przestał być wyłącznie deklaracją człowieka.
-PROFILE = ("worker", "autor", "koordynator")
+PROFILE = ("worker", "asystent", "koordynator")
 PROFIL_DOMYSLNY = "worker"
 from . import klucz as magazyn_klucza
-from . import autor
+from . import asystent
 from . import flow
 from . import os_czasu
 from . import koordynator
@@ -118,6 +118,9 @@ def polecenie_init(args) -> int:
     # Do odpowiedzi SF slug = nazwa; `GET /me` niżej go poprawi, jeśli SF mówi inaczej.
     konf.slug = konf.slug or nazwa
     konf.profil = pytaj(f"Profil: {' / '.join(PROFILE)}", konf.profil or PROFIL_DOMYSLNY)
+    # ADVERTPR-959: stara nazwa `autor` przyjęta i od razu zamieniona — człowiek wpisujący ją
+    # z pamięci albo ze starej instrukcji nie ma dostać odmowy.
+    konf.profil = konfiguracja.PROFIL_ALIASY.get(konf.profil, konf.profil)
     if konf.profil not in PROFILE:
         print(f"Nie znam profilu „{konf.profil}”. Dostępne: {', '.join(PROFILE)}",
               file=sys.stderr)
@@ -574,7 +577,7 @@ def _blok_jeden(args, wskazanie: str) -> int:
               "  sf-kit blok <id>        (identyfikator z nawiasu przy wierszu `sf-kit os`)",
               file=sys.stderr)
         return 2
-    if not autor.WZORZEC_UUID.match(wskazanie):
+    if not asystent.WZORZEC_UUID.match(wskazanie):
         # Sprawdzamy TU, a nie przez strzał w API: „404 — nie ma albo nie dla ciebie" przy
         # literówce wysyła człowieka do administratora po dostęp, którego wcale nie potrzebuje.
         print(f"„{wskazanie}” nie wygląda na identyfikator bloku (oczekuję UUID).\n"
@@ -713,7 +716,7 @@ def polecenie_os(args) -> int:
     klient = _klient(konf, args)
 
     try:
-        sprawa = autor.znajdz_sprawe(klient, args.sprawa)
+        sprawa = asystent.znajdz_sprawe(klient, args.sprawa)
     except (ValueError, BladAPI) as blad:
         print(str(blad), file=sys.stderr)
         return 1
@@ -723,7 +726,7 @@ def polecenie_os(args) -> int:
     pelna = not (args.zwinieta or args.rozwin)
     rozwin = (args.rozwin or "").strip()
     try:
-        if rozwin and not autor.WZORZEC_UUID.match(rozwin):
+        if rozwin and not asystent.WZORZEC_UUID.match(rozwin):
             rozwin = _pelny_id_grupy(klient, sprawa, rozwin, limit=args.limit)
             if rozwin is None:
                 return 2
@@ -738,7 +741,7 @@ def polecenie_os(args) -> int:
         print(json.dumps(strona, ensure_ascii=False, indent=2))
         return 0
 
-    numer = autor.numer_sprawy(sprawa) or str(sprawa["id"])[:8]
+    numer = asystent.numer_sprawy(sprawa) or str(sprawa["id"])[:8]
     print(f"\nOś sprawy {numer} — {'pełna' if pelna else 'zwinięta'}"
           f"{f', rozwinięta grupa {args.rozwin[:8]}' if args.rozwin and not pelna else ''}")
 
@@ -933,7 +936,7 @@ def polecenie_zlec(args) -> int:
     try:
         agenci = koordynator.flota(klient)
         agent = koordynator.znajdz_agenta(agenci, args.agent_slug)
-        sprawa = autor.znajdz_sprawe(klient, args.sprawa)
+        sprawa = asystent.znajdz_sprawe(klient, args.sprawa)
         koordynator.sprawdz_sprawe_dla_wykonawcy(
             klient, ticket_id=str(sprawa["id"]), agent=agent)
     except koordynator.Odmowa as odmowa:
@@ -954,8 +957,8 @@ def polecenie_zlec(args) -> int:
         return 1
 
     print(f"Zlecone: {zadanie.get('external_id')} → {agent.slug}")
-    print(f"  sprawa: {autor.numer_sprawy(sprawa)}")
-    print(f"  {autor.adres_sprawy(str(sprawa['id']), baza=konf.adres)}")
+    print(f"  sprawa: {asystent.numer_sprawy(sprawa)}")
+    print(f"  {asystent.adres_sprawy(str(sprawa['id']), baza=konf.adres)}")
     print(f"\nWynik pojawi się na tej sprawie. Sprawdź: "
           f"{_jak_wolac()} odbierz {zadanie.get('external_id')}")
     return 0
@@ -1089,7 +1092,7 @@ def polecenie_worker(args) -> int:
     return uruchom(klient, konf, raz=args.once)
 
 
-# ══ profil AUTOR (v0.3) ══════════════════════════════════════════════════════
+# ══ profil ASYSTENT (v0.3) ══════════════════════════════════════════════════════
 #
 # Cztery polecenia, którymi agent PCHA do SF gotową pracę człowieka. Wszystkie wypisują
 # na końcu NUMER I ADRES sprawy — bo to jest jedyne, co człowiek ma potem powiedzieć
@@ -1117,7 +1120,7 @@ def _opis_z_wejscia(args) -> str | None:
 
 def _pokaz_sprawe(konf, sprawa_id: str, numer: str, *, co_dalej: str) -> None:
     print(f"\nSprawa: {numer or sprawa_id}")
-    print(f"Adres:  {autor.adres_sprawy(sprawa_id, baza=konf.adres)}")
+    print(f"Adres:  {asystent.adres_sprawy(sprawa_id, baza=konf.adres)}")
     print(f"\n{co_dalej}")
 
 
@@ -1224,7 +1227,7 @@ def _sprawa_dla_zapisu(klient: Klient, wskazanie: str) -> tuple[dict, str]:
     link = flow.sprawa_z_linku(wskazanie)
     if link:
         return {"id": link}, flow.organizacja_z_linku(wskazanie) or ""
-    return autor.znajdz_sprawe(klient, wskazanie), ""
+    return asystent.znajdz_sprawe(klient, wskazanie), ""
 
 
 def _ostrzez_o_szkicu(klient: Klient, sprawa_id: str) -> None:
@@ -1263,7 +1266,7 @@ def polecenie_nowa_sprawa(args) -> int:
     konf = konfiguracja.wczytaj()
     klient = _klient_dla_zapisu(konf, args)[0]
 
-    opis = _opis_z_wejscia(args) or autor.opis_domyslny(args.tytul)
+    opis = _opis_z_wejscia(args) or asystent.opis_domyslny(args.tytul)
     try:
         odp = klient.zaloz_sprawe(
             tytul=args.tytul, opis=opis, kategoria=args.tag or None,
@@ -1275,7 +1278,7 @@ def polecenie_nowa_sprawa(args) -> int:
         return 1
 
     sprawa_id = str(odp.get("ticket_id") or odp.get("id") or "")
-    numer = autor.numer_sprawy(odp) or ""
+    numer = asystent.numer_sprawy(odp) or ""
 
     if args.zalacz:
         try:
@@ -1288,7 +1291,7 @@ def polecenie_nowa_sprawa(args) -> int:
                           co_dalej="Dołóż pliki: sf-kit zalacz <sprawa> <plik…>")
             return 1
 
-    if autor.czy_opis_wymaga_uzupelnienia(opis):
+    if asystent.czy_opis_wymaga_uzupelnienia(opis):
         print("\nUWAGA: opis został ze szkieletu (nawiasy do wypełnienia). "
               "Uzupełnij go wpisem, zanim ktoś to odbierze.")
     if getattr(args, "szkic", False):
@@ -1373,7 +1376,7 @@ def polecenie_wpis(args) -> int:
         # przedstawić zapisanego wpisu jako nieudanego.
         _wyslij_wiadomosc(klient, args.do, tresc or "(wpis z załącznikami)")
 
-    _pokaz_sprawe(konf, sprawa_id, autor.numer_sprawy(sprawa),
+    _pokaz_sprawe(konf, sprawa_id, asystent.numer_sprawy(sprawa),
                   co_dalej="Wpis dodany.")
     return 0
 
@@ -1392,7 +1395,7 @@ def _sprawa_i_wpis(klient, args) -> tuple[dict, str] | None:
     from . import wpisy
 
     try:
-        sprawa = autor.znajdz_sprawe(klient, args.sprawa)
+        sprawa = asystent.znajdz_sprawe(klient, args.sprawa)
         return sprawa, wpisy.rozwin_wpis(klient, str(sprawa["id"]), args.wpis)
     except (ValueError, BladAPI) as blad:
         print(str(blad), file=sys.stderr)
@@ -1512,7 +1515,7 @@ def polecenie_zalacz(args) -> int:
         print(str(blad), file=sys.stderr)
         return 1
     print(f"Wysłane pliki: {len(args.pliki)}")
-    _pokaz_sprawe(konf, str(sprawa["id"]), autor.numer_sprawy(sprawa), co_dalej="Gotowe.")
+    _pokaz_sprawe(konf, str(sprawa["id"]), asystent.numer_sprawy(sprawa), co_dalej="Gotowe.")
     return 0
 
 
@@ -1554,7 +1557,7 @@ def polecenie_odpowiedz(args) -> int:
         print(f"Nie udało się odpowiedzieć: {blad}", file=sys.stderr)
         return 1
     co = "Notatka wewnętrzna dodana." if args.wewn else "Odpowiedź wysłana (widoczna na zewnątrz)."
-    _pokaz_sprawe(konf, sprawa_id, autor.numer_sprawy(sprawa), co_dalej=co)
+    _pokaz_sprawe(konf, sprawa_id, asystent.numer_sprawy(sprawa), co_dalej=co)
     return 0
 
 
@@ -1633,9 +1636,9 @@ def polecenie_tresc_wersja(args) -> int:
             return 1
 
     print(f"Wersja v{n} wysłana jako {nazwa} (wpis z opisem zmian).")
-    _pokaz_sprawe(konf, sprawa_id, autor.numer_sprawy(sprawa),
+    _pokaz_sprawe(konf, sprawa_id, asystent.numer_sprawy(sprawa),
                   co_dalej="Kolejna wersja: sf-kit tresc-wersja "
-                           f"{autor.numer_sprawy(sprawa) or sprawa_id} {args.plik}")
+                           f"{asystent.numer_sprawy(sprawa) or sprawa_id} {args.plik}")
     return 0
 
 
@@ -1734,8 +1737,8 @@ def polecenie_sprawy(args) -> int:
         return 0
     print(f"Sprawy w Organizacji ({len(lista)}):\n")
     for s in lista:
-        numer = autor.numer_sprawy(s) or str(s.get("id", ""))[:8]
-        zmiana = autor.ostatnia_zmiana(s)
+        numer = asystent.numer_sprawy(s) or str(s.get("id", ""))[:8]
+        zmiana = asystent.ostatnia_zmiana(s)
         print(f"  {numer:14} {(s.get('title') or '')[:58]}")
         print(f"  {'':14} {s.get('status', '?'):12} {zmiana}")
     return 0
@@ -1753,7 +1756,7 @@ def polecenie_sprawa(args) -> int:
     konf = konfiguracja.wczytaj()
     klient = _klient(konf, args)
     try:
-        wskazana = autor.znajdz_sprawe(klient, args.sprawa)
+        wskazana = asystent.znajdz_sprawe(klient, args.sprawa)
         karta = klient.sprawa(str(wskazana.get("id")))
     except BladAPI as blad:
         print(f"Nie udało się pobrać sprawy: {blad}", file=sys.stderr)
@@ -2276,7 +2279,7 @@ def main(argv: list[str] | None = None) -> int:
                          "— przydatne, gdy przygotowujesz plik dla innej maszyny")
     us.set_defaults(funkcja=polecenie_usluga)
 
-    # ── profil AUTOR ────────────────────────────────────────────────────────
+    # ── profil ASYSTENT ────────────────────────────────────────────────────────
     # `zglos` i `nowa-sprawa` to jedno polecenie pod dwiema nazwami — SF-51 wprowadza
     # nazwę mówiącą, co powstaje, i strażnik kontekstu; dotychczasowa nazwa zostaje,
     # bo ludzie i skrypty jej używają.
@@ -2297,8 +2300,8 @@ def main(argv: list[str] | None = None) -> int:
         p.set_defaults(funkcja=polecenie_nowa_sprawa)
         return p
 
-    _parser_nowej_sprawy("zglos", "[autor] zgłoś gotową pracę jako nową sprawę")
-    _parser_nowej_sprawy("nowa-sprawa", "[autor] nowa sprawa z gotową pracą (SF-51)")
+    _parser_nowej_sprawy("zglos", "[asystent] zgłoś gotową pracę jako nową sprawę")
+    _parser_nowej_sprawy("nowa-sprawa", "[asystent] nowa sprawa z gotową pracą (SF-51)")
 
     ib = pod.add_parser("inbox", help="[agent] moje wiadomości — pokaż i potwierdź odbiór")
     ib.add_argument("--limit", type=int, default=skrzynka.LIMIT_TAKTU,
@@ -2313,7 +2316,7 @@ def main(argv: list[str] | None = None) -> int:
     ob.add_argument("--zalegle", action="store_true", help="tylko nieodebrane po progu")
     ob.set_defaults(funkcja=polecenie_outbox)
 
-    wp = pod.add_parser("wpis", help="[autor] dopisz postęp albo odpowiedź do sprawy")
+    wp = pod.add_parser("wpis", help="[asystent] dopisz postęp albo odpowiedź do sprawy")
     wp.add_argument("--do", dest="do", default=None, metavar="SLUG",
                     help="wyślij to TAKŻE jako wiadomość do sesji agenta (bez --sprawa: "
                          "samodzielna wiadomość)")
@@ -2353,14 +2356,14 @@ def main(argv: list[str] | None = None) -> int:
     ww.add_argument("--json", action="store_true", help="surowa odpowiedź SF")
     ww.set_defaults(funkcja=polecenie_wpis_wersje)
 
-    za = pod.add_parser("zalacz", help="[autor] dołóż pliki do istniejącej sprawy")
+    za = pod.add_parser("zalacz", help="[asystent] dołóż pliki do istniejącej sprawy")
     za.add_argument("sprawa", help="numer (FM-12), identyfikator albo link do sprawy z ?org=…")
     za.add_argument("pliki", nargs="+", metavar="PLIK")
     za.add_argument("--notka", default=None, help="jedno zdanie, co to za pliki")
     za.set_defaults(funkcja=polecenie_zalacz)
 
     # ── flow odpowiedzi i treści w wersjach (SF-51, ADVERTPR-948) ─────────────
-    od = pod.add_parser("odpowiedz", help="[autor] odpowiedz w ISTNIEJĄCEJ sprawie — "
+    od = pod.add_parser("odpowiedz", help="[asystent] odpowiedz w ISTNIEJĄCEJ sprawie — "
                                            "wiadomość na zewnątrz / notatka --wewn (SF-51)")
     od.add_argument("sprawa", help="link do sprawy (z ?org=…) albo numer — przy numerze "
                                    "Organizację podaj przez --org")
@@ -2370,7 +2373,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="notatka wewnętrzna (domyślnie: wiadomość widoczna na zewnątrz)")
     od.set_defaults(funkcja=polecenie_odpowiedz)
 
-    tv = pod.add_parser("tresc-wersja", help="[autor] kolejna wersja treści: załącznik "
+    tv = pod.add_parser("tresc-wersja", help="[asystent] kolejna wersja treści: załącznik "
                                              "nazwa-vN.md + wpis „co się zmieniło” (SF-51)")
     tv.add_argument("sprawa", help="numer, identyfikator albo link do sprawy z ?org=…")
     tv.add_argument("plik", metavar="PLIK", help="plik z treścią (np. raport.md)")
@@ -2379,7 +2382,7 @@ def main(argv: list[str] | None = None) -> int:
                          "względem poprzedniej wersji")
     tv.set_defaults(funkcja=polecenie_tresc_wersja)
 
-    os_ = pod.add_parser("opis-sprawy", help="[autor] zmień opis sprawy — długi opis "
+    os_ = pod.add_parser("opis-sprawy", help="[asystent] zmień opis sprawy — długi opis "
                                              "zatrzymuje strażnik, treść idź w wersjach (SF-51)")
     os_.add_argument("sprawa", help="numer, identyfikator albo link do sprawy z ?org=…")
     os_.add_argument("--plik", required=True, metavar="PLIK",
@@ -2388,7 +2391,7 @@ def main(argv: list[str] | None = None) -> int:
                      help="nadpisz mimo ostrzeżenia strażnika (świadoma decyzja)")
     os_.set_defaults(funkcja=polecenie_opis_sprawy)
 
-    pu = pod.add_parser("publikuj", help="[autor] opublikuj szkic ze zgodą — --zgoda to wpis "
+    pu = pod.add_parser("publikuj", help="[asystent] opublikuj szkic ze zgodą — --zgoda to wpis "
                                          "z zgodą ownera/admina na publikację (SF-51)")
     pu.add_argument("sprawa", help="numer, identyfikator albo link do sprawy z ?org=…")
     pu.add_argument("--zgoda", required=True, metavar="WPIS",
@@ -2397,7 +2400,7 @@ def main(argv: list[str] | None = None) -> int:
                          "z publikowanej sprawy")
     pu.set_defaults(funkcja=polecenie_publikuj)
 
-    sp = pod.add_parser("sprawy", help="[autor] sprawy w tej Organizacji")
+    sp = pod.add_parser("sprawy", help="[asystent] sprawy w tej Organizacji")
     sp.add_argument("--limit", type=int, default=50)
     sp.set_defaults(funkcja=polecenie_sprawy)
     sa = pod.add_parser("sprawa", help="[wykonawca] karta sprawy: opis, wpisy, załączniki (SF-38)")
