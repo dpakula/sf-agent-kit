@@ -23,6 +23,8 @@ cd sf-agent-kit
 
 Przy kroku 3 Kit zapyta też o profil i adres SalesForge (domyślny `https://sf.dpakula.pl` wystarczy — naciśnij Enter). **Klucz agenta wpisz sam** — nie podawaj go agentowi w rozmowie. Potrzebny jest tylko Python 3.9+ i git.
 
+**Aktualizacje.** Kit sam sprawdza raz na dobę, czy wyszła nowa wersja, i mówi o tym jedną linią — nową wersję instaluje `sf-kit update`, a u workerów z włączonym `auto_update` poprawki podmieniają się same, między zadaniami (szczegóły niżej, w części „Dla agenta”).
+
 **Tekst startowy — wklej go agentowi:**
 
 ```
@@ -1550,6 +1552,59 @@ widać ani w wyniku, ani w dzienniku.
 Alternatywa dla flagi: `SF_KIT_HOME=/ścieżka/do/katalogu sf-kit …` — wskazuje katalog
 wprost i wygrywa ze wszystkim. Przydaje się w kontenerze i przy uruchamianiu w tle
 (jeden proces na agenta — patrz [`uruchamianie/`](uruchamianie/README.md)).
+
+#### Aktualizacje Kita
+
+Kit **sam sprawdza raz na dobę**, czy wyszła nowa wersja (wynik pamięta w katalogu
+konfiguracji, `aktualizacje.json` obok `config.json`). Gdy jest nowsza wersja, przy
+pierwszym poleceniu tego dnia dostajesz na stderr jedną linię:
+
+```
+Dostępny Kit 0.13.3 — sf-kit update
+```
+
+Jedną, nie przy każdym poleceniu — alarm, który wypada przy każdym kroku, przestaje być
+czytany. Wyjątki, gdy nie można czekać doby:
+
+- **Twoja wersja jest niższa niż wymagane minimum** — ostrzeżenie przy KAŻDYM poleceniu;
+- **do tego wydanie zrywa zgodność** (`breaking`) — Kit odmawia pracy z instrukcją, dopóki
+  się nie zaktualizujesz. Starszy worker nie ma prawa psuć danych w SF.
+
+Własna wersja: `./sf-kit --version`. Stan względem SF: `sf-kit update --check` (pokazuje
+twoją, najnowszą i wymaganą wersję; bez `--check` niczego nie zmienia, samo `--check` nie
+rusza kodu).
+
+**`sf-kit update`** podmienia kod na wydanie WSKAZANE PRZEZ SF — nie „najnowszy tag
+z GitHuba". Przed podmianą:
+
+1. odmawia, gdy masz **zmienione pliki śledzone** w katalogu Kita (zacommituj, `git stash`
+   albo usuń; nieśledzone pliki, np. `wykonawcy.py.lokalna-latka`, zostają nietknięte);
+2. pobiera tagi i przechodzi na tag z SF;
+3. **weryfikuje, że HEAD == commit z SF** — przy rozjazdzie wycofuje zmianę i zgłasza błąd
+   (tag na GitHubie sam w sobie nic nie znaczy; zgodność z SF jest dowodem, że wydanie
+   jest tym, które wypuszczono);
+4. pokazuje zmiany od twojej wersji, uruchamia `--version` i `whoami` już na nowym kodzie
+   i przypomina o restarcie workera.
+
+Uruchomiony worker **pracuje na starym kodzie, dopóki się nie zrestartuje** — podmiana
+plików nie rusza działającego procesu, a restart w połowie zadania byłby gorszy niż
+aktualizacja. Po ręcznym `sf-kit update` zrestartuj usługę:
+
+```bash
+systemctl --user restart sf-kit-worker@<slug-agenta>.service      # Linux
+launchctl kickstart -k gui/$(id -u)/pl.dpakula.sf-kit.worker.<slug-agenta>   # macOS
+```
+
+**Aktualizacja sama, bez twoich rąk — tylko poprawki, tylko worker.** W `config.json`
+workera można włączyć `"auto_update": "patch"` (domyślnie `"off"`). Worker wtedy,
+**między zadaniami, nigdy w trakcie**, podmienia kod, gdy SF wskaże poprawkę w obrębie
+tego samego wydania minor (`0.13.x`), i kończy proces kodem przeznaczonym do restartu.
+Wstawia go usługa — dlatego `auto_update` ma sens WYŁĄCZNIE przy workerze chodzącym
+pod systemd (`Restart=always`) albo launchd (`KeepAlive`): bez nadzorującej usługi
+worker po prostu by umarł. Wersje minor i major **zawsze** instaluje człowiek — worker
+poinformuje o nich raz na dobę, nie spróbuje sam. Gdy automatyczna próba padnie (np.
+brudne drzewo), worker czeka sześć godzin i informuje w dzienniku, zamiast kręcić gitem
+co takt.
 
 #### `sf-kit os` — oś sprawy (v0.8)
 

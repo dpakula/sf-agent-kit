@@ -32,6 +32,7 @@ from .api import BladAPI, BrakUprawnienia, Klient, ZlyKlucz
 from .config import Konfiguracja
 from . import klucz as magazyn_klucza
 from . import kontekst as mod_kontekst
+from . import aktualizacje as mod_aktualizacje
 from . import ramka
 from . import reakcje as mod_reakcje
 from . import skrzynka as mod_skrzynka
@@ -785,6 +786,19 @@ def uruchom(klient: Klient, konf: Konfiguracja, *, raz: bool = False) -> int:
                      f"odstęp z powrotem {konf.odstep_s} s")
             nieudanych = 0
             odstep = konf.odstep_s
+        # ADVERTPR-960: automatyczna aktualizacja MIĘDZY zadaniami, nigdy w trakcie — i tylko
+        # gdy przed chwilą doszło do SF (`wynik >= 0`): bez łączności sprawdzenie i takby nie
+        # przeszło. Worker kończy się kodem restartu, który wstawia systemd (`Restart=always`)
+        # albo launchd (`KeepAlive`) — nowy proces startuje już na nowym kodzie, bo podmiana
+        # pod działającym procesem psułaby importy (ta sama zasada co ręczny restart po 0.13.2).
+        if wynik >= 0:
+            kod_restartu = mod_aktualizacje.auto_patch(klient, konf, mow=_log)
+            if kod_restartu is not None:
+                _log(f"auto_update: kod podmieniony, kończę się kodem {kod_restartu} — "
+                     f"wstawia mnie usługa, wstanę na nowej wersji")
+                usluga.zapisz_tetno(slug=nazwa, stan="restart po aktualizacji Kitu",
+                                    wazne_przez_s=odstep + usluga.PROG_MARTWOTY_S)
+                raise SystemExit(kod_restartu)
         usluga.zapisz_tetno(slug=nazwa, stan=f"czekam {odstep} s",
                             wazne_przez_s=odstep + usluga.PROG_MARTWOTY_S)
         time.sleep(odstep)

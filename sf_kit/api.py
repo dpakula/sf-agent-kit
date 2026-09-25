@@ -497,6 +497,18 @@ class Klient:
 
     # ── sonda ────────────────────────────────────────────────────────────────
 
+    def wersja_kita(self) -> dict:
+        """`GET /kit/version` — jaka wersja Kita jest najnowsza, jaka wymagana (ADVERTPR-960).
+
+        Działa na każdym ważnym kluczu i NIE ZNA nagłówka Organizacji — to jest droga,
+        którą Kit dowiaduje się o własnych aktualizacjach, więc musi działać wcześnie
+        i niezależnie od wyboru Organizacji. Serwer niesie tu też `tag` i `commit`:
+        to SF wskazuje, CO zainstalować, i to zgodność z tym `commit`-em weryfikuje
+        `sf-kit update` (ochrona przed przesuniętym tagiem).
+        """
+        odp = self._wywolaj("GET", "kit/version")
+        return odp if isinstance(odp, dict) else {}
+
     # ── profil KOORDYNATOR (v0.4) ────────────────────────────────────────────
 
     def agenci(self) -> list[dict]:

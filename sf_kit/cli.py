@@ -11,11 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 from . import WERSJA
 from . import skrzynka
+from . import aktualizacje
 from . import config as konfiguracja
 
 #: Trzy profile w JEDNYM narzędziu (decyzja Damiana 15.09). Profil nie ogranicza uprawnień —
@@ -357,6 +359,48 @@ def polecenie_whoami(args) -> int:
     print(f"ważny do:     {_waznosc_klucza(toz)}")
     print("\nZmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.")
     return 0 if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")) else 1
+
+
+def polecenie_update(args) -> int:
+    """`sf-kit update [--check]` — podmiana kodu na wydanie WSKAZANE PRZEZ SF (ADVERTPR-960).
+
+    `--check` tylko pokazuje (świeże zapytanie do SF, zero gita). Pełne `update` chodzi
+    drogą z `aktualizacje.aktualizuj`: odmowa przy brudnych plikach śledzonych, pobranie
+    tagów, checkout tagu z SF, weryfikacja HEAD == commit z SF (przy rozjazdzie wycofanie
+    i błąd). Po udanej podmianie uruchamiamy `--version` i `whoami` JUŻ NA NOWYM KODZIE
+    i przypominamy o restarcie workera — podmiana plików sama w sobie nie rusza
+    działającego procesu.
+    """
+    konf = konfiguracja.wczytaj_jesli_jest() or konfiguracja.Konfiguracja()
+    kl = _klient_bez_organizacji(konf)
+    try:
+        if getattr(args, "check", False):
+            return aktualizacje.pokaz_status(kl)
+        podmieniono = aktualizacje.aktualizuj(kl)
+    except aktualizacje.BladAktualizacji as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+
+    if not podmieniono:
+        return 0
+
+    # Weryfikacja na nowym kodzie: `--version` (czy drzewo się uruchamia) i `whoami`
+    # (czy klucz działa). Nie przerywamy aktualizacji, gdy `whoami` zwącha sieć —
+    # kod jest już podmieniony i zgodny z SF, to osobna sprawa.
+    skrypt = Path(__file__).resolve().parents[1] / "sf-kit"
+    wersja = subprocess.run([sys.executable, str(skrypt), "--version"],
+                            capture_output=True, text=True)
+    print(f"\n{wersja.stdout.strip() or wersja.stderr.strip() or '(nie udało się odczytać wersji)'}")
+    kto = subprocess.run([sys.executable, str(skrypt), "whoami"],
+                         capture_output=True, text=True)
+    if kto.returncode == 0:
+        print("\nwhoami na nowej wersji: klucz działa.")
+    else:
+        print(f"\nUWAGA: `whoami` na nowej wersji nie przeszło — sprawdź ręcznie:\n"
+              f"{(kto.stdout + kto.stderr).strip()[:600]}", file=sys.stderr)
+
+    print(f"\n{aktualizacje.restart_hint(konf)}")
+    return 0
 
 
 def _waznosc_klucza(toz: tozsamosc.Tozsamosc) -> str:
@@ -2243,6 +2287,11 @@ def main(argv: list[str] | None = None) -> int:
 
     pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)
     pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
+    up = pod.add_parser("update", help="zaktualizuj Kita do wydania wskazanego przez SF "
+                                        "(raz na dobę sam powie, że jest nowa wersja)")
+    up.add_argument("--check", action="store_true",
+                    help="tylko pokaż wersje, nie ruszaj kodu")
+    up.set_defaults(funkcja=polecenie_update)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
     bl = pod.add_parser("blok", help="[agent] jeden blok osi albo katalog rodzajów (SF-7)")
     bl.add_argument("co", nargs="?", default="typy",
@@ -2540,6 +2589,25 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     magazyn_klucza.ustaw_agenta(getattr(args, "agent", None))
+    # ADVERTPR-960: codzienne sprawdzenie wersji PRZED poleceniem. Odmowa (breaking + wersja
+    # < min) przerywa wykonanie z instrukcją; ostrzeżenie idzie na stderr, nie miesza
+    # wyniku na stdout. `init` nie ma jeszcze klucza, `update` mówi o wersjach sam —
+    # dla reszty każdy błąd po drodze (brak sieci, brak configu) kończy się ciszą:
+    # informacja o nowym wydaniu nie ma prawa zatrzymać pracy.
+    if getattr(args, "polecenie", "") not in ("init", "update"):
+        try:
+            konf = konfiguracja.wczytaj_jesli_jest()
+            kl = magazyn_klucza.wczytaj()
+            if konf and kl:
+                linia = aktualizacje.ostrzezenie_przed_poleceniem(
+                    Klient(baza=konf.adres, klucz=kl))
+                if linia:
+                    print(linia, file=sys.stderr)
+        except aktualizacje.OdmowaPrzedPoleceniem as odmowa:
+            print(str(odmowa), file=sys.stderr)
+            return 2
+        except Exception:                      # noqa: BLE001 — patrz komentarz wyżej
+            pass
     try:
         return args.funkcja(args)
     except magazyn_klucza.WieluAgentow as blad:
