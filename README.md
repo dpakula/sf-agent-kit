@@ -1284,6 +1284,42 @@ ktoś przy klawiaturze" wraca przy każdej reklamacji — i nie ma na nie odpowi
 Dwa konta jednego wykonawcy chodzą zwykle na tej samej maszynie i do v0.5.2 nadpisywały sobie
 ślad życia — czujka widziała jedno tętno, uznawała oba za żywe i nie zauważała, że jeden leży.
 
+### Kontekst sprawy i miejsce wyniku (v0.12.0, SF-38)
+
+**Przed startem** zadania przy sprawie worker (dla wykonawców `codex` i `kimi`):
+
+1. pobiera załączniki wpisów sprawy do `inbox/<external_id>/` w katalogu roboczym, nazwy
+   `01-<nazwa>`, `02-…` w kolejności wpisów (zdjęcia dokumentu zostają w kolejności stron);
+   linków nie pobiera, druga próba tego samego zadania nie pobiera drugi raz; sufity:
+   50 MB na plik, 300 MB na zadanie — nad nimi plik jest wymieniony jako „NIE pobrano",
+2. dokleja do polecenia blok `KONTEKST SPRAWY`: opis, ostatnie 15 wpisów (wewnętrzne
+   i publiczne — **w zakresie klucza Kita**, filtruje serwer), listę ścieżek i to, czego nie
+   pobrano,
+3. wypisuje w logu, z których katalogów zbierze wyniki.
+
+Wykonawca doczytuje w trakcie pracy **bez klucza w prompcie**:
+
+```bash
+sf-kit sprawa ADVERTPR-927 [--wszystkie]     # karta sprawy tym samym formatem + id załączników
+sf-kit zalacznik <id> --do inbox/plik.pdf     # jeden załącznik
+```
+
+**Gdzie trafia wynik.** Domyślnie — na sprawę zadania, jak dotąd. Autor zadania może wskazać
+inną sprawę (np. główną w Organizacji klienta, gdy zadanie stoi przy pomocniczej):
+
+```
+SPRAWA_WYNIKU: 0a63a13e-186d-4492-9ddc-b208a01d04b2
+ORGANIZACJA_WYNIKU: <uuid Organizacji>      # opcjonalnie, gdy sprawa jest w innej
+```
+
+Worker pisze wynik (z plikami) tam, a na sprawie zadania zostawia notkę z odnośnikiem. Gdy
+wskazana sprawa odmówi (klucz nie ma tam dostępu), wynik zostaje przy sprawie zadania z powodem
+odmowy — nie przepada.
+
+**Jawność wysyłki.** Po wysłaniu wyniku log mówi, ile załączników SF POTWIERDZIŁ w odpowiedzi
+(`SF potwierdził załączniki: 2 z 2`). Gdy przyjął mniej, niż wysłano, na sprawę idzie notka
+„Załącznik NIE dołączony" z nazwami — zamiast cichego sukcesu.
+
 ### Reakcja w trakcie zadania — co możesz powiedzieć workerowi
 
 Do v0.4 zadanie było atomowe: worker je brał i oddawał wynik, a ty przez ten czas nie miałeś
