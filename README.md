@@ -1009,9 +1009,11 @@ sf-kit zglos --tytul "Propozycja zmian w cenniku" --opis opis.md --szkic
 
 Sprawa powstaje jako **wersja robocza**: nie wychodzi żadne powiadomienie, nie ma jej na
 listach ani w licznikach, a obserwujący siedzą w niej od początku i pocztę dostaną dopiero
-w chwili publikacji. **Publikuje człowiek** — przyciskiem „Opublikuj" w SF; agent tego nie
-zrobi i to jest cały sens szkicu: Ty przygotowujesz, człowiek wpuszcza do obiegu. Wpisy
-dopisujesz do szkicu normalnie, też po cichu.
+w chwili publikacji. **Publikuje człowiek** — koordynator poleceniem `sf-kit publikuj
+--zgoda <wpis>` (na zgodę ownera/admina z tej Organizacji) albo przyciskiem „Opublikuj" w
+SF (SF-51); sam z siebie Kit szkicu nie opublikuje i to jest cały sens szkicu: Ty
+przygotowujesz, człowiek wpuszcza do obiegu. Wpisy dopisujesz do szkicu normalnie, też po
+cichu.
 
 **4. Podaj człowiekowi numer i adres.** Kit wypisuje oba. To jest jedyne, co człowiek
 ma potem powiedzieć albo wkleić komuś innemu — powiedz mu to wprost:
@@ -1108,24 +1110,30 @@ sf-kit tresc-wersja FM-12 raport.md --zmiany opis.md   # opis zmian z pliku
 
 Numer wersji Kit liczy z historii załączników na sprawie (najwyższy `raport-vN` + 1), a gdy
 nie podasz `--zmiany`, sam skleja streszczenie z różnicy względem poprzedniej wersji.
-**Strażnik opisu:** `sf-kit opis-sprawy` z tekstem dłuższym niż 1500 znaków na sprawie,
-która już opis ma, zatrzymuje polecenie i proponuje `tresc-wersja` — bo nadpisanie długim
-tekstem ucina historię tego, co było. `--mimo-to` znaczy: „przeczytałem ostrzeżenie
-i świadomie nadpisuję".
+**Strażnik opisu:** `sf-kit opis-sprawy` z tekstem dłuższym niż próg z `config.json`
+(`straznik_opisu_max`, domyślnie 1500 znaków) na sprawie, która już opis ma, zatrzymuje
+polecenie i proponuje `tresc-wersja` — bo nadpisanie długim tekstem ucina historię tego,
+co było. `--mimo-to` znaczy: „przeczytałem ostrzeżenie i świadomie nadpisuję".
 
 **Publikuj szkic ze zgodą człowieka.**
 
 ```bash
-sf-kit publikuj FM-12 --zgoda 7d7767ce     # pełny identyfikator wpisu albo początek ≥ 6 znaków
+sf-kit publikuj FM-12 --zgoda 7d7767ce-bef7-…     # pełny identyfikator wpisu z zgodą
+sf-kit publikuj FM-12 --zgoda cd1c19ae            # albo początek ≥ 6 znaków z TEJ sprawy
 ```
 
-`--zgoda` to wpis na tej sprawie, w którym człowiek wyraża zgodę na publikację — trasa
-wymaga śladu zgody i bez niego odmawia. Na serwerze bez wdrożonego backendu SF-51 odpowie
-403/422 i Kit poda ten powód jako stan serwera, nie jako własny błąd.
+`--zgoda` to wpis, w którym człowiek z rolą owner/admin wyraża zgodę na publikację — z
+DOWOLNEJ sprawy tej Organizacji (w tym z okna rozmowy z koordynatorem), nie starszy niż
+7 dni. Pełny identyfikator Kit przekazuje bez rozwijania; skrót rozwija na publikowanej
+sprawie. Trasa wymaga śladu zgody i bez niego odmawia — komunikat odmowy (`detail`)
+pochodzi z serwera i Kit pokazuje go bez zmian. Publikuje wyłącznie klucz osobisty
+koordynatora; bez wdrożonego na PROD backendu SF-51 trasa odpowie 403/422 i Kit poda ten
+powód jako stan serwera, nie jako własny błąd.
 
 **Zapis na szkicu zawsze ostrzega.** Przy każdym zapisie na sprawie-roboczej Kit dopisuje:
 „szkic nie wychodzi do obiegu; członkowie Organizacji widzą go tylko po linku" — dopóki
-człowiek nie opublikuje, nikt poza wskazanymi linkiem tego nie zobaczy.
+sprawy nie opublikuje koordynator (`sf-kit publikuj --zgoda <wpis>`) albo człowiek w panelu,
+nikt poza wskazanymi linkiem tego nie zobaczy.
 
 ### Czego NIE robić
 
@@ -1208,7 +1216,7 @@ sf-kit wpis <sprawa> [--opis plik.md|-] [--zalacz plik…] [--widocznosc interna
 sf-kit odpowiedz <link|numer> [--opis plik.md|-] [--wewn]    # odpowiedź w istniejącej sprawie (SF-51)
 sf-kit tresc-wersja <sprawa> <plik.md> [--zmiany plik.md|-]  # treść w wersjach (SF-51)
 sf-kit opis-sprawy <sprawa> --plik plik.md [--mimo-to]       # zmiana opisu pod strażnikiem (SF-51)
-sf-kit publikuj <sprawa> --zgoda <wpis>                      # publikacja szkicu ze zgodą (SF-51)
+sf-kit publikuj <sprawa> --zgoda <wpis>                      # publikacja szkicu ze zgodą ownera/admina (SF-51)
 sf-kit zalacz <sprawa> <plik…> [--notka "…"]
 sf-kit sprawy [--limit 50]
 sf-kit wpis-edytuj <sprawa> <wpis> (--plik plik.md|- | --tresc "…") [--powod "…"]   # v0.11

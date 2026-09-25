@@ -1229,7 +1229,8 @@ def _sprawa_dla_zapisu(klient: Klient, wskazanie: str) -> tuple[dict, str]:
 
 def _ostrzez_o_szkicu(klient: Klient, sprawa_id: str) -> None:
     """Jedno zdanie przy zapisie na szkicu — człowiek ma wiedzieć, że nikt tego nie zobaczy,
-    zanim człowiek (nie Kit) sprawy nie opublikuje (pkt 6 kontraktu SF-51)."""
+    dopóki sprawa nie wejdzie do obiegu: koordynator publikuje na zgodę (`publikuj --zgoda`)
+    albo człowiek w panelu (pkt 6 kontraktu SF-51)."""
     try:
         if flow.czy_szkic(klient.sprawa(sprawa_id)):
             print(f"\n{flow.OSTRZEZENIE_SZKICU}", file=sys.stderr)
@@ -1292,12 +1293,14 @@ def polecenie_nowa_sprawa(args) -> int:
               "Uzupełnij go wpisem, zanim ktoś to odbierze.")
     if getattr(args, "szkic", False):
         # Szkic bez tego zdania wygląda jak zgłoszenie, które nie doszło: nie ma maila, nie ma
-        # sprawy na liście, nie ma numeru w powiadomieniu. Mówimy wprost, co się stało i kto
-        # domyka — bo tego ostatniego kroku agent NIE wykona (publikacja to akt człowieka).
+        # sprawy na liście, nie ma numeru w powiadomieniu. Mówimy wprost, co się stało i jak
+        # się domyka — publikacja to akt człowieka: koordynator na zgodę albo panel SF.
         _pokaz_sprawe(konf, sprawa_id, numer,
                       co_dalej="To jest SZKIC — nie poszło żadne powiadomienie i sprawy nie ma "
-                               "na listach.\nOpublikować może tylko człowiek, w SF: przycisk "
-                               "„Opublikuj” na sprawie.\nDo tego czasu dopisujesz do niej "
+                               "na listach.\nDo obiegu sprawę wprowadza człowiek: koordynator "
+                               "poleceniem `sf-kit publikuj --zgoda <wpis>` (zgoda ownera/"
+                               "admina z tej Organizacji) albo w panelu SF przyciskiem "
+                               "„Opublikuj”.\nDo tego czasu dopisujesz do niej "
                                "wpisami jak zwykle (też po cichu):\n"
                                f"  sf-kit wpis {numer or sprawa_id} --opis notatka.md")
         return 0
@@ -1639,9 +1642,9 @@ def polecenie_tresc_wersja(args) -> int:
 def polecenie_opis_sprawy(args) -> int:
     """`PATCH /tickets/{id}` z nowym opisem — pod strażnikiem długości (SF-51).
 
-    Strażnik: dłuższy niż 1500 znaków opis na sprawie, która już opis ma, zatrzymuje
-    polecenie z propozycją `tresc-wersja`. `--mimo-to` znaczy: czytam ostrzeżenie
-    i świadomie nadpisuję.
+    Strażnik: opis dłuższy niż próg ze `config.json` (`straznik_opisu_max`, domyślnie 1500
+    znaków) na sprawie, która już opis ma, zatrzymuje polecenie z propozycją `tresc-wersja`.
+    `--mimo-to` znaczy: czytam ostrzeżenie i świadomie nadpisuję.
     """
     konf = konfiguracja.wczytaj()
     org_z_linku = ""
@@ -1662,7 +1665,8 @@ def polecenie_opis_sprawy(args) -> int:
               file=sys.stderr)
         return 2
 
-    ostrzezenie = flow.straznik_opisu(karta.get("description") or "", opis)
+    ostrzezenie = flow.straznik_opisu(karta.get("description") or "", opis,
+                                      limit=konf.straznik_opisu_max)
     if ostrzezenie and not args.mimo_to:
         print(ostrzezenie, file=sys.stderr)
         return 2
@@ -1677,9 +1681,12 @@ def polecenie_opis_sprawy(args) -> int:
 
 
 def polecenie_publikuj(args) -> int:
-    """Publikacja szkicu do obiegu ze zgodą — `--zgoda` to wpis na tej sprawie z zgodą
-    człowieka na publikację (SF-51). Bez zgody trasa odmawia; bez wdrożonego backendu
-    SF-51 odpowiada 403/422 i Kit podaje to jako stan serwera, nie jako własny błąd."""
+    """Publikacja szkicu do obiegu ze zgodą — `--zgoda` to wpis z zgodą człowieka z rolą
+    owner/admin na publikację (SF-51). Pełny identyfikator wpisu przechodzi bez rozwijania:
+    zgoda może leżeć na DOWOLNEJ sprawie tej Organizacji (w tym na oknie rozmowy z
+    koordynatorem), a Organizację, autora i wiek zgody (≤ 7 dni) sprawdza serwer. Skrót
+    (początek ≥ 6 znaków) rozwijamy na publikowanej sprawie. Bez zgody trasa odmawia —
+    Kit pokazuje `detail` serwera bez zmian."""
     from . import wpisy
 
     konf = konfiguracja.wczytaj()
@@ -1694,11 +1701,14 @@ def polecenie_publikuj(args) -> int:
         return 1
     sprawa_id = str(sprawa["id"])
 
-    try:
-        wpis_id = wpisy.rozwin_wpis(klient, sprawa_id, args.zgoda)
-    except wpisy.ZlyWpis as blad:
-        print(f"Nie wysyłam: {blad}", file=sys.stderr)
-        return 2
+    if wpisy.czy_pelny_uuid(args.zgoda):
+        wpis_id = args.zgoda.strip().lower()
+    else:
+        try:
+            wpis_id = wpisy.rozwin_wpis(klient, sprawa_id, args.zgoda)
+        except wpisy.ZlyWpis as blad:
+            print(f"Nie wysyłam: {blad}", file=sys.stderr)
+            return 2
 
     try:
         klient.publikuj(sprawa_id, zgoda=wpis_id)
@@ -2379,11 +2389,12 @@ def main(argv: list[str] | None = None) -> int:
     os_.set_defaults(funkcja=polecenie_opis_sprawy)
 
     pu = pod.add_parser("publikuj", help="[autor] opublikuj szkic ze zgodą — --zgoda to wpis "
-                                         "z zgodą człowieka na publikację (SF-51)")
+                                         "z zgodą ownera/admina na publikację (SF-51)")
     pu.add_argument("sprawa", help="numer, identyfikator albo link do sprawy z ?org=…")
     pu.add_argument("--zgoda", required=True, metavar="WPIS",
-                    help="identyfikator wpisu (albo jego początek, min. 6 znaków) z zgodą "
-                         "na publikację")
+                    help="pełny identyfikator wpisu z zgodą ownera/admina (może być z innej "
+                         "sprawy tej Organizacji, ≤ 7 dni) albo jego początek ≥ 6 znaków "
+                         "z publikowanej sprawy")
     pu.set_defaults(funkcja=polecenie_publikuj)
 
     sp = pod.add_parser("sprawy", help="[autor] sprawy w tej Organizacji")

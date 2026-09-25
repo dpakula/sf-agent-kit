@@ -53,6 +53,7 @@ class _KlientZapisu:
         self.opisy = []           # (ticket_id, opis)
         self.zalozone = []        # ciała zaloz_sprawe
         self.pobrania = {}        # attachment_id → zawartość (bytes)
+        self.odpytania_dziennika = 0   # ile razy pytano o wpisy sprawy (rozwijanie skrótu)
 
     def wpis(self, ticket_id, tresc, *, widocznosc="internal"):
         if self.blad:
@@ -71,6 +72,7 @@ class _KlientZapisu:
         return [{"id": TICKET, "ticket_number": 948, "ticket_prefix": "ADVERTPR"}]
 
     def wpisy_sprawy(self, ticket_id, *, limit=100, offset=0):
+        self.odpytania_dziennika += 1
         return {"pozycje": [{"id": A}, {"id": B}]} if offset == 0 else []
 
     def publikuj(self, ticket_id, *, zgoda):
@@ -338,12 +340,22 @@ class TestStraznikOpisu(unittest.TestCase):
 
     def test_reguly_straznika(self):
         dlugi = "x" * 1501
-        self.assertIsNone(flow.straznik_opisu("", dlugi), "pusta sprawa może dostać długi opis")
-        self.assertIsNone(flow.straznik_opisu("stary opis", "x" * 1500))
-        komunikat = flow.straznik_opisu("stary opis", dlugi)
+        self.assertIsNone(flow.straznik_opisu("", dlugi, limit=1500),
+                          "pusta sprawa może dostać długi opis")
+        self.assertIsNone(flow.straznik_opisu("stary opis", "x" * 1500, limit=1500))
+        komunikat = flow.straznik_opisu("stary opis", dlugi, limit=1500)
         self.assertIsNotNone(komunikat)
         self.assertIn("1500", komunikat)
         self.assertIn("tresc-wersja", komunikat)
+
+    def test_limit_z_configu(self):
+        """Próg ustawia użytkownik w config.json — strażnik dostaje go z zewnątrz,
+        a nie z twardej stałej w kodzie."""
+        dlugi = "x" * 501
+        self.assertIsNone(flow.straznik_opisu("stary opis", dlugi, limit=1500))
+        komunikat = flow.straznik_opisu("stary opis", dlugi, limit=500)
+        self.assertIsNotNone(komunikat)
+        self.assertIn("500", komunikat)
 
 
 class TestOpisSprawy(unittest.TestCase):
@@ -414,6 +426,16 @@ class TestPublikuj(unittest.TestCase):
         kod, out, _ = self._uruchom(["publikuj", LINK, "--zgoda", "aaaaaaaa"])
         self.assertEqual(kod, 0)
         self.assertEqual(self.k.publikacje, [(TICKET, A)], "skrót rozwinięty do pełnego id")
+        self.assertGreater(self.k.odpytania_dziennika, 0, "skrót rozwijamy po dzienniku")
+
+    def test_publikuj_pelny_uuid_bez_rozwijania(self):
+        """Zgoda z innej sprawy: pełny identyfikator przechodzi bez odpytania dziennika —
+        Organizację, autora i wiek zgody sprawdza serwer, nie Kit."""
+        kod, _, _ = self._uruchom(["publikuj", LINK, "--zgoda", B])
+        self.assertEqual(kod, 0)
+        self.assertEqual(self.k.publikacje, [(TICKET, B)], "pełny UUID przechodzi bez zmian")
+        self.assertEqual(self.k.odpytania_dziennika, 0,
+                         "pełnego UUID nie rozwijamy po publikowanej sprawie")
 
     def test_publikuj_pokazuje_powod_serwera(self):
         blad = BrakUprawnienia("nie wolno (403)", kod=403,
@@ -428,8 +450,12 @@ class TestCzySzkic(unittest.TestCase):
 
     def test_rozpoznawanie_szkicu(self):
         self.assertTrue(flow.czy_szkic({"status": "draft"}))
-        self.assertTrue(flow.czy_szkic({"status": "SZKIC"}))
-        self.assertTrue(flow.czy_szkic({"status": "new", "szkic": True}))
+        self.assertTrue(flow.czy_szkic({"status": " DRAFT "}))
+        self.assertFalse(flow.czy_szkic({"status": "SZKIC"}), "tylko `draft` po stronie serwera")
+        self.assertFalse(flow.czy_szkic({"status": "robocza"}))
+        self.assertFalse(flow.czy_szkic({"status": "new", "szkic": True}),
+                         "osobnej flagi nie ma i nie będzie (SF-4: szkic to status)")
+        self.assertFalse(flow.czy_szkic({"status": "new", "is_draft": True}))
         self.assertFalse(flow.czy_szkic({"status": "new"}))
         self.assertFalse(flow.czy_szkic({}))
 
@@ -447,8 +473,11 @@ class TestApiPublikujAdres(unittest.TestCase):
 
         k._wywolaj = _wywolaj
         k.publikuj(TICKET, zgoda=A)
+        # DOSŁOWNY kształt z kontraktu (wpis 8ee30c11 na ADVERTPR-948) — atrapa nie zna
+        # modelu serwera, więc porównujemy z kontraktem, nie z tym, co Kit akurat wysyła.
+        # Schemat serwera ma extra=forbid: zgoda jako sam napis dostałaby 422.
         self.assertEqual(k.zapisy, [("POST", f"tickets/{TICKET}/publikuj",
-                                     {"zgoda": A})])
+                                     {"zgoda": {"wpis_id": A}})])
 
     def test_patch_opisu_tylko_description(self):
         k = Klient(baza="https://x", klucz="k", organizacja="o")

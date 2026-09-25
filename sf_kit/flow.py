@@ -29,12 +29,13 @@ from urllib.parse import parse_qs, urlparse
 #: Zdanie, którym Kit ostrzega przy KAŻDYM zapisie na sprawie-brykie (pkt 6 kontraktu SF-51).
 #: W brzmieniu z kontraktu — dosłownie, bo tak ma je zasłyszeć człowiek.
 OSTRZEZENIE_SZKICU = ("UWAGA: to jest SZKIC — szkic nie wychodzi do obiegu; członkowie "
-                      "Organizacji widzą go tylko po linku.")
+                      "Organizacji widzą go tylko po linku. Do publikacji: "
+                      "`sf-kit publikuj --zgoda <wpis>` (koordynator) albo człowiek w panelu.")
 
-#: Statusy, po których poznajemy sprawę w wersji roboczej. `GET /tickets/{id}` nie niesie
-#: osobnego znacznika szkicu — jest tylko `status`, więc zestaw rozpoznawczy trzymamy tutaj
-#: i rozszerzamy, gdy backend powie, jaką wartością zapisuje szkic na PROD.
-STATUSY_SZKICU = frozenset({"draft", "szkic", "robocza", "roboczy"})
+#: Statusy, po których poznajemy sprawę w wersji roboczej. Szkic to WYŁĄCZNIE
+#: `status == "draft"` (stała `TICKET_STATUS_DRAFT` po stronie serwera): osobnej flagi
+#: nie ma i nie będzie (SF-4 — szkic to status, nie kolumna), więc zestawu nie rozszerzamy.
+STATUSY_SZKICU = frozenset({"draft"})
 
 _UUID = ("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
          "[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -45,9 +46,9 @@ WZORZEC_LINKU = re.compile(rf"https?://[^\s/?#]+/tickets/(?P<id>{_UUID})(?P<quer
 #: `nazwa.md` → (`nazwa`, `.md`). Koncówka z kropką, bo tak sklejamy nazwę wersji z powrotem.
 WZORZEC_WERSJI = re.compile(r"^(?P<bazowa>.+)-v(?P<n>\d+)(?P<koncowka>(?:\.[A-Za-z0-9]+)*)$")
 
-#: Strażnik opisu: dłuższy od tego PATCH na sprawie, która już opis ma, to nie aktualizacja —
-#: to zasłonięcie historii treści (pkt 4 kontraktu SF-51).
-MAX_OPISU_STRAZNIK = 1500
+#: Strażnik opisu: dłuższy od limitu PATCH na sprawie, która już opis ma, to nie
+#: aktualizacja — to zasłonięcie historii treści (pkt 4 kontraktu SF-51). Limit mieszka
+#: w `config.json` (`straznik_opisu_max`, domyślnie 1500) i przechodzi tu jako parametr.
 
 
 def link_z_tekstu(tekst: str) -> str | None:
@@ -74,10 +75,7 @@ def organizacja_z_linku(tekst: str) -> str | None:
 
 
 def czy_szkic(sprawa: dict) -> bool:
-    """Czy karta sprawy mówi, że to wersja robocza. Pola `szkic`/`is_draft` sprawdzamy
-    PRZED statusem: gdy backend dołoży znacznik, nie będziemy czekać na nowe wydanie Kitu."""
-    if sprawa.get("szkic") is True or sprawa.get("is_draft") is True:
-        return True
+    """Czy karta sprawy mówi, że to wersja robocza — wyłącznie po `status`: `draft` i tyle."""
     return str(sprawa.get("status") or "").strip().lower() in STATUSY_SZKICU
 
 
@@ -124,16 +122,18 @@ def podsumowanie_zmian(stara: str, nowa: str) -> str:
     return f"+{dodane}/−{usuniete} wierszy względem poprzedniej wersji"
 
 
-def straznik_opisu(obecny: str, nowy: str) -> str | None:
+def straznik_opisu(obecny: str, nowy: str, *, limit: int) -> str | None:
     """Ostrzeżenie, gdy PATCH opisu zasłoniłby istniejącą treść — albo `None`, gdy przechodzi.
 
     Reguła jest celowo jednostronna: pusta sprawa może dostać długi opis (inicjalizacja
     treścią), ale sprawa, która opis MA, dostaje go już tylko w wersjach — nadpisanie
-    długim tekstem ucina historię tego, co było, i nie daje się cofnąć.
+    długim tekstem ucina historię tego, co było, i nie daje się cofnąć. Limit (domyślnie
+    1500) przychodzi z `config.json` (`straznik_opisu_max`) — to użytkownik Kita ustawia
+    próg, nie kod.
     """
-    if not (obecny or "").strip() or len(nowy or "") <= MAX_OPISU_STRAZNIK:
+    if not (obecny or "").strip() or len(nowy or "") <= limit:
         return None
-    return (f"Opis ma {len(nowy)} znaków (powyżej {MAX_OPISU_STRAZNIK}) i ta sprawa już opis "
+    return (f"Opis ma {len(nowy)} znaków (powyżej {limit}) i ta sprawa już opis "
             f"ma — nadpisanie go w całości ucina dotychczasową treść.\n"
             f"Oddawaj treść w wersjach: `sf-kit tresc-wersja <sprawa> <plik.md>` — plik pójdzie "
             f"jako załącznik `nazwa-vN.md` z wpisem «co się zmieniło», a opis zostaje "

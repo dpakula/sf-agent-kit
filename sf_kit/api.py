@@ -608,15 +608,17 @@ class Klient:
     def publikuj(self, ticket_id: str, *, zgoda: str) -> dict:
         """`POST /tickets/{id}/publikuj` — wprowadzenie szkicu do obiegu ZE ZGODĄ (SF-51).
 
-        `zgoda` to identyfikator wpisu na tej sprawie, w którym człowiek wyraża zgodę na
-        publikację — publikacja bez śladu zgody odmawia po stronie serwera.
+        `zgoda` to PEŁNY identyfikator wpisu, w którym człowiek z rolą owner/admin wyraża
+        zgodę na publikację. Wpis może leżeć na DOWOLNEJ sprawie tej Organizacji — w tym
+        na oknie rozmowy z koordynatorem; serwer sam zweryfikuje Organizację, autora i wiek
+        zgody (≤ 7 dni). Publikować może tylko klucz osobisty koordynatora.
 
-        UWAGA NA KSZTAŁT: pole ciała niosące zgodę do potwierdzenia z backendem SF-51
-        (gałąź `borys/sf51-publikacja-zgoda`); bez wdrożonego backendu trasa odpowiada
-        403/422 — komunikat pochodzi z serwera, nie z Kitu.
+        Kształt ciała jest z kontraktu (wpis 8ee30c11, backend scalony 3bb7f951): schemat
+        ma `extra=forbid`, więc zgoda jako sam napis albo dodatkowe pole dostają 422.
+        Kit pokazuje `detail` serwera bez zmian (403/422 — powód czytamy z odpowiedzi).
         """
         return self._wywolaj("POST", f"tickets/{ticket_id}/publikuj",
-                             cialo={"zgoda": zgoda})
+                             cialo={"zgoda": {"wpis_id": zgoda}})
 
     # ── edycja wpisu z historią (ADVERTPR-782) ───────────────────────────────
 
