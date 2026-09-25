@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import sys
 import platform
 import subprocess
 from pathlib import Path
@@ -44,6 +45,9 @@ PREFIKS_KLUCZA = "sk_live_"
 #: Agent wybrany na czas tego uruchomienia (flagą `--agent`). Ustawia go CLI, zanim cokolwiek
 #: sięgnie po konfigurację.
 _wybrany: str | None = None
+
+#: Ostrzeżenie „stary układ + nowy agent" raz na uruchomienie, nie przy każdym odczycie ścieżki.
+_ostrzezono_o_starym = False
 
 
 class WieluAgentow(RuntimeError):
@@ -90,9 +94,10 @@ def sciezka_konfiguracji() -> Path:
     KOLEJNOŚĆ ROZSTRZYGANIA — od najbardziej jawnego do najbardziej domyślnego:
       1. `SF_KIT_HOME` — powiedziane wprost, więc nie zgadujemy niczego dalej;
       2. `--agent <slug>` — wybór na to uruchomienie;
-      3. dokładnie JEDEN skonfigurowany agent — bierzemy jego, bez flagi;
-      4. układ sprzed podziału (`~/.config/sf-kit/config.json`) — czyli ktoś, kto skonfigurował
-         Kit przed tą wersją i nie ma powodu niczego przenosić;
+      3. układ sprzed podziału (`~/.config/sf-kit/config.json`) — czyli ktoś, kto skonfigurował
+         Kit przed podziałem i nie ma powodu niczego przenosić; ma PIERWSZEŃSTWO przed jedynym
+         nowym agentem (ADVERTPR-936), a obok niego ostrzeżenie, jak wskazać nowego;
+      4. dokładnie JEDEN skonfigurowany agent (bez starego układu) — bierzemy jego, bez flagi;
       5. brak czegokolwiek — katalog bazowy, żeby `init` miał gdzie zacząć.
 
     Punkt 3 jest tu po to, żeby **nie karać pojedynczego użytkownika za to, że ktoś inny ma
@@ -111,6 +116,20 @@ def sciezka_konfiguracji() -> Path:
 
     znalezieni = agenci()
     if len(znalezieni) == 1:
+        if czy_uklad_jednego_agenta():
+            # ADVERTPR-936 (26.09): stary układ + JEDEN nowy agent. Bez flagi wygrywa STARY —
+            # inaczej dodanie pierwszego agenta w podkatalogu przejmowało wszystko, co chodzi
+            # bez `--agent` (np. ręcznie uruchomiony worker), razem z cudzym kluczem
+            # i Organizacją. Odmowa zatrzymałaby starego agenta bez sposobu wskazania go flagą,
+            # więc: stary działa dalej, nowy wymaga `--agent`, a my mówimy to głośno.
+            global _ostrzezono_o_starym
+            if not _ostrzezono_o_starym:
+                _ostrzezono_o_starym = True
+                print(f"Używam konfiguracji sprzed podziału ({korzen / 'config.json'}). Na tej "
+                      f"maszynie jest też agent „{znalezieni[0]}” — do niego: "
+                      f"`--agent {znalezieni[0]}`. Przeniesienie starej konfiguracji: `sf-kit init`.",
+                      file=sys.stderr)
+            return korzen
         return korzen / znalezieni[0]
     if len(znalezieni) > 1:
         if czy_uklad_jednego_agenta():
