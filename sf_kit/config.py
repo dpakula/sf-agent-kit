@@ -47,6 +47,12 @@ class Konfiguracja:
     limit_zadania_s: int = DOMYSLNY_LIMIT_ZADANIA_S
     katalogi_wynikow: list = field(default_factory=lambda: ["work/zadania", "outgoing"])
 
+    #: Strażnik opisu sprawy (SF-51): `opis-sprawy` z tekstem dłuższym niż ten próg na
+    #: sprawie, która już opis ma, zatrzymuje polecenie i proponuje `tresc-wersja`.
+    #: Nadpisanie długim tekstem ucina historię treści, więc próg ustawia użytkownik
+    #: Kita w pliku, nie kod.
+    straznik_opisu_max: int = 1500
+
     #: Czy wolno uruchamiać wykonawcę `shell`. **Domyślnie nie** i tak ma zostać u każdego,
     #: kto nie wie, po co miałby to zmienić.
     #:

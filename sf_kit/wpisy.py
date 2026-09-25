@@ -44,6 +44,13 @@ class ZlyWpis(ValueError):
     """Wskazanie wpisu nie prowadzi do jednego wpisu. Komunikat jest gotowy do pokazania."""
 
 
+def czy_pelny_uuid(wskazanie: str) -> bool:
+    """Czy wskazanie jest pełnym identyfikatorem wpisu. Tego NIE rozwijamy lokalnie —
+    pełny identyfikator (np. zgoda z innej sprawy tej Organizacji) przechodzi do serwera
+    bez odpytywania dziennika; to serwer sprawdzi, czy wpis istnieje i czy się nadaje."""
+    return bool(_UUID.match((wskazanie or "").strip().lower()))
+
+
 def rozwin_wpis(klient, sprawa_id: str, wskazanie: str) -> str:
     """Pełny identyfikator wpisu z pełnego id albo ze skrótu (≥ `MIN_SKROT` znaków)."""
     w = (wskazanie or "").strip().lower()

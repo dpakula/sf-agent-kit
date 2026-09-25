@@ -1009,9 +1009,11 @@ sf-kit zglos --tytul "Propozycja zmian w cenniku" --opis opis.md --szkic
 
 Sprawa powstaje jako **wersja robocza**: nie wychodzi żadne powiadomienie, nie ma jej na
 listach ani w licznikach, a obserwujący siedzą w niej od początku i pocztę dostaną dopiero
-w chwili publikacji. **Publikuje człowiek** — przyciskiem „Opublikuj" w SF; agent tego nie
-zrobi i to jest cały sens szkicu: Ty przygotowujesz, człowiek wpuszcza do obiegu. Wpisy
-dopisujesz do szkicu normalnie, też po cichu.
+w chwili publikacji. **Publikuje człowiek** — koordynator poleceniem `sf-kit publikuj
+--zgoda <wpis>` (na zgodę ownera/admina z tej Organizacji) albo przyciskiem „Opublikuj" w
+SF (SF-51); sam z siebie Kit szkicu nie opublikuje i to jest cały sens szkicu: Ty
+przygotowujesz, człowiek wpuszcza do obiegu. Wpisy dopisujesz do szkicu normalnie, też po
+cichu.
 
 **4. Podaj człowiekowi numer i adres.** Kit wypisuje oba. To jest jedyne, co człowiek
 ma potem powiedzieć albo wkleić komuś innemu — powiedz mu to wprost:
@@ -1072,6 +1074,67 @@ odbiera własności. **Wpisy sprzed wdrożenia** znacznika nie mają i nie są n
 tylko administrator albo superadmin. Przy odmowie Kit mówi, co zrobić: dopisać nowy wpis
 z korektą albo poprosić administratora.
 
+### Dla agenta — odpowiadaj w sprawie, treść oddawaj w wersjach (SF-51, ADVERTPR-948)
+
+Te reguły wzięły się z incydentu z 25.09: prowadzący sprawę założył **nową** sprawę w złej
+Organizacji zamiast odpowiedzieć w istniejącej. Stąd dwie twarde zasady: **zapis wymaga
+jawnej Organizacji** i **prowadzoną rozmowę prowadzisz w jej sprawie, nie obok niej**.
+
+**Odpowiadaj w sprawie, którą prowadzisz.** Wklejasz link — i tyle:
+
+```bash
+sf-kit odpowiedz "https://sf.dpakula.pl/tickets/<id>?org=advertpro-co" --opis odpowiedz.md
+sf-kit odpowiedz "…ten sam link…" --opis notatka.md --wewn      # notatka wewnętrzna
+```
+
+Bez `--wewn` odpowiedź jest **wiadomością widoczną na zewnątrz**. Organizację Kit bierze
+z parametru `?org=` linku; przy numerze zamiast linku podaj ją przez `--org`.
+
+**Przy każdym zapisie wskaż Organizację jawnie.** Dwie drogi: `--org <slug>` albo link
+do sprawy z `?org=…`. Gdy zabraknie obu, Kit **odmawia** i wypisuje, co podać — nigdy nie
+wybiera „pierwszej z brzegu", bo wpis w cudzej Organizacji to wyciek do klienta, nie
+niedogodność.
+
+**Gdy w kontekście zadania stoi link do istniejącej sprawy — nie zakładaj nowej.**
+`sf-kit nowa-sprawa` (dotychczasowe `zglos`) czyta kontekst z `--kontekst` albo ze zmiennej
+`SF_KIT_KONTEKST`; gdy znajdzie w nim link do sprawy, **odmawia** z podpowiedzią
+„odpowiedz w sprawie X". Druga sprawa obok prowadzonej rozmowy rozdziela ją na dwa miejsca
+i nikt już nie wie, gdzie jest aktualny stan.
+
+**Długą treść oddawaj w wersjach, nie w opisie.**
+
+```bash
+sf-kit tresc-wersja FM-12 raport.md                    # załącznik raport-vN.md + wpis „co się zmieniło”
+sf-kit tresc-wersja FM-12 raport.md --zmiany opis.md   # opis zmian z pliku
+```
+
+Numer wersji Kit liczy z historii załączników na sprawie (najwyższy `raport-vN` + 1), a gdy
+nie podasz `--zmiany`, sam skleja streszczenie z różnicy względem poprzedniej wersji.
+**Strażnik opisu:** `sf-kit opis-sprawy` z tekstem dłuższym niż próg z `config.json`
+(`straznik_opisu_max`, domyślnie 1500 znaków) na sprawie, która już opis ma, zatrzymuje
+polecenie i proponuje `tresc-wersja` — bo nadpisanie długim tekstem ucina historię tego,
+co było. `--mimo-to` znaczy: „przeczytałem ostrzeżenie i świadomie nadpisuję".
+
+**Publikuj szkic ze zgodą człowieka.**
+
+```bash
+sf-kit publikuj FM-12 --zgoda 7d7767ce-bef7-…     # pełny identyfikator wpisu z zgodą
+sf-kit publikuj FM-12 --zgoda cd1c19ae            # albo początek ≥ 6 znaków z TEJ sprawy
+```
+
+`--zgoda` to wpis, w którym człowiek z rolą owner/admin wyraża zgodę na publikację — z
+DOWOLNEJ sprawy tej Organizacji (w tym z okna rozmowy z koordynatorem), nie starszy niż
+7 dni. Pełny identyfikator Kit przekazuje bez rozwijania; skrót rozwija na publikowanej
+sprawie. Trasa wymaga śladu zgody i bez niego odmawia — komunikat odmowy (`detail`)
+pochodzi z serwera i Kit pokazuje go bez zmian. Publikuje wyłącznie klucz osobisty
+koordynatora; bez wdrożonego na PROD backendu SF-51 trasa odpowie 403/422 i Kit poda ten
+powód jako stan serwera, nie jako własny błąd.
+
+**Zapis na szkicu zawsze ostrzega.** Przy każdym zapisie na sprawie-roboczej Kit dopisuje:
+„szkic nie wychodzi do obiegu; członkowie Organizacji widzą go tylko po linku" — dopóki
+sprawy nie opublikuje koordynator (`sf-kit publikuj --zgoda <wpis>`) albo człowiek w panelu,
+nikt poza wskazanymi linkiem tego nie zobaczy.
+
 ### Czego NIE robić
 
 - **Nie zakładaj sprawy „na próbę".** Każda powiadamia obserwujących; sprawa testowa to
@@ -1127,10 +1190,12 @@ sf-kit --agent <slug> …         # gdy na tej maszynie jest kilku agentów
 sf-kit --org <slug|uuid> …      # w której Organizacji ma działać TO polecenie
 ```
 
-`--org` jest **globalne** — stoi przed nazwą polecenia i działa przy każdym z nich. Bez niego
-obowiązuje domyślna z ustawień, a gdy domyślnej nie ma i Organizacji z nadaniami jest więcej
-niż jedna, Kit **odmawia i wypisuje kandydatki**. Nie zgaduje: wpis dopisany do sprawy w cudzej
-Organizacji wygląda dokładnie jak poprawna praca.
+`--org` jest **globalne** — stoi przed nazwą polecenia i działa przy każdym z nich. Przy
+**odczycie** bez niego obowiązuje domyślna z ustawień, a gdy domyślnej nie ma i Organizacji
+z nadaniami jest więcej niż jedna, Kit **odmawia i wypisuje kandydatki**. Przy **zapisie**
+(SF-51) domyślnej nie ma wcale: wymagana jest jawna Organizacja — `--org` albo link do sprawy
+z `?org=…` — i przy jej braku Kit odmawia z instrukcją, co podać. Nie zgaduje: wpis dopisany
+do sprawy w cudzej Organizacji wygląda dokładnie jak poprawna praca.
 
 **Profil `worker` — ciągniesz zadania z kolejki:**
 
@@ -1146,7 +1211,12 @@ sf-kit worker --interval 60     # co ile sekund odpytywać (domyślnie 60)
 
 ```bash
 sf-kit zglos --tytul "…" [--opis plik.md|-] [--tag makieta] [--zalacz plik…] [--szkic]
+sf-kit nowa-sprawa --tytul "…" [--kontekst TEKST]            # jak zglos + strażnik kontekstu (SF-51)
 sf-kit wpis <sprawa> [--opis plik.md|-] [--zalacz plik…] [--widocznosc internal|external]
+sf-kit odpowiedz <link|numer> [--opis plik.md|-] [--wewn]    # odpowiedź w istniejącej sprawie (SF-51)
+sf-kit tresc-wersja <sprawa> <plik.md> [--zmiany plik.md|-]  # treść w wersjach (SF-51)
+sf-kit opis-sprawy <sprawa> --plik plik.md [--mimo-to]       # zmiana opisu pod strażnikiem (SF-51)
+sf-kit publikuj <sprawa> --zgoda <wpis>                      # publikacja szkicu ze zgodą ownera/admina (SF-51)
 sf-kit zalacz <sprawa> <plik…> [--notka "…"]
 sf-kit sprawy [--limit 50]
 sf-kit wpis-edytuj <sprawa> <wpis> (--plik plik.md|- | --tresc "…") [--powod "…"]   # v0.11
@@ -1185,9 +1255,10 @@ Tych czterech Kit **nie odsiewa po uprawnieniu** — wymagają praw, które nie 
 z `plans:write` (superadmin, owner, admin). Rozstrzyga serwer; Kit dba o to, żeby odmowę dało
 się przeczytać. Szczegóły i pułapki: rozdział „Profil koordynator — warstwa administracyjna".
 
-`<sprawa>` to **numer** (`FM-12`, `fm-12`, samo `12`) albo identyfikator. Sam numer działa,
-dopóki jest jednoznaczny — gdy pasuje do kilku spraw, Kit odmówi i wypisze kandydatów,
-bo dopisanie postępu do niewłaściwej sprawy wygląda dokładnie jak poprawna praca.
+`<sprawa>` to **numer** (`FM-12`, `fm-12`, samo `12`), identyfikator **albo link** do sprawy
+z `?org=…` — link niesie własną Organizację. Sam numer działa, dopóki jest jednoznaczny — gdy
+pasuje do kilku spraw, Kit odmówi i wypisze kandydatów, bo dopisanie postępu do niewłaściwej
+sprawy wygląda dokładnie jak poprawna praca.
 
 Opis idzie **plikiem** (`--opis notatka.md`) albo standardowym wejściem (`--opis -`),
 nigdy argumentem: opisy są długie i wielolinijkowe, a argumenty procesu widzi każdy

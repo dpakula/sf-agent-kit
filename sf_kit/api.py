@@ -594,6 +594,32 @@ class Klient:
         """
         return type(self)(baza=self.baza, klucz=self._klucz, organizacja=organizacja)
 
+    # ── flow odpowiedzi i publikacji ze zgodą (SF-51, ADVERTPR-948) ───────────
+
+    def zmien_opis_sprawy(self, ticket_id: str, opis: str) -> dict:
+        """`PATCH /tickets/{id}` z `description` — jedyne pole, które to polecenie rusza.
+
+        Strażnik długości mieszka w `flow.straznik_opisu` i stoi w CLI PRZED wywołaniem:
+        serwer przyjmie każdy opis, a nie chodzi o to, co serwer przyjmie, tylko o to,
+        czego Kit nie powinien wysłać.
+        """
+        return self._wywolaj("PATCH", f"tickets/{ticket_id}", cialo={"description": opis})
+
+    def publikuj(self, ticket_id: str, *, zgoda: str) -> dict:
+        """`POST /tickets/{id}/publikuj` — wprowadzenie szkicu do obiegu ZE ZGODĄ (SF-51).
+
+        `zgoda` to PEŁNY identyfikator wpisu, w którym człowiek z rolą owner/admin wyraża
+        zgodę na publikację. Wpis może leżeć na DOWOLNEJ sprawie tej Organizacji — w tym
+        na oknie rozmowy z koordynatorem; serwer sam zweryfikuje Organizację, autora i wiek
+        zgody (≤ 7 dni). Publikować może tylko klucz osobisty koordynatora.
+
+        Kształt ciała jest z kontraktu (wpis 8ee30c11, backend scalony 3bb7f951): schemat
+        ma `extra=forbid`, więc zgoda jako sam napis albo dodatkowe pole dostają 422.
+        Kit pokazuje `detail` serwera bez zmian (403/422 — powód czytamy z odpowiedzi).
+        """
+        return self._wywolaj("POST", f"tickets/{ticket_id}/publikuj",
+                             cialo={"zgoda": {"wpis_id": zgoda}})
+
     # ── edycja wpisu z historią (ADVERTPR-782) ───────────────────────────────
 
     def wpis_sprawy(self, ticket_id: str, entry_id: str) -> dict:
