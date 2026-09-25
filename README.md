@@ -1,130 +1,76 @@
 # SF Agent Kit
 
-Narzędzie, które pozwala agentowi AI odbierać zadania z **SalesForge**, wykonywać je
-i raportować wynik — przez zwykłe API HTTP, jednym poleceniem `sf-kit`.
+## Dla użytkownika
 
-**Ten dokument ma dwóch czytelników.**
+**SF API Kit** łączy Twojego agenta AI (Claude Code, Codex, Kimi) z SalesForge. Agent przyjmuje od Ciebie zadania, pracuje na sprawach Twojej Organizacji i zostawia ślad każdej czynności, więc widzisz, co zrobił i dlaczego.
 
-- **Agenta**, który będzie tym narzędziem pracował i **prowadził przez nie człowieka**.
-  Człowiek po drugiej stronie zwykle nie zna SalesForge i nie musi go poznawać — od tego
-  jest agent. Dlatego dokument tłumaczy nie tylko „jak wywołać", ale też „co to znaczy"
-  i „co powiedzieć użytkownikowi, gdy coś nie działa".
-- **Administratora SalesForge**, który zakłada konta agentów i nadaje uprawnienia —
-  dla niego jest sekcja na końcu.
+**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit jednym poleceniem, a potem wklej agentowi tekst startowy. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
+
+**Instalacja** (w terminalu, na komputerze, na którym pracuje agent):
+
+```
+git clone https://github.com/dpakula/sf-agent-kit.git && cd sf-agent-kit && ./sf-kit init
+```
+
+`init` zapyta o adres SalesForge i **klucz agenta** — wpisz go sam, nie podawaj go agentowi w rozmowie. Potrzebny jest tylko Python 3.9+ i git.
+
+**Tekst startowy — wklej go agentowi:**
+
+```
+W katalogu sf-agent-kit przeczytaj README.md, sekcję „Dla agenta”, i postępuj według niej.
+Moja Organizacja w SalesForge to: fm-x-advertpro   (podawaj ją zawsze jako --org)
+1. Uruchom ./sf-kit whoami i powiedz mi zwykłym językiem, co widzisz.
+2. Jeśli czegoś brakuje, powiedz mi, o co poprosić administratora.
+3. Gdy dam Ci link do sprawy, odpowiadaj w tej sprawie. Nową sprawę zakładaj tylko wtedy, gdy żadnej nie ma.
+Nie pytaj mnie o klucz i nie wpisuj go w rozmowie.
+```
+
+**Tryb pracy agenta:** worker (sam bierze zadania z kolejki), **asystent** (pracuje z Tobą — najczęstszy; w Kicie profil `autor`) albo koordynator (rozdziela pracę innym agentom). Szczegóły opisze Podręcznik SalesForge (w przygotowaniu).
+
+**Organizację podajesz zawsze jawnie** (`--org`, np. `--org fm-x-advertpro`) — Kit nie zgaduje, w której Organizacji zapisać Twoją pracę.
 
 ---
 
-## Start w minutę
+## Dla agenta
 
-Korzystasz z Codexa i chcesz po prostu zacząć? Nie musisz czytać reszty tego dokumentu.
+### Start
 
-**1. Weź od administratora SalesForge trzy rzeczy:**
+**Start.** Uruchom `sf-kit whoami`. Sprawdź, czy wynik wskazuje Organizację użytkownika i czy klucz ma uprawnienia potrzebne do zadania. Jeśli czegoś brakuje, zatrzymaj się i zgłoś to użytkownikowi, wskazując brakujące uprawnienie; nie próbuj go obchodzić.
 
-| dane | przykład |
-|---|---|
-| adres SalesForge | `https://sf.dpakula.pl` |
-| twój slug agenta | `codex-formarketing` |
-| **klucz API** | `sk_live_…` — **osobnym kanałem, nie mailem**; to hasło do konta |
+**Zasada pierwsza.** Pracuj zawsze w sprawie, której dotyczy zadanie. Gdy w poleceniu jest link do sprawy, odpowiadaj w niej (`sf-kit odpowiedz <link> --opis plik.md`). Nową sprawę zakładaj tylko wtedy, gdy żadnej jeszcze nie ma.
 
-> **Od v0.4 nie potrzebujesz identyfikatora Organizacji.** Kit pyta o niego SalesForge sam
-> (`GET /me`) i pokazuje listę Organizacji, do których należysz, razem z tym, co w każdej
-> wolno ci robić. Jeśli uprawnienia masz tylko w jednej — ustawi ją jako domyślną i powie
-> o tym. Jeśli w kilku — zapyta, a przy każdym poleceniu możesz wskazać inną przez `--org`.
->
-> **Kit nigdy nie wybiera „pierwszej z brzegu".** Gdy nie da się wskazać jednoznacznie,
-> odmówi i pokaże listę — bo wpis, który wyląduje w cudzej Organizacji, jest wyciekiem
-> do klienta, a nie niedogodnością.
+**Organizacja.** Podawaj ją przy każdym zapisie jawnie: `sf-kit --org <slug> <polecenie>` (opcja stoi przed poleceniem) albo link do sprawy z `?org=`. Bez tego Kit odmówi (od v0.13.0) — nie obchodź odmowy, zapytaj użytkownika, o którą Organizację chodzi.
 
-**2. Wklej to Codexowi:**
+**Treść.** Gdy rozwijasz dłuższą treść (analizę, umowę, plan), oddawaj ją w wersjach: `sf-kit --org <slug> tresc-wersja <sprawa> <plik.md>`. Opisu sprawy nie nadpisuj długim tekstem — Kit zatrzyma takie polecenie.
 
-```
-Sklonuj https://github.com/dpakula/sf-agent-kit.git, wejdź do katalogu sf-agent-kit
-i przeczytaj README.md w całości.
+**Szkic.** Gdy Kit ostrzeże, że sprawa jest szkicem, powiedz użytkownikowi, że nikt poza zespołem jej nie zobaczy do publikacji. Publikuj tylko wtedy, gdy jesteś koordynatorem i masz zgodę człowieka: `sf-kit publikuj <sprawa> --zgoda <wpis>`.
 
-Potem poprowadź mnie przez pierwsze uruchomienie:
-1. powiedz mi, co mam przygotować (dane od administratora SalesForge),
-2. poczekaj, aż sam uruchomię `./sf-kit init` — tego NIE rób za mnie, tam wpisuję klucz,
-3. po moim potwierdzeniu uruchom `./sf-kit whoami` i `./sf-kit tasks` i wytłumacz mi wynik
-   zwykłym językiem,
-4. jeśli coś nie zadziała, powiedz mi wprost, o co mam poprosić administratora,
-5. NIE uruchamiaj `./sf-kit worker` ani `--once` bez mojej zgody — pierwszy przebieg
-   chcę zobaczyć sama, na zadaniu testowym.
+### Tryby pracy
 
-Nie wpisuj i nie pytaj mnie o klucz API w rozmowie.
-```
+Sprawdź w `sf-kit whoami` i w konfiguracji (`sf-kit init`), w którym trybie pracujesz:
 
-**3. Resztę tego dokumentu przeczyta za ciebie agent.** Jeśli chcesz wiedzieć, co robi
-i dlaczego — czytaj dalej; wszystko poniżej jest dla niego i dla ciebie, gdy zechcesz zajrzeć
-głębiej.
-
----
-
-## Którym agentem jesteś? Trzy drogi, jedno narzędzie
-
-Kit obsługuje **trzy sposoby pracy** i to jest pierwsza rzecz do rozstrzygnięcia — reszta
-dokumentu zależy od odpowiedzi.
-
-| profil | co robisz | polecenia |
+| tryb (profil w Kicie) | co robisz | polecenia |
 |---|---|---|
-| **worker** | bierzesz zadania z kolejki i wykonujesz | `tasks`, `worker` |
-| **autor** | pchasz do SF gotową pracę człowieka | `zglos`, `wpis`, `zalacz`, `sprawy` |
-| **koordynator** | rozdajesz pracę flocie i odbierasz ją | `flota`, `zlec`, `kolejka`, `odbierz`, `status` |
+| **asystent** (`autor`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa` |
+| **worker** (`worker`) | bierzesz zadania z kolejki i wykonujesz je w tle | `tasks`, `worker` |
+| **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status`, `publikuj` |
 
-Polecenia koordynatora **działają tylko wtedy, gdy twój klucz ma do tego prawo** w wybranej
-Organizacji (uprawnienie `plans:write`). Kit sprawdza to w SalesForge, a nie w swoim pliku
-ustawień — polecenie, które obiecuje i kończy się odmową serwera w połowie pracy, jest gorsze
-od polecenia, którego nie ma. Bez uprawnienia dostaniesz zdanie mówiące, czego brakuje i gdzie
-to uprawnienie masz.
-
-| | **worker** — pracujesz dla kolejki | **autor** — pracujesz z człowiekiem |
-|---|---|---|
-| kierunek | **ciągniesz** zadania z SalesForge | **pchasz** do SalesForge gotową pracę |
-| kto zaczyna | ktoś przypisuje ci zadanie | człowiek obok ciebie mówi „gotowe" |
-| co robisz | wykonujesz i zamykasz zadanie | zakładasz sprawę / dopisujesz postęp |
-| polecenia | `tasks`, `worker` | `zglos`, `wpis`, `zalacz`, `sprawy` |
-| chodzi | w tle, bez nadzoru | wtedy, gdy człowiek poprosi |
-| czytaj | §3 (pętla pracy), §10 | **§9a (scenariusze autora)**, §10 |
-
-Profil wybierasz przy `sf-kit init`. Nie ogranicza on uprawnień — te są po stronie
-SalesForge — tylko **pokazuje polecenia, które do tej roli należą**, i chowa resztę.
-
-Trzeci profil, **koordynator**, jest zapowiedziany i **jeszcze nie ma poleceń**: bez trasy
-„kim jestem" (§11) Kit nie ma jak sprawdzić, czy ktoś naprawdę ma do nich prawo, a profil
-obiecujący polecenia kończące się `403` byłby gorszy od jego braku.
-
-**Jeden człowiek może mieć kilku agentów** — po jednym na profil albo na Organizację. Kit
-trzyma wtedy osobną konfigurację i osobny klucz dla każdego; patrz §10, „Kilku agentów
-na jednej maszynie".
-
-Poza tym plikiem jest jeszcze jeden: [`uruchamianie/`](uruchamianie/README.md) — gotowce
-na uruchomienie workera w tle. Potrzebny dopiero wtedy, gdy narzędzie już działa.
+Profil nie nadaje uprawnień — te są po stronie SalesForge. Jeśli polecenie odpowie brakiem uprawnienia, zatrzymaj się i przekaż użytkownikowi, czego brakuje.
 
 ### Gdy coś nie działa
 
-Kanałem zgłoszeń jest **wpis na sprawie w SalesForge**, przy której pracujesz. Gdy jesteś dopiero na
-starcie i klucz jeszcze nie działa, użyj **formularza pomocy**:
+Zgłoś problem wpisem na sprawie, przy której pracujesz. Gdy klucz jeszcze nie działa, wskaż użytkownikowi formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania; odpowiedź przychodzi na podany adres). Uprawnienia nadaje i klucze wystawia **administrator SalesForge** — do niego kieruj prośby o dostęp.
 
-**https://sf.dpakula.pl/pomoc**
-
-Nie wymaga logowania ani klucza. Podaj, co próbowałeś zrobić, co zobaczyłeś (skopiuj komunikat) i adres,
-na który mamy odpowiedzieć. Zgłoszenie od razu trafia do zespołu SalesForge jako sprawa — dostaniesz jej
-numer i odpowiedź na podany adres.
-
-Dane z formularza przetwarza ADVERTpro.co wyłącznie po to, żeby odpowiedzieć na zgłoszenie. Pełna
-informacja o przetwarzaniu jest pod formularzem.
-
-Osoba, która założyła ci konto i wydała klucz, to **administrator SalesForge** — tak nazywamy ją dalej
-w tym dokumencie. To ona nadaje uprawnienia i wystawia nowe klucze, więc część odpowiedzi z formularza
-będzie od niej.
+Poza tym plikiem jest katalog [`uruchamianie/`](uruchamianie/README.md) — gotowce na uruchomienie workera w tle.
 
 ---
 
-## 1. Pierwsze uruchomienie krok po kroku
+### 1. Pierwsze uruchomienie krok po kroku
 
 Ta sekcja jest dla kogoś, kto **nie zna SalesForge, nie zna gita i nie zna Pythona**,
 a korzysta z Codexa. Sześć poleceń po kolei; przy każdym napisane, czego się spodziewać.
 
-### Czego potrzebujesz przed startem
+#### Czego potrzebujesz przed startem
 
 | rzecz | jak sprawdzić | czego brakuje, gdy nie ma |
 |---|---|---|
@@ -150,12 +96,12 @@ go tam uruchamiać — z dwóch konkretnych powodów, nie z ostrożności:
 dokument mówi o Linuksie. Samego WSL nikt tego Kitu jeszcze nie przetestował end-to-end, więc
 przy pierwszym uruchomieniu tam warto zerknąć na wynik `sf-kit whoami` uważniej niż zwykle.
 
-### Co dostajesz od administratora SalesForge
+#### Co dostajesz od administratora SalesForge
 
 | dane | przykład | uwaga |
 |---|---|---|
 | adres SalesForge | `https://sf.dpakula.pl` | Kit ma ten adres wpisany jako domyślny — potwierdź go mimo to |
-| twój slug agenta | `codex-formarketing` | po nim rozpoznawane są twoje zadania. Od v0.9 `init` **sprawdza go w SF sam** i ostrzega, gdy wpisany jest inny |
+| slug agenta | `codex-formarketing` | po nim rozpoznawane są zadania agenta. Od v0.9 `init` **sprawdza go w SF sam** i ostrzega, gdy wpisany jest inny |
 | **klucz API** | `sk_live_…` | **osobnym kanałem, nie mailem** — to hasło do konta |
 
 Jeśli któregoś z tych trzech brakuje, nie ma sensu zaczynać. Poproś administratora o komplet.
@@ -169,7 +115,7 @@ należeć do Organizacji i nie mieć w niej żadnych uprawnień — Kit pokaże 
 z adnotacją „bez nadań" i odmówi w niej pracy, zamiast pozwolić ci dojść do połowy i dostać
 odmowę z serwera.
 
-### Sześć poleceń
+#### Sześć poleceń
 
 **1. Pobierz Kit**
 
@@ -210,7 +156,7 @@ ekranie** (to normalne, nie jest zepsute). Co wpisać:
 |---|---|
 | Adres SalesForge | to, co dał administrator; Enter zostawia wartość w nawiasie |
 | Identyfikator Organizacji | długi ciąg od administratora |
-| Twój slug agenta w SF | slug od administratora, np. `codex-formarketing` |
+| slug agenta w SF | slug od administratora, np. `codex-formarketing` |
 | Katalog roboczy | katalog, w którym agent ma pracować, np. `/Users/ty/praca-sf`. **Musi istnieć** — zadanie ze wskazanym nieistniejącym katalogiem zostanie odrzucone |
 | Wykonawca | `codex` (`shell` jest trybem testowym administratora — §10) |
 
@@ -285,7 +231,7 @@ Kody błędów i co z nimi zrobić: §7.
 ./sf-kit tasks
 ```
 
-Wypisuje zadania czekające w kolejce dla twojego sluga:
+Wypisuje zadania czekające w kolejce dla sluga agenta:
 
 ```
 Zadania w kolejce dla „codex-formarketing” (1 z 518 pozycji kolejki):
@@ -336,7 +282,7 @@ zamknięcie terminala i restart komputera, użyj gotowych plików z katalogu
 
 ---
 
-## 2. Cztery pojęcia
+### 2. Cztery pojęcia
 
 Tyle wystarczy, żeby pracować. Pełniejszy słownik jest na końcu dokumentu.
 
@@ -349,7 +295,7 @@ Tyle wystarczy, żeby pracować. Pełniejszy słownik jest na końcu dokumentu.
 
 Cykl pracy: **zadanie → wykonanie → wpis na sprawie → zadanie zamknięte.**
 
-### Statusy zadania
+#### Statusy zadania
 
 - `queued` — czeka, nikt się nim nie zajmuje. **To są zadania do wzięcia.**
 - `in_progress` — ktoś właśnie nad nim pracuje.
@@ -358,7 +304,7 @@ Cykl pracy: **zadanie → wykonanie → wpis na sprawie → zadanie zamknięte.*
 
 ---
 
-## 3. Pętla pracy
+### 3. Pętla pracy
 
 `sf-kit worker` robi to za ciebie. Warto jednak wiedzieć, co się dzieje — bo przy błędzie
 trzeba wskazać krok, na którym stanęło.
@@ -389,12 +335,12 @@ Organizacji, który podaje administrator. Bez niego SalesForge nie wie, o czyje 
 
 ---
 
-## 4. Klucz — skąd się bierze i jak go trzymać
+### 4. Klucz — skąd się bierze i jak go trzymać
 
 Klucz API dostaje się **raz**, od administratora SalesForge. Zaczyna się od `sk_live_`.
 Jest to **hasło do konta**: kto go ma, ten jest tobą.
 
-### Jak go zapisać
+#### Jak go zapisać
 
 ```bash
 sf-kit init
@@ -405,7 +351,7 @@ Polecenie pyta o klucz **bez pokazywania go na ekranie** i zapisuje:
 - **macOS** → do pęku kluczy (`security add-generic-password`),
 - **Linux** → do `~/.config/sf-kit/credentials` z prawami `600` (czyta tylko twoje konto).
 
-### Trzy rzeczy, których z kluczem nie wolno
+#### Trzy rzeczy, których z kluczem nie wolno
 
 **1. Nie podawać go modelowi.** Klucz należy do programu, który uruchamia model, nie do
 modelu. Model, który zna klucz, może go powtórzyć w dowolnej odpowiedzi — także w takiej,
@@ -437,7 +383,7 @@ Ochrona obejmuje **tylko katalog Kitu**. W innych repozytoriach nic nie pilnuje.
 **Jeśli klucz gdziekolwiek wyciekł** — powiedz administratorowi od razu i poproś o nowy.
 Wyciek plus milczenie jest gorszy niż sam wyciek.
 
-### Ważność i samoodnowienie (od v0.7)
+#### Ważność i samoodnowienie (od v0.7)
 
 Klucz agenta jest ważny **30 dni** (ADVERTPR-779). Kit robi z tym dwie rzeczy:
 
@@ -473,13 +419,13 @@ w oknie siedmiu dni, a nie w ostatniej godzinie.
 
 ---
 
-## 5. Uprawnienia — co widzisz, co to znaczy, co powiedzieć użytkownikowi
+### 5. Uprawnienia — co widzisz, co to znaczy, co powiedzieć użytkownikowi
 
 Ta sekcja jest po to, żeby agent umiał **rozpoznać problem po objawie** i powiedzieć
 człowiekowi, o co poprosić. Nie trzeba jej znać na pamięć — trzeba do niej wrócić, gdy
 coś odmówi.
 
-### Zasada, z której wynika cała reszta
+#### Zasada, z której wynika cała reszta
 
 > **Uprawnienia nie mieszkają na kluczu. Mieszkają na członkostwie użytkownika
 > w Organizacji.**
@@ -491,7 +437,7 @@ Praktyczny skutek, który zmienia odpowiedź udzielaną użytkownikowi: **brakuj
 uprawnienia nie naprawia się wymianą klucza.** Administrator dodaje je na członkostwie
 — jedno kliknięcie w panelu — i działa natychmiast, tym samym kluczem.
 
-### Co jest potrzebne do pracy
+#### Co jest potrzebne do pracy
 
 | czynność | endpoint | dodatkowe uprawnienie |
 |---|---|---|
@@ -508,7 +454,7 @@ Zakładanie i kasowanie zadań to inne uprawnienie, którego worker nie potrzebu
 Zestaw wystarczający do pracy: **`tickets:read`, `tickets:comment`, `tasks:own`**.
 Konto agenta zakładane z panelu dostaje go automatycznie.
 
-### Rozpoznawanie po objawie
+#### Rozpoznawanie po objawie
 
 | co widzisz | co to znaczy | co zrobić |
 |---|---|---|
@@ -519,7 +465,7 @@ Konto agenta zakładane z panelu dostaje go automatycznie.
 | odczyt działa, zapis odmawia | klucz działa, ale nadań brakuje | to nie jest problem z kluczem — patrz zasada wyżej |
 | wszystko odmawia mimo świeżego klucza | klucz może nie być osobisty | patrz „Zasięg klucza" niżej |
 
-### Gotowe zdanie do przekazania użytkownikowi
+#### Gotowe zdanie do przekazania użytkownikowi
 
 Gdy przyczyną jest brak nadania, człowiek nie musi rozumieć modelu uprawnień. Wystarczy,
 że przekaże administratorowi to:
@@ -537,7 +483,7 @@ którego brakuje (`tickets:comment` przy wpisach).
 > osobie („na moim członkostwie") potrafi skończyć się nadaniem uprawnienia człowiekowi,
 > po którym `403` nie zniknie — i wtedy szuka się przyczyny tam, gdzie jej nie ma.
 
-### Zasięg klucza — rozpoznanie, nie wykład
+#### Zasięg klucza — rozpoznanie, nie wykład
 
 Klucz może być wystawiony na osobę, na członkostwo albo na całą Organizację. Klucz agenta
 ma być **osobisty** (`scope=user`). Objawy mówią, kiedy jest inaczej:
@@ -556,7 +502,7 @@ obejścia. Obejście działa do pierwszej zmiany uprawnień i psuje się bez ost
 
 ---
 
-## 6. Endpointy, z przykładami
+### 6. Endpointy, z przykładami
 
 Każde wywołanie potrzebuje dwóch nagłówków:
 
@@ -583,7 +529,7 @@ zgadywał to po skutku — próbował odczytu zadań i wnioskował z tego, czy k
 
 > W przykładach klucz jest w zmiennej `$SF_KEY`, a nie wpisany wprost — patrz §4.
 
-### Zadania do wzięcia
+#### Zadania do wzięcia
 
 ```bash
 curl -sS "$SF_URL/api/v1/tasks?assignee_kind=agent&status=queued&limit=200&offset=0" \
@@ -600,7 +546,7 @@ stojące dalej w kolejce nie zostanie zauważone (`sf-kit` robi to za ciebie).
 Każda pozycja ma m.in. `id`, `title`, `body_md` (treść zadania — **to jest polecenie do
 wykonania**), `status`, `assigned_agent_slug`, `ticket_id`, `ticket_ref`, `version`.
 
-### Przyjęcie zadania
+#### Przyjęcie zadania
 
 ```bash
 curl -sS -X PATCH "$SF_URL/api/v1/tasks/$TASK_ID" \
@@ -609,7 +555,7 @@ curl -sS -X PATCH "$SF_URL/api/v1/tasks/$TASK_ID" \
   -d '{"status": "in_progress"}'
 ```
 
-### Wpis na sprawie (sprawozdanie)
+#### Wpis na sprawie (sprawozdanie)
 
 ```bash
 curl -sS -X POST "$SF_URL/api/v1/tickets/$TICKET_ID/entries" \
@@ -621,7 +567,7 @@ curl -sS -X POST "$SF_URL/api/v1/tickets/$TICKET_ID/entries" \
 `visibility`: `internal` (widzi zespół) albo `public` (widzi też klient). **W razie wątpliwości
 zawsze `internal`** — treści, której klient nie miał zobaczyć, nie da się odzobaczyć.
 
-### Zamknięcie zadania
+#### Zamknięcie zadania
 
 ```bash
 curl -sS -X PATCH "$SF_URL/api/v1/tasks/$TASK_ID" \
@@ -630,7 +576,7 @@ curl -sS -X PATCH "$SF_URL/api/v1/tasks/$TASK_ID" \
   -d '{"status": "completed"}'
 ```
 
-### Komentarz do samego zadania (rzadziej potrzebny)
+#### Komentarz do samego zadania (rzadziej potrzebny)
 
 ```bash
 curl -sS -X POST "$SF_URL/api/v1/tasks/$TASK_ID/comments" \
@@ -643,7 +589,7 @@ Pole nazywa się `content`, nie `body`. Pomyłka daje `422`.
 
 ---
 
-## 7. Kody odpowiedzi
+### 7. Kody odpowiedzi
 
 | kod | co znaczy | co zrobić |
 |---|---|---|
@@ -657,7 +603,7 @@ Pole nazywa się `content`, nie `body`. Pomyłka daje `422`.
 
 ---
 
-## 8. Zasady, które nie są opcjonalne
+### 8. Zasady, które nie są opcjonalne
 
 **Nie zgaduj kontekstu.** Zadanie z pustą treścią, bez wskazanego katalogu albo bez sprawy
 nie nadaje się do wykonania. Wpis „nie mam czego wykonać, bo…" i zostawienie zadania
@@ -687,7 +633,7 @@ Gdy trzeba zgłosić błąd konfiguracji — podaj **nazwę** zmiennej, nigdy je
 
 ---
 
-## 9. Prowadzisz użytkownika
+### 9. Prowadzisz użytkownika
 
 Agent jest tu przewodnikiem: człowiek po drugiej stronie najczęściej nie zna SalesForge
 i nie ma powodu go poznawać. Kilka rzeczy, które ułatwiają tę rolę.
@@ -715,7 +661,7 @@ Gotowe zdanie do przekazania jest w §5 — użyj go zamiast tłumaczyć model u
 **Czego nie obiecywać:** że zadanie zostanie zauważone natychmiast (worker odpytuje co
 minutę) i że wynik pojawi się w powiadomieniu (Kit pisze na sprawie — tam trzeba zajrzeć).
 
-### Gdzie człowiek zobaczy wynik pracy
+#### Gdzie człowiek zobaczy wynik pracy
 
 Wynik to **wpis na sprawie** w SalesForge i tam trzeba po niego pójść — nie przychodzi
 mailem ani powiadomieniem. Drugim śladem jest samo zadanie: zmienia status na `completed`
@@ -772,7 +718,7 @@ Ramka mówi teraz wprost: pliki wynikowe do `{katalog roboczy}/outgoing/`, warsz
 pobrane strony, stan pośredni) poza nim. Jeśli piszesz zadanie, które ma dać konkretny plik,
 i tak warto podać `WYNIK: <ścieżka>` — jawne wskazanie wygrywa z konwencją.
 
-## Profil koordynator — rozdajesz pracę flocie
+### Profil koordynator — rozdajesz pracę flocie
 
 Sześć poleceń. Wszystkie wymagają uprawnienia `plans:write` w wybranej Organizacji; bez niego
 Kit odmawia na wejściu i mówi, gdzie to uprawnienie masz.
@@ -805,7 +751,7 @@ Jeden przypadek jest opisany osobno: gdy część wpisów na sprawie jest **poza
 widoczności**, Kit powie to wprost, zamiast twierdzić, że wyniku nie ma. Brak dowodu to nie
 dowód braku.
 
-### Migawka rejestru floty — `flota rejestr` (v0.10, SF-18)
+#### Migawka rejestru floty — `flota rejestr` (v0.10, SF-18)
 
 Dashboard floty w SF pokazuje **rodzaj silnika** (`claude`/`codex`/`kimi`) i **rozjazdy
 rejestru**, ale SF nie ma ich skąd wziąć: topologia floty mieszka wyłącznie w rejestrze
@@ -833,7 +779,7 @@ sf-kit --org advertpro-co flota rejestr /ścieżka/do/agents.json           # wy
 Migawka jest **per Organizacja** — wybierz tę, w której flota ma konta (`--org`). Wpisy
 agentów z innych Organizacji wrócą jako „wpis lokalny bez konta w SF".
 
-### Zadanie bez sprawy — co się wtedy dzieje
+#### Zadanie bez sprawy — co się wtedy dzieje
 
 Zadanie może nie mieć przypiętej sprawy. Wtedy **nie ma osi, na której dałoby się zostawić
 ślad** — a praca bywa już wykonana.
@@ -865,7 +811,7 @@ Adres sprawy wygląda tak: `<adres SalesForge>/tickets/<identyfikator sprawy>`. 
 bierze się z pola `ticket_id` zadania (`sf-kit tasks` pokazuje obok zadania jego sprawę —
 `ticket_ref` to nazwa czytelna dla człowieka, `ticket_id` to identyfikator do adresu).
 
-### Czego te zadania w ogóle dotyczą
+#### Czego te zadania w ogóle dotyczą
 
 Wykonawcą jest Codex pracujący **na plikach w katalogu roboczym** — więc zadania są tego
 rodzaju: uporządkuj katalog, przygotuj zestawienie z plików, popraw treść, wygeneruj
@@ -878,7 +824,7 @@ się niepowodzeniem — i będą wracać do kolejki z wpisem mówiącym, na czym
 
 ---
 
-## Profil koordynator — warstwa administracyjna: konta, nadania, klucze
+### Profil koordynator — warstwa administracyjna: konta, nadania, klucze
 
 Cztery polecenia. Powstały z jednej doby (18.09.2026, ADVERTPR-879), w której koordynatorka
 **trzy razy ogłosiła „tego się nie da"**, a funkcja istniała pod adresem, w który akurat nie
@@ -894,7 +840,7 @@ sf-kit nadaj <uuid-konta> --uprawnienie tickets:read --uprawnienie tickets:write
 sf-kit klucz-wystaw "Integracja X" --zakres user --wlasciciel arek@x.pl
 ```
 
-### Numeru Organizacji nie wpisujesz. Nigdzie
+#### Numeru Organizacji nie wpisujesz. Nigdzie
 
 Trasy administracyjne mają w ścieżce **liczbę porządkową** (`tenants.id`, np. `7`), a nagłówek
 żądania niesie **uuid** tej samej Organizacji. Dwa identyfikatory jednego bytu w jednym żądaniu
@@ -904,7 +850,7 @@ Kit nie ostrzega przed tą pułapką, tylko ją **usuwa**: podajesz `--org <slug
 Organizacja bieżąca), a tłumaczenie robi `GET /tenants`. Ta trasa oddaje `id` obok `uuid`
 także zwykłemu członkowi — nie trzeba być superadminem, żeby ją odczytać.
 
-### Każde polecenie kończy się sprawdzeniem, nie kodem odpowiedzi
+#### Każde polecenie kończy się sprawdzeniem, nie kodem odpowiedzi
 
 To jest sedno tej rundy. Wpadka z 18.09 nie polegała na tym, że coś odpowiedziało błędem —
 polegała na tym, że **serwer odpowiedział 201 na konfigurację, która nie działa** (klucz z polem
@@ -914,7 +860,7 @@ Dlatego `agent-dodaj` i `klucz-wystaw` po wystawieniu sekretu wołają nim `GET 
 czy działa i w których Organizacjach. `nadaj` po zapisie odczytuje stan i pokazuje różnicę
 (co nadane, co odebrane). Wyłącznik jest — `--bez-proby` — ale domyślnie Kit sprawdza.
 
-### Pole, którego trasa nie zna, zatrzymuje się przed wysyłką
+#### Pole, którego trasa nie zna, zatrzymuje się przed wysyłką
 
 `sf-kit kontrakt <operacja>` wypisuje nie tylko pola wymagane i opcjonalne, ale też **pola,
 których ta trasa NIE obsługuje — z adresem tej, która je obsługuje**. Te same zdania wracają
@@ -924,7 +870,7 @@ Powód jest konkretny: `PATCH /tenants/{id}/agents/{uuid}` z polem `permissions`
 18.09 **200 i nie robił nic** (poprawione po stronie API tego samego dnia). Sukces bez skutku
 jest droższy od odmowy, bo przyczyny szuka się potem w zupełnie innym miejscu.
 
-### Czego Kit świadomie nie obsługuje — i jak to sprawdzić
+#### Czego Kit świadomie nie obsługuje — i jak to sprawdzić
 
 ```bash
 sf-kit kontrakt opinie          # → „wyłącznie panel, API tego nie wystawia"
@@ -936,7 +882,7 @@ Odpowiedź „nie ma" zawsze niesie **powód**. Bez powodu to samo pytanie wraca
 wpisane do sprawy jest fałszywą diagnozą do prostowania — dokładnie tym, od czego ta sprawa
 się zaczęła.
 
-### Skąd Kit wie, co która trasa przyjmuje
+#### Skąd Kit wie, co która trasa przyjmuje
 
 Katalog operacji siedzi w `sf_kit/kontrakt.py` i działa **bez sieci**. Jest to kopia kształtu,
 który żyje po stronie SalesForge — czyli kandydat do cichego rozjazdu. Dlatego:
@@ -953,7 +899,7 @@ Docelowo kontrakt ma być czytany z serwera, nie z katalogu. Dziś się nie da:
 tej ścieżki do backendu, choć sam dokument istnieje i jest poprawny. Do czasu przepuszczenia tej
 ścieżki `--sprawdz` mówi to wprost, zamiast udawać, że sprawdził.
 
-### Uprawnienia do tych czterech poleceń
+#### Uprawnienia do tych czterech poleceń
 
 Kit **nie odsiewa** ich po uprawnieniu — rozstrzyga serwer, a Kit dba tylko o to, żeby jego
 odmowę dało się przeczytać. Powód: `agent-dodaj` wymaga superadmina SF, `nadaj` roli owner,
@@ -963,11 +909,11 @@ kto ma prawo je wykonać.
 
 ---
 
-## 9a. Scenariusze profilu AUTOR
+### 9a. Scenariusze profilu AUTOR
 
 Ta sekcja jest dla agenta, który pracuje **obok człowieka** i zgłasza wyniki do SalesForge.
 
-### „Makieta gotowa" — krok po kroku
+#### „Makieta gotowa" — krok po kroku
 
 Człowiek mówi: *skończyłam, wyślij to*. Od tego momentu prowadzisz.
 
@@ -1026,7 +972,7 @@ ma potem powiedzieć albo wkleić komuś innemu — powiedz mu to wprost:
 poprawka — wszystko `sf-kit wpis`, nie nowe zgłoszenie. Druga sprawa o tej samej makiecie
 rozdziela rozmowę na dwa miejsca i nikt już nie wie, gdzie jest aktualny stan.
 
-### „Postęp" — w trakcie pracy
+#### „Postęp" — w trakcie pracy
 
 Po każdym większym etapie, gdy człowiek chce, żeby było to widać:
 
@@ -1037,7 +983,7 @@ sf-kit wpis FM-12 --opis postep.md --zalacz podglad.png
 Nie po każdej zmianie pliku. Wpis ma odpowiadać na pytanie „co się zmieniło od ostatniego
 razu", a nie odtwarzać historię edycji — od tego jest repozytorium, nie sprawa.
 
-### Poprawianie własnych wpisów (v0.11, ADVERTPR-782)
+#### Poprawianie własnych wpisów (v0.11, ADVERTPR-782)
 
 Wpis na sprawie da się poprawić. SalesForge **zachowuje poprzednią wersję** i nikt, także
 superadmin, nie może jej skasować. Przy wpisie widać „edytowano”, a historia jest do
@@ -1074,7 +1020,7 @@ odbiera własności. **Wpisy sprzed wdrożenia** znacznika nie mają i nie są n
 tylko administrator albo superadmin. Przy odmowie Kit mówi, co zrobić: dopisać nowy wpis
 z korektą albo poprosić administratora.
 
-### Dla agenta — odpowiadaj w sprawie, treść oddawaj w wersjach (SF-51, ADVERTPR-948)
+#### Dla agenta — odpowiadaj w sprawie, treść oddawaj w wersjach (SF-51, ADVERTPR-948)
 
 Te reguły wzięły się z incydentu z 25.09: prowadzący sprawę założył **nową** sprawę w złej
 Organizacji zamiast odpowiedzieć w istniejącej. Stąd dwie twarde zasady: **zapis wymaga
@@ -1135,7 +1081,7 @@ powód jako stan serwera, nie jako własny błąd.
 sprawy nie opublikuje koordynator (`sf-kit publikuj --zgoda <wpis>`) albo człowiek w panelu,
 nikt poza wskazanymi linkiem tego nie zobaczy.
 
-### Czego NIE robić
+#### Czego NIE robić
 
 - **Nie zakładaj sprawy „na próbę".** Każda powiadamia obserwujących; sprawa testowa to
   mail do ludzi, którzy nie prosili o test. Jeśli musisz — tytuł zaczyna się od `[TEST]`
@@ -1145,9 +1091,21 @@ nikt poza wskazanymi linkiem tego nie zobaczy.
 - **Nie zgaduj, co człowiek chciał wysłać.** Brakujący plik zgłoś, zamiast wysyłać niepełną
   paczkę: zgłoszenie z połową makiety wygląda na kompletne.
 
-## 10. `sf-kit` — polecenia
+### 10. `sf-kit` — polecenia
 
-### `sf-kit inbox` — moje wiadomości (v0.5.1)
+#### Nowe w 0.13.0 — skrót
+
+| polecenie | co robi |
+|---|---|
+| `sf-kit odpowiedz <link> --opis plik.md [--wewn]` | odpowiedź w istniejącej sprawie (domyślnie wiadomość na zewnątrz, `--wewn` = wewnętrzna); Organizacja z `?org=` w linku |
+| `sf-kit --org <slug> tresc-wersja <sprawa> <plik.md> [--zmiany plik]` | kolejna wersja treści: załącznik `nazwa-vN.md` + wpis „co się zmieniło" |
+| `sf-kit --org <slug> opis-sprawy <sprawa> --plik opis.md` | krótki opis sprawy; długi na sprawie, która już ma opis → odmowa (obejście `--mimo-to`) |
+| `sf-kit publikuj <sprawa> --zgoda <wpis>` | koordynator publikuje szkic na zgodę owner/admina (wpis ≤ 7 dni) |
+| `sf-kit --org <slug> zglos --tytul … --opis plik.md` | nowa sprawa — **wymaga jawnej Organizacji** (od 0.13.0) |
+
+`--org` jest opcją globalną — stoi **przed** nazwą polecenia. Zapis bez jawnej Organizacji (`--org` albo link z `?org=`) Kit odrzuca z instrukcją. Szczegóły i scenariusze: sekcja 9a.
+
+#### `sf-kit inbox` — moje wiadomości (v0.5.1)
 
 ```bash
 sf-kit inbox                 # pokaż i POTWIERDŹ odbiór (domyślnie)
@@ -1166,7 +1124,7 @@ Kody: `3` = skrzynka niedostępna (503 przed rewizją bazy albo `422` — klucz 
 lub konto bez sluga agenckiego), `1` = pokazano, ale nie udało się potwierdzić odbioru
 (wiadomości wrócą w następnym takcie).
 
-### `sf-kit outbox` — czy to, co wysłałem, doszło (v0.5.1)
+#### `sf-kit outbox` — czy to, co wysłałem, doszło (v0.5.1)
 
 ```bash
 sf-kit outbox                # moje wysyłki z okna, z rozbiciem na adresatów
@@ -1200,7 +1158,7 @@ do sprawy w cudzej Organizacji wygląda dokładnie jak poprawna praca.
 **Profil `worker` — ciągniesz zadania z kolejki:**
 
 ```bash
-sf-kit tasks                    # pokaż zadania w kolejce dla twojego sluga
+sf-kit tasks                    # pokaż zadania w kolejce dla sluga agenta
 sf-kit worker                   # pętla: bierz zadania, wykonuj, raportuj
 sf-kit worker --runtime kimi    # wykonawca: codex (domyślnie) | kimi | shell
 sf-kit worker --once            # jeden przebieg zamiast pętli
@@ -1278,7 +1236,7 @@ Klucz i ustawienia leżą **poza** katalogiem Kitu, więc `git pull` ich nie dot
 są oznaczane tagami (`v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, `v0.5.0`); żeby stanąć na konkretnym:
 `git fetch --tags && git checkout v0.5.0`.
 
-### Co Codex dostaje do wykonania
+#### Co Codex dostaje do wykonania
 
 Treść zadania idzie do Codexa **w ramce**: kim jest (agent o twoim slugu), gdzie wolno mu
 pracować (katalog roboczy i nic poza nim), czego nie wolno (sekrety, wyjście poza katalog)
@@ -1295,7 +1253,7 @@ gita, dochodzi `--skip-git-repo-check`; w repozytorium ta ochrona zostaje.
 Prompt idzie na **wejście standardowe**, nie w argument: treść zadania bywa długa,
 a argumenty procesu widzi każdy na maszynie.
 
-### Wykonawca `kimi`
+#### Wykonawca `kimi`
 
 Od v0.5 Kit umie też **Kimi Code CLI** (Moonshot). Wybór jak przy Codexie — `--runtime kimi`
 albo `runtime` w ustawieniach. Kimi, tak jak Codex, dostaje treść zadania **w ramce**, bo model
@@ -1326,7 +1284,7 @@ numerują się od zera. Zepsuta instalacja albo pomoc bez żadnej z tych flag ko
 Logowanie: `kimi login` (OAuth w przeglądarce, subskrypcja Kimi Code) — jak `codex login`.
 Bez niego `kimi --prompt` kończy się „No model configured" — to jest brak logowania, nie błąd Kitu.
 
-### Kolejka należy do workera, nie do sesji (v0.5.3)
+#### Kolejka należy do workera, nie do sesji (v0.5.3)
 
 Każdy wykonawca ma **dwa konta w SalesForge**: `{nazwa}-worker` (usługa, chodzi sama)
 i `{nazwa}` (sesja, przy której siedzi człowiek). Tak stoi Kimi i tak samo Kodeks.
@@ -1355,7 +1313,7 @@ ktoś przy klawiaturze" wraca przy każdej reklamacji — i nie ma na nie odpowi
 Dwa konta jednego wykonawcy chodzą zwykle na tej samej maszynie i do v0.5.2 nadpisywały sobie
 ślad życia — czujka widziała jedno tętno, uznawała oba za żywe i nie zauważała, że jeden leży.
 
-### Kontekst sprawy i miejsce wyniku (v0.12.0, SF-38)
+#### Kontekst sprawy i miejsce wyniku (v0.12.0, SF-38)
 
 **Przed startem** zadania przy sprawie worker (dla wykonawców `codex` i `kimi`):
 
@@ -1391,7 +1349,7 @@ odmowy — nie przepada.
 (`SF potwierdził załączniki: 2 z 2`). Gdy przyjął mniej, niż wysłano, na sprawę idzie notka
 „Załącznik NIE dołączony" z nazwami — zamiast cichego sukcesu.
 
-### Reakcja w trakcie zadania — co możesz powiedzieć workerowi
+#### Reakcja w trakcie zadania — co możesz powiedzieć workerowi
 
 Do v0.4 zadanie było atomowe: worker je brał i oddawał wynik, a ty przez ten czas nie miałeś
 jak nic powiedzieć. Od v0.5 worker **czyta komentarze pod zadaniem** i reaguje na trzy rzeczy.
@@ -1422,7 +1380,7 @@ polecenia; tak możesz zobaczyć, co powstało, i sam zdecydować.
 **Komentarz sprzed wzięcia zadania nie liczy się jako reakcja** — to część zlecenia, którą
 worker już ma w treści.
 
-### Skąd wiesz, że worker żyje — „krok N z M"
+#### Skąd wiesz, że worker żyje — „krok N z M"
 
 Zadanie w toku wygląda tak samo jak zawieszone: `in_progress` i cisza. Od v0.5 worker dopisuje
 pod zadaniem `krok N z M: <co robi>` przy każdej zmianie kroku (odbiór → wykonanie →
@@ -1432,7 +1390,7 @@ zobaczysz więc jeden wpis, a nie cztery.
 Wyjątek: **zadanie bez sprawy nie dostaje telemetrii w ogóle**. Tam komentarz zadania jest
 jedynym miejscem, gdzie ląduje wynik, i nie ma go co przykrywać.
 
-### Tryb testowy `shell` (tylko dla administratora)
+#### Tryb testowy `shell` (tylko dla administratora)
 
 `--runtime shell` wykonuje treść zadania **jako polecenie powłoki**. Służy wyłącznie do
 sprawdzenia, czy cała pętla (odbiór → wykonanie → wpis → zamknięcie) działa **bez modelu** —
@@ -1448,7 +1406,7 @@ Bez tego `--runtime shell` odmawia i wyjaśnia dlaczego. Dwa kroki zamiast jedne
 celowo: w tym trybie treść dowolnego zadania z kolejki staje się poleceniem wykonanym na
 tej maszynie.
 
-### Zadanie odrzucone trafia na `on_hold` (v0.5.2)
+#### Zadanie odrzucone trafia na `on_hold` (v0.5.2)
 
 Zadanie, którego nie da się wykonać bez zgadywania (pusta treść, brak katalogu roboczego),
 dostaje wpis z powodem i **ląduje na `on_hold`** — nie zostaje w kolejce.
@@ -1461,7 +1419,7 @@ w systemie nie ma, a `completed` liczyłoby się do domknięć jako praca wykona
 
 Żeby wróciło do obiegu: uzupełnij zadanie i przestaw je na `queued`.
 
-### Co worker robi przy kłopotach
+#### Co worker robi przy kłopotach
 
 Ważne przy zostawianiu go bez nadzoru — i inne dla każdego rodzaju kłopotu:
 
@@ -1479,7 +1437,7 @@ Ważne przy zostawianiu go bez nadzoru — i inne dla każdego rodzaju kłopotu:
 Workera uruchomionego w terminalu zatrzymuje **Ctrl+C**. Uruchomionego w tle — sposobem
 właściwym dla wybranego mechanizmu ([`uruchamianie/`](uruchamianie/README.md)).
 
-### Worker jako usługa — żeby nie znikał razem z terminalem
+#### Worker jako usługa — żeby nie znikał razem z terminalem
 
 Worker uruchomiony ręcznie żyje tak długo, jak sesja SSH. Po rozłączeniu, po restarcie maszyny
 albo po jednym nieobsłużonym wyjątku po prostu znika — i **nikt się o tym nie dowiaduje**, bo
@@ -1500,8 +1458,8 @@ Włączenie (usługa użytkownika, bez `sudo`):
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now sf-kit-worker@<twój-slug>.service
-systemctl --user status sf-kit-worker@<twój-slug>.service
+systemctl --user enable --now sf-kit-worker@<slug-agenta>.service
+systemctl --user status sf-kit-worker@<slug-agenta>.service
 sudo loginctl enable-linger $USER    # żeby chodził też, gdy nie jesteś zalogowany
 ```
 
@@ -1550,7 +1508,7 @@ Dwie rzeczy, które warto wiedzieć, zanim ustawisz własny próg:
   łączności z SalesForge nadal je zapisuje, więc da się odróżnić „worker padł" od „worker żyje,
   ale nie ma jak tego powiedzieć". To dwie różne awarie i wymagają czego innego.
 
-### Kilku agentów na jednej maszynie
+#### Kilku agentów na jednej maszynie
 
 Jeden człowiek może prowadzić kilku agentów — po jednym na profil albo na Organizację.
 Kit trzyma wtedy **osobną konfigurację i osobny klucz dla każdego**:
@@ -1582,7 +1540,7 @@ Alternatywa dla flagi: `SF_KIT_HOME=/ścieżka/do/katalogu sf-kit …` — wskaz
 wprost i wygrywa ze wszystkim. Przydaje się w kontenerze i przy uruchamianiu w tle
 (jeden proces na agenta — patrz [`uruchamianie/`](uruchamianie/README.md)).
 
-### `sf-kit os` — oś sprawy (v0.8)
+#### `sf-kit os` — oś sprawy (v0.8)
 
 Oś to ciąg **bloków**: wpisów, wiadomości, zmian pól, zdarzeń. Kit pokazuje ją tak samo,
 jak panel — łącznie z domyślką, bo dwa widoki tej samej sprawy różniące się domyślnie
@@ -1620,7 +1578,7 @@ Jeśli serwer jest starszy niż zwijanie (E4a), `--zwinieta` nie zadziała, a Sa
 zaprotestuje** — odda pełną oś ze statusem 200. Kit rozpoznaje to i mówi wprost: „pełna oś,
 serwer nie zwija".
 
-### `sf-kit blok` — jeden blok w całości (v0.8)
+#### `sf-kit blok` — jeden blok w całości (v0.8)
 
 ```bash
 sf-kit blok typy                     # katalog rodzajów: stany i akcje z uprawnieniami
@@ -1639,7 +1597,7 @@ mówi, że to nie wygląda na identyfikator.
 `503` znaczy „ten serwer nie ma jeszcze rdzenia Bloku" (rewizja E1). To stan instalacji,
 nie Twój błąd — i czekanie tu nie pomoże, pomoże migracja.
 
-### Kiedy coś nie działa
+#### Kiedy coś nie działa
 
 Objawy, które już widzieliśmy, z przyczyną i poprawką. Najpierw zawsze `sf-kit whoami` — jego
 wynik można w całości wkleić do wpisu na sprawie (klucz jest w nim tylko skrótem).
@@ -1673,7 +1631,7 @@ do zmiany statusu zadania. `whoami` tego nie sprawdza — jedyną próbą byłab
 statusu na czyimś zadaniu, więc mówi o tym dopiero worker, zanim cokolwiek wykona. Poprawka
 po stronie administratora (nadanie na członkostwie).
 
-### Zmiana ustawień po `init`
+#### Zmiana ustawień po `init`
 
 Najprościej uruchomić `sf-kit init` jeszcze raz (Enter zostawia dotychczasowe wartości).
 Można też poprawić plik `~/.config/sf-kit/config.json` — nazwy pól:
@@ -1699,7 +1657,7 @@ wykonanie jednego zadania (1800 = 30 minut).
 `katalog_roboczy`) i wtedy wygrywa; gdy nie ma ani jednego, ani drugiego — albo wskazany
 katalog nie istnieje — zadanie zostaje odrzucone z wpisem, zamiast być wykonane byle gdzie.
 
-### Testy
+#### Testy
 
 ```bash
 python3 -m unittest discover -s testy
@@ -1709,7 +1667,7 @@ Chodzą na atrapie SalesForge — bez sieci i bez dotykania czyichkolwiek spraw.
 
 ---
 
-## 11. Ograniczenia wersji 0.11
+### 11. Ograniczenia wersji 0.11
 
 Najpierw to, co **przestało** być ograniczeniem w tej wersji — bo poprzednie wydanie mówiło
 tu coś, co dziś jest nieprawdą:
@@ -1825,12 +1783,12 @@ kanał także na pytania o sam Kit.
 
 ---
 
-## 12. Dla administratora SalesForge
+### 12. Dla administratora SalesForge
 
 Ta sekcja jest dla osoby, która zakłada konta agentów i nadaje uprawnienia. Agent pracujący
 Kitem nie musi jej czytać.
 
-### Zakładanie konta agenta z panelu
+#### Zakładanie konta agenta z panelu
 
 1. **Użytkownicy → Dodaj → Agent.** Podaj nazwę i **slug** (np. `codex-formarketing`) —
    slug jest tym, po czym agent rozpoznaje swoje zadania i musi być unikalny w Organizacji.
@@ -1850,7 +1808,7 @@ Kitem nie musi jej czytać.
 nie daje żadnego błędu: `whoami` mówi „działa", a `tasks` pokazuje „brak zadań" —
 nieodróżnialnie od stanu, w którym nic jeszcze nie przypisano.
 
-### Zestawy uprawnień per profil
+#### Zestawy uprawnień per profil
 
 | profil | uprawnienia na członkostwie | po co |
 |---|---|---|
@@ -1876,7 +1834,7 @@ w drugiej.
 **Załączniki nie mają własnego uprawnienia.** Wysyłka plików idzie tą samą trasą co wpis
 i bramkuje ją `tickets:comment`. Kto może napisać wpis, może dołączyć do niego pliki.
 
-### Obserwujący sprawy zakładane przez agenta
+#### Obserwujący sprawy zakładane przez agenta
 
 Backend **nie dopisuje nikogo poza samym autorem**, gdy sprawa powstaje kluczem API. Sprawa
 założona przez agenta spoza floty nie powiadomiłaby więc **nikogo** — leżałaby, wyglądając
@@ -1892,7 +1850,7 @@ To są **identyfikatory kont**, nie adresy — i wpisuje je administrator, bo ag
 jak odczytać (lista kont jest dla jego klucza niedostępna). Znajdziesz je w panelu, w adresie
 profilu użytkownika. Jest to znana niedogodność, nie docelowy kształt (§11).
 
-### Zmiana uprawnień bez wymiany klucza
+#### Zmiana uprawnień bez wymiany klucza
 
 Uprawnienia nadaje się **na członkostwie użytkownika w Organizacji**, nie na kluczu.
 Dodanie nadania działa natychmiast i tym samym kluczem — agent nie musi nic u siebie
@@ -1903,7 +1861,7 @@ jest sufitem (uprawnienia efektywne = prawa właściciela ∩ lista na kluczu), 
 potrzebne uprawnienie musi być wtedy w **obu** miejscach. Dla kluczy agentów prościej
 jest listy na kluczu nie ustawiać.
 
-### Zasięgi kluczy
+#### Zasięgi kluczy
 
 | zasięg | dla kogo | uwaga |
 |---|---|---|
@@ -1914,7 +1872,7 @@ jest listy na kluczu nie ustawiać.
 Klucz `member` albo `tenant` u agenta to błąd konfiguracji, a jego objawy (§5) łatwo pomylić
 z brakiem uprawnień.
 
-### Zgłoszone braki po stronie SalesForge
+#### Zgłoszone braki po stronie SalesForge
 
 Sprawy w Organizacji `advertpro-co` (dostęp wymaga konta):
 
@@ -1925,7 +1883,7 @@ Sprawy w Organizacji `advertpro-co` (dostęp wymaga konta):
 
 ---
 
-## 13. Słownik
+### 13. Słownik
 
 Nazwy używane w interfejsie SalesForge — żeby agent mówił o rzeczach tak, jak widzi je
 jego użytkownik.
