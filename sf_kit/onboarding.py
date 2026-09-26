@@ -1,5 +1,6 @@
 """`sf-kit init` — lista agentów, tryb dodawania (klucz → `GET /me`) i tryb edycji.
 
+v0.1.1 (26.09.2026) - APro Agents / borys-sf — B3: nazwa z /me walidowana przed użyciem w ścieżce
 v0.1 (26.09.2026) - APro Agents / kimi-autor · decyzje Damiana 26.09 (ADVERTPR-960, runda 2)
 
 CO SIĘ ZMIENIŁO WOBEC STAREGO `init`
@@ -29,6 +30,7 @@ bez flagi zostaje tam, gdzie było poprawione w 0.13.4 (ADVERTPR-936, wariant B)
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -157,21 +159,35 @@ def _me_dla(adres: str, klucz_wartosc: str) -> tozsamosc.Tozsamosc:
     return tozsamosc.z_odpowiedzi(Klient(baza=adres, klucz=klucz_wartosc).kim_jestem())
 
 
+#: Wzorzec sluga agenta — ten sam, którym SF waliduje `agent_slug` (`AGENT_SLUG_RE`).
+#: B3 z przeglądu rundy 2 (borys): nazwa z `/me` staje się NAZWĄ KATALOGU, w którym Kit zapisuje
+#: config i KLUCZ. `../../gdzies` z odpowiedzi serwera wyprowadzało oba pliki poza `sf-kit/`
+#: (odtworzone 26.09). Serwer waliduje slug dopiero od 03.08, a część adresu przed `@` nie
+#: przechodzi tam żadnej walidacji — więc Kit sprawdza sam, zanim użyje wartości w ścieżce.
+WZORZEC_NAZWY = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def _jako_nazwa(z_adresu: str) -> str:
+    """`Jan.Kowalski+sf` → `jan-kowalski-sf`: część adresu sprowadzona do wzorca sluga."""
+    return re.sub(r"[^a-z0-9]+", "-", z_adresu.lower()).strip("-")
+
+
 def _nazwa_z_me(toz: tozsamosc.Tozsamosc) -> str | None:
     """Nazwa agenta na tej maszynie, WEDŁUG SF — nie pytamy człowieka.
 
     Slug bierzemy z członkostw (wspólny dla wszystkich Organizacji; przy dwóch
-    różnych nie zgadujemy). Klucz osobisty bez `agent_slug` → część adresu przed `@`.
+    różnych nie zgadujemy). Klucz osobisty bez `agent_slug` → część adresu przed `@`,
+    sprowadzona do wzorca sluga. Wartość spoza wzorca → `None` (nie tworzymy katalogu).
     """
     slugi = {o.agent_slug for o in toz.organizacje if o.agent_slug}
-    if len(slugi) == 1:
-        return slugi.pop()
     if len(slugi) > 1:
         return None
-    email = (toz.konto_email or "")
-    if "@" in email:
-        return email.split("@", 1)[0]
-    return None
+    if len(slugi) == 1:
+        nazwa = slugi.pop()
+    else:
+        email = (toz.konto_email or "")
+        nazwa = _jako_nazwa(email.split("@", 1)[0]) if "@" in email else ""
+    return nazwa if nazwa and len(nazwa) <= 60 and WZORZEC_NAZWY.match(nazwa) else None
 
 
 def _suma_uprawnien(organizacje: list[tozsamosc.Organizacja]) -> list[str]:
@@ -263,9 +279,9 @@ def _tryb_dodawania(*, ochrona, jak_wolac) -> int:
                   + ") — nie zgaduję, która jest właściwa. Uporządkuj slugi w panelu "
                     "SalesForge i spróbuj ponownie.", file=sys.stderr)
         else:
-            print("SF nie podaje nazwy tego konta (brak sluga agenta i adresu e-mail) — "
-                  "nadaj agentowi slug w panelu SalesForge i spróbuj ponownie.",
-                  file=sys.stderr)
+            print("SF nie podaje poprawnej nazwy tego konta (brak sluga agenta albo slug spoza "
+                  "wzoru małe litery, cyfry i myślniki) — nadaj agentowi slug w panelu "
+                  "SalesForge i spróbuj ponownie.", file=sys.stderr)
         return 2
 
     if nazwa in magazyn_klucza.agenci():

@@ -108,6 +108,21 @@ class TestNazwaZMe(unittest.TestCase):
             _me(_org("sf", "claude-jkowalski"), _org("inna", "claude-inny")))
         self.assertIsNone(onboarding._nazwa_z_me(toz))
 
+    def test_nazwa_ze_sciezka_z_serwera_jest_odrzucana(self):
+        """B3 (borys, runda 2): nazwa z `/me` staje się katalogiem configu i KLUCZA.
+        `../../x` wyprowadzało oba pliki poza `sf-kit/` — odtworzone 26.09."""
+        for zly in ("../../poza-kita", "a/b", "..", "Duze-Litery", "-z-myslnikiem", "x" * 61):
+            toz = onboarding.tozsamosc.z_odpowiedzi(_me(_org("sf", zly)))
+            self.assertIsNone(onboarding._nazwa_z_me(toz), zly)
+
+    def test_czesc_adresu_sprowadzona_do_wzorca_sluga(self):
+        for email, nazwa in (("Jan.Kowalski+sf@firma.pl", "jan-kowalski-sf"),
+                             ("../../x@firma.pl", "x"), ("...@firma.pl", None)):
+            me = {"konto": {"nazwa": "X", "email": email},
+                  "organizacje": [{"tenant_uuid": "u", "slug": "o", "nazwa": "O", "agent_slug": None,
+                                   "uprawnienia_efektywne": ["tickets:read"]}]}
+            self.assertEqual(onboarding._nazwa_z_me(onboarding.tozsamosc.z_odpowiedzi(me)), nazwa, email)
+
 
 class TestDodawanie(unittest.TestCase):
     def test_profil_z_uprawnien_trafia_do_ustawien(self):
