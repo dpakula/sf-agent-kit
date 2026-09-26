@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sf_kit import cli, klucz  # noqa: E402
+from sf_kit import klucz, onboarding  # noqa: E402
 from sf_kit import config as konfiguracja  # noqa: E402
 
 
@@ -65,7 +65,7 @@ class ProfilAsystent(unittest.TestCase):
         self.assertEqual(err.getvalue(), "")
 
     def test_lista_profili_nie_zna_juz_autora(self):
-        self.assertEqual(cli.PROFILE, ("worker", "asystent", "koordynator"))
+        self.assertEqual(onboarding.PROFILE, ("worker", "asystent", "koordynator"))
         self.assertEqual(konfiguracja.PROFIL_ALIASY, {"autor": "asystent"})
 
 

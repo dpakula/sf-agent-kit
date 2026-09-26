@@ -13,11 +13,12 @@ DWIE RÓŻNE RZECZY, KTÓRE TEN MODUŁ ROBI
    być czytany (to jest jedna z trzech przyczyn krytyki na sprawie).
 2. **PODMIENIA KOD.** `sf-kit update [--check]` oraz automatyczny patch workera
    (`auto_update: patch`) chodzą TĄ SAMĄ drogą: odmowa przy brudnym drzewie śledzonych
-   plików, pobranie tagów, przejście na tag WSKAZANY PRZEZ SF i weryfikacja, że
-   HEAD == commit z SF — przy rozjazdzie zmiana jest wycofywana i zgłaszany błąd.
-   SF jest tu jedynym źródłem prawdy o tym, CO zainstalować: tag na GitHubie sam w sobie
-   nic nie znaczy, dopiero zgodność z commit-em z SF coś potwierdza (krytyka „łańcuch
-   dostaw" z opisu sprawy).
+   plików, WALIDACJA tagu i commitu z SF (wzorce vX.Y.Z / SHA-40) jeszcze przed gitem,
+   pobranie tagów, weryfikacja `tag^{commit}` == commit z SF i dopiero checkout `--detach`
+   na TEN commit — przy rozjazdzie ODMAWA PRZED ZMIANĄ, więc wycofywanie nie jest
+   potrzebne (B1/B2 z przeglądu 94268501 na 960). SF jest tu jedynym źródłem prawdy
+   o tym, CO zainstalować: tag na GitHubie sam w sobie nic nie znaczy, dopiero zgodność
+   z commit-em z SF coś potwierdza (krytyka „łańcuch dostaw" z opisu sprawy).
 
 DLACZEGO WORKER SIĘ RESTARTUJE KODEM WYJŚCIA
 Podmiana kodu pod działającym procesem psuje importy (stary worker padłby przy pierwszym
@@ -36,6 +37,7 @@ import time
 from pathlib import Path
 
 from . import WERSJA
+from . import api
 from .api import BladAPI
 from .klucz import sciezka_konfiguracji
 
@@ -71,6 +73,13 @@ KOD_RESTARTU_PO_AKTUALIZACJI = 75
 #: Bez któregokolwiek z nich nie wiemy, CO zainstalować, więc traktujemy odpowiedź
 #: jako niezgodną z kontraktem, nie jako „brak aktualizacji".
 WYMAGANE_POLA = ("latest", "min", "tag", "commit")
+
+#: Wzorce pól `tag` i `commit` z SF (B1 z przeglądu 94268501 na 960). TE WARTOŚCI TRAFAJĄ
+#: DO GITU, więc Kit sprawdza je lokalnie, zanim cokolwiek z nich użyje — serwer waliduje
+#: po swojej stronie, ale Kit nie polega na cudzym sprawdzeniu: napis zaczynający się
+#: od `-` zostałby przez gita odczytany jako OPCJA, a nie ref.
+WZORZEC_TAGU = re.compile(r"^v\d+\.\d+\.\d+$")
+WZORZEC_COMMITA = re.compile(r"^[0-9a-f]{40}$")
 
 
 class BladAktualizacji(RuntimeError):
@@ -173,7 +182,41 @@ def pobierz_info(klient) -> dict:
         raise BladAktualizacji(
             f"SF nie podał w `GET /kit/version` pól: {', '.join(braki)} — bez nich nie "
             f"wiem, co zainstalować. Kontrakt (ADVERTPR-960) się zmienił?")
+    if not WZORZEC_TAGU.match(str(info["tag"])):
+        raise BladAktualizacji(
+            f"SF podał tag „{info['tag']}”, który nie wygląda na wydanie (oczekiwany wzór "
+            f"vX.Y.Z). Nie użyję tego przy gicie — zgłoś to na sprawie ADVERTPR-960.")
+    if not WZORZEC_COMMITA.match(str(info["commit"])):
+        raise BladAktualizacji(
+            f"SF podał commit „{info['commit']}”, który nie jest pełnym SHA-40 (małe litery "
+            f"hex). Nie użyję tego przy gicie — zgłoś to na sprawie ADVERTPR-960.")
     return info
+
+
+def odswiez_z_naglowkow(latest: str | None, minimalna: str | None) -> None:
+    """Zapis `latest`/`min` z nagłówków `X-Kit-Latest`/`X-Kit-Min` do pamięci podręcznej.
+
+    Nagłówki niesie KAŻDA odpowiedź serwera (także 401/403), więc od tej strony Kit dowiaduje
+    się o wersjach na bieżąco — dobowe `GET /kit/version` zostaje ZAPASEM, od którego bierzemy
+    `tag`, `commit` i `breaking`. Dlatego tu NIE stawiamy `sprawdzono_o`: nagłówki mówią
+    TYLKO o wersjach, a pełny zapis ma oznaczać pełną odpowiedź.
+
+    Zapisujemy wyłącznie do katalogu ISTNIEJĄCEGO agenta: gdy `init` pyta `GET /me`, zanim
+    nowy podkatalog powstanie, ścieżka konfiguracji wskazywałaby jeszcze katalog bazowy
+    (albo cudzego agenta) — wersje z takiej odpowiedzi nie mają tam czego robić.
+    """
+    try:
+        katalog = sciezka_konfiguracji()
+    except Exception:                      # noqa: BLE001 — stany przejściowe (kilku agentów bez flagi)
+        return
+    if not (katalog / "config.json").is_file():
+        return
+    pamiec = wczytaj_pamiec(katalog / PLIK_PAMIECI)
+    if latest:
+        pamiec["latest"] = str(latest)
+    if minimalna:
+        pamiec["min"] = str(minimalna)
+    zapisz_pamiec(pamiec, katalog / PLIK_PAMIECI)
 
 
 def sprawdz_wersje(klient, *, teraz: float | None = None, wymusz: bool = False,
@@ -326,13 +369,35 @@ class Repo:
     def head(self) -> str:
         return self._git_albo_blad("odczytać HEAD", "rev-parse", "HEAD").strip()
 
-    def przejdz_na(self, tag: str) -> None:
-        # BEZ `--` przed refem: po `--` git czyta argument jako ŚCIEŻKĘ i `checkout -- v0.13.3`
-        # kończy się „pathspec did not match" (złapał to test end-to-end na prawdziwym klonie).
-        self._git_albo_blad("przejść na wydanie", "checkout", tag)
+    def potwierdz_zgodnosc(self, tag: str, commit: str) -> None:
+        """`git rev-parse --verify <tag>^{commit}` — co w repo PO PRAWDZIE wskazuje tag.
 
-    def wroc_do(self, ref: str) -> None:
-        self._git_albo_blad("wycofać zmianę", "checkout", ref)
+        Zgodność z commitem z SF sprawdzamy PRZED jakimkolwiek checkoutem (B1 z przeglądu
+        94268501): przy rozjazdzie ODMAWIAMY, więc wycofywanie zmian przestaje być potrzebne
+        — i znika B2, bo komunikat pokazuje NIEZGODNY commit, nie stary HEAD.
+        """
+        wynik = self._git("rev-parse", "--verify", f"{tag}^{{commit}}")
+        if wynik.returncode != 0:
+            szczegoly = (wynik.stderr or wynik.stdout or "").strip()[:200]
+            raise BladAktualizacji(
+                f"WERYFIKACJA NIE PRZESZŁA: po pobraniu tagów w repo nie ma tagu {tag} albo "
+                f"nie wskazuje on na żaden commit ({szczegoly}).\nNiczego nie zmieniłem — "
+                f"to oznacza rozjazd między repo a SF. Zgłoś to na sprawie ADVERTPR-960.")
+        wskazuje = wynik.stdout.strip()
+        if wskazuje != commit:
+            raise BladAktualizacji(
+                f"WERYFIKACJA NIE PRZESZŁA: w repo tag {tag} wskazuje na {wskazuje[:12]}, "
+                f"a SF wymaga {commit[:12]}.\nNiczego nie zmieniłem — zostałeś przy "
+                f"v{WERSJA}. To oznacza rozjazd między repo a SF (tag przesunięty albo SF "
+                f"wskazuje inny commit, niż wypuszczono). Zgłoś to na sprawie ADVERTPR-960.")
+
+    def przejdz_na(self, commit: str) -> None:
+        # Checkout `--detach` na SAMYM COMMICIE z SF, nie na tagu — po B1 weryfikacja
+        # zgodności jest PRZED checkoutem, a detached HEAD nie podąży za ewentualnie
+        # przesuniętym później tagiem. BEZ `--` przed refem: po `--` git czyta argument
+        # jako ŚCIEŻKĘ i `checkout -- v0.13.3` kończy się „pathspec did not match"
+        # (złapał to test end-to-end na prawdziwym klonie).
+        self._git_albo_blad("przejść na wydanie", "checkout", "--detach", commit)
 
     def dziennik_zmian(self, od_sha: str, do_sha: str) -> str:
         """`git log --oneline od..do` — co się zmieniło między wersjami, dla człowieka."""
@@ -343,12 +408,18 @@ class Repo:
 # ── właściwa aktualizacja ─────────────────────────────────────────────────────
 
 
-def aktualizuj(klient, *, repo: Repo | None = None, mow=print) -> bool:
+def aktualizuj(klient, *, repo: Repo | None = None, mow=print, wymusz: bool = False) -> bool:
     """Przejdź na wydanie wskazane przez SF. Oddaje `True`, gdy kod faktycznie podmieniono.
 
     Droga (jedna dla `sf-kit update` i dla automatycznego patcha workera):
-    brudne drzewo → odmowa · pobranie tagów · checkout tagu z SF · WERYFIKACJA
-    HEAD == commit z SF (przy rozjazdzie wycofanie i błąd) · pokazanie zmian.
+    brudne drzewo → odmowa · walidacja wzorców tag/commit (B1) · pobranie tagów ·
+    WERYFIKACJA `tag^{commit}` == commit z SF PRZED checkoutem (przy rozjazdzie odmowa,
+    zero wycofywania — B1/B2) · `checkout --detach` na commit · pokazanie zmian.
+
+    `wymusz` (flaga `--force` u człowieka) pozwala przejść na wydanie, które SF wskazuje
+    jako STARSZE od zainstalowanego — bez niej taki ruch odmawiamy (7a z przeglądu),
+    bo cofanie wersji bez pytania to niespodzianka. Automatyczny patch workera NIGDY
+    nie przekazuje `wymusz`.
     """
     repo = repo if repo is not None else Repo.znajdz()
     if repo is None:
@@ -360,9 +431,20 @@ def aktualizuj(klient, *, repo: Repo | None = None, mow=print) -> bool:
     tag = info["tag"]
     commit = info["commit"]
 
-    if porownaj_wersje(WERSJA, info["latest"]) >= 0:
-        mow(f"Masz najnowszą wersję Kita (v{WERSJA}).")
+    porownanie = porownaj_wersje(WERSJA, info["latest"])
+    if porownanie >= 0 and not wymusz:
+        if porownanie > 0:
+            # 7a z przeglądu 94268501: SF pokazuje coś STARSZEGO niż stoi na maszynie
+            # (przejściowa niespójność po wydaniu albo ręczny checkout) — „najnowsza"
+            # byłaby nieprawdą, a podmiana na starsze bez pytania byłaby cofaniem.
+            mow(f"SF wskazuje starszą wersję ({info['latest']}) niż zainstalowana "
+                f"(v{WERSJA}) — nie cofam bez --force.")
+        else:
+            mow(f"Masz najnowszą wersję Kita (v{WERSJA}).")
         return False
+    if wymusz and porownanie > 0:
+        mow(f"Wymuszam przejście z v{WERSJA} na {tag}, choć SF wskazuje wersję "
+            f"{info['latest']} — to cofnięcie wersji, rób to świadomie.")
 
     brudne = repo.brudne_pliki()
     if brudne:
@@ -376,23 +458,16 @@ def aktualizuj(klient, *, repo: Repo | None = None, mow=print) -> bool:
 
     mow(f"Aktualizuję Kita z v{WERSJA} do {tag}…")
     repo.pobierz_tagi()
+    repo.potwierdz_zgodnosc(tag, commit)   # PRZED checkoutem — rozjazd = odmowa, bez wycofywania
     stary_head = repo.head()
-    repo.przejdz_na(tag)
-
-    if repo.head() != commit:
-        repo.wroc_do(stary_head)
-        raise BladAktualizacji(
-            f"WERYFIKACJA NIE PRZESZŁA: po przejściu na {tag} HEAD to {repo.head()[:12]}, "
-            f"a SF wymaga {commit[:12]}. Zmiana wycofana — zostałeś przy v{WERSJA}.\n"
-            f"To oznacza rozjazd między repo a SF (tag przesunięty albo SF wskazuje inny "
-            f"commit, niż wypuszczono). Zgłoś to na sprawie ADVERTPR-960 — dalej nie ruszaj.")
+    repo.przejdz_na(commit)
 
     zmiany = repo.dziennik_zmian(stary_head, commit)
     if zmiany:
         mow(f"\nZmiany od v{WERSJA}:")
         mow(zmiany)
     mow(f"\nZaktualizowano: v{WERSJA} → {tag} "
-        f"(sprawdzone zgodnie z SF: HEAD == {commit[:12]}).")
+        f"(sprawdzone zgodnie z SF: {tag} == {commit[:12]}).")
     if info.get("breaking"):
         mow(f"UWAGA: to wydanie ZRYWA zgodność — przeczytaj: {info.get('notes_url') or '—'}")
     return True
@@ -516,3 +591,10 @@ def restart_hint(konf) -> str:
                 f"launchctl kickstart -k gui/$(id -u)/pl.dpakula.sf-kit.worker.{slug}")
     return (f"Worker na tej maszynie działa na STARYM kodzie, dopóki się nie zrestartuje: "
             f"systemctl --user restart sf-kit-worker@{slug}")
+
+
+#: Nagłówki `X-Kit-Latest`/`X-Kit-Min` niesie KAŻDA odpowiedź serwera (także 401/403),
+#: więc to `_wywolaj` (api.py) jest jedynym miejscem, które je wszystkie widzi. Oddaje je
+#: tutaj do zapisu — podpięcie od strony `aktualizacje`, żeby `api.py` pozostał warstwą,
+#: która sama z siebie niczego na dysk nie zapisuje.
+api.podpin_odswiezanie_wersji(odswiez_z_naglowkow)

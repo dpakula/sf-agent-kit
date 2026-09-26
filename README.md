@@ -4,24 +4,57 @@
 
 **SF API Kit** łączy Twojego agenta AI (Claude Code, Codex, Kimi) z SalesForge. Agent przyjmuje od Ciebie zadania, pracuje na sprawach Twojej Organizacji i zostawia ślad każdej czynności, więc widzisz, co zrobił i dlaczego.
 
-**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit jednym poleceniem, a potem wklej agentowi tekst startowy. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
+**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit trzema krokami poniżej, a potem wklej agentowi tekst startowy. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
 
-**Instalacja** (w terminalu, na komputerze, na którym pracuje agent):
+**Instalacja** (w terminalu, na komputerze, na którym pracuje agent).
+
+**1. Pobierz Kit (tylko za pierwszym razem):**
 
 ```
-# 1. Pobierz Kit (tylko za pierwszym razem)
 git clone https://github.com/dpakula/sf-agent-kit.git
+```
 
-# 2. Wejdź do katalogu Kita
+**2. Wejdź do katalogu Kita:**
+
+```
 cd sf-agent-kit
+```
 
-# 3. Skonfiguruj agenta: Kit zapyta o nazwę agenta i jego klucz
+**3. Skonfiguruj agenta — Kit zapyta o klucz i sam rozpozna resztę w SalesForge:**
+
+```
 ./sf-kit init
 ```
 
 **Masz już Kit?** Zamiast kroku 1: `cd sf-agent-kit && git pull`, potem krok 3.
 
-Przy kroku 3 Kit zapyta też o profil i adres SalesForge (domyślny `https://sf.dpakula.pl` wystarczy — naciśnij Enter). **Klucz agenta wpisz sam** — nie podawaj go agentowi w rozmowie. Potrzebny jest tylko Python 3.9+ i git.
+Potrzebny jest tylko Python 3.9+ i git.
+
+**Klucz.** Administrator zakłada konto agenta i klucz — klucz widać dokładnie raz, przy
+wystawianiu. Przekazuje go menedżerem haseł, nigdy mailem ani czatem; człowiek wpisuje go
+sam, w terminalu, przy `./sf-kit init`.
+
+**Co zapyta `init`.** Na pustej maszynie od razu wchodzi w dodawanie agenta:
+
+| pytanie | co wpisać |
+|---|---|
+| `Adres SalesForge [https://sf.dpakula.pl]:` | Enter, gdy domyślny wystarczy |
+| `Klucz API SalesForge (nie będzie widoczny):` | klucz z menedżera haseł; kursor się nie rusza — to normalne |
+
+Potem Kit pokazuje rozpoznanie (agent, konto, domyślna Organizacja, profil z nadanych
+uprawnień) i pyta `Zapisać? [t/N]` — `t` zapisuje klucz i ustawienia w nowym podkatalogu
+`~/.config/sf-kit/<nazwa>/`. **O nazwę agenta NIE pyta** — bierze ją z SalesForge.
+
+Gdy na maszynie jest już agent, `init` najpierw pokazuje **listę agentów** (nazwa,
+Organizacja, profil, czy worker żyje) i pyta `[numer] edytuj agenta · [n] dodaj nowego ·
+[q] wyjdź`. Wybór numerem otwiera edycję: Enter zostawia wartość w nawiasie, pusty Enter
+przy kluczu = bez zmian, a nowy klucz musi należeć do tego samego agenta (Kit sprawdza to
+w SF).
+
+**Kilku agentów na jednym komputerze.** `./sf-kit init` pokazuje listę agentów i pozwala
+dodać albo edytować każdego z osobna (każdy mieszka w swoim podkatalogu `~/.config/sf-kit/`).
+W zwykłych poleceniach wybiera się agenta opcją `--agent <nazwa>`, np.
+`sf-kit --agent claude-jkowalski whoami`.
 
 **Aktualizacje.** Kit sam sprawdza raz na dobę, czy wyszła nowa wersja, i mówi o tym jedną linią — nową wersję instaluje `sf-kit update`, a u workerów z włączonym `auto_update` poprawki podmieniają się same, między zadaniami (szczegóły niżej, w części „Dla agenta”).
 
@@ -29,16 +62,18 @@ Przy kroku 3 Kit zapyta też o profil i adres SalesForge (domyślny `https://sf.
 
 ```
 W katalogu sf-agent-kit przeczytaj README.md, sekcję „Dla agenta”, i postępuj według niej.
-Moja Organizacja w SalesForge to: fm-x-advertpro   (podawaj ją zawsze jako --org)
+Moja Organizacja w SalesForge to: <slug Twojej Organizacji>   (podawaj ją zawsze jako --org)
 1. Uruchom ./sf-kit whoami i powiedz mi zwykłym językiem, co widzisz.
 2. Jeśli czegoś brakuje, powiedz mi, o co poprosić administratora.
 3. Gdy dam Ci link do sprawy, odpowiadaj w tej sprawie. Nową sprawę zakładaj tylko wtedy, gdy żadnej nie ma.
 Nie pytaj mnie o klucz i nie wpisuj go w rozmowie.
 ```
 
+Slug wpisz ze swojego `sf-kit whoami` (linia `pracuję w:`) albo z panelu SalesForge.
+
 **Tryb pracy agenta:** worker (sam bierze zadania z kolejki), **asystent** (pracuje z Tobą — najczęstszy) albo koordynator (rozdziela pracę innym agentom). Szczegóły opisze Podręcznik SalesForge (w przygotowaniu).
 
-**Organizację podajesz zawsze jawnie** (`--org`, np. `--org fm-x-advertpro`) — Kit nie zgaduje, w której Organizacji zapisać Twoją pracę.
+**Organizację podajesz zawsze jawnie** (`--org`, np. `--org <slug>`) — Kit nie zgaduje, w której Organizacji zapisać Twoją pracę.
 
 ---
 
@@ -114,7 +149,7 @@ przy pierwszym uruchomieniu tam warto zerknąć na wynik `sf-kit whoami` uważni
 | dane | przykład | uwaga |
 |---|---|---|
 | adres SalesForge | `https://sf.dpakula.pl` | Kit ma ten adres wpisany jako domyślny — potwierdź go mimo to |
-| slug agenta | `codex-formarketing` | po nim rozpoznawane są zadania agenta. Od v0.9 `init` **sprawdza go w SF sam** i ostrzega, gdy wpisany jest inny |
+| slug agenta | `claude-jkowalski` | po nim rozpoznawane są zadania agenta. Od tej wersji `init` bierze go **WYŁĄCZNIE** z SF (`GET /me`) — nie pytamy o niego człowieka |
 | **klucz API** | `sk_live_…` | **osobnym kanałem, nie mailem** — to hasło do konta |
 
 Jeśli któregoś z tych trzech brakuje, nie ma sensu zaczynać. Poproś administratora o komplet.
@@ -162,23 +197,20 @@ i pracuj w katalogu Kitu.
 ./sf-kit init
 ```
 
-Polecenie zadaje pięć pytań, a na końcu prosi o klucz — **wpisywany bez pokazywania na
-ekranie** (to normalne, nie jest zepsute). Co wpisać:
+Polecenie pyta o adres SalesForge (Enter zostawia wartość w nawiasie), a potem o klucz —
+**wpisywany bez pokazywania na ekranie** (to normalne, nie jest zepsute). Klucz odpytuje
+SalesForge (`GET /me`) i na tej podstawie sam ustala: **nazwę agenta** (slug z członkostwa;
+o nazwę nie pyta), **domyślną Organizację** (jedyna z nadanymi uprawnieniami ustawia się
+sama; przy kilku pyta o slug) i **profil z nadanych uprawnień** (`plans:write` → koordynator,
+`tickets:write` → asystent, inaczej worker). Pokazuje to zwykłym językiem i pyta
+`Zapisać? [t/N]` — po `t` zapisuje klucz i ustawienia w nowym podkatalogu
+`~/.config/sf-kit/<nazwa>/`.
 
-| pytanie | co wpisać |
-|---|---|
-| Adres SalesForge | to, co dał administrator; Enter zostawia wartość w nawiasie |
-| Identyfikator Organizacji | długi ciąg od administratora |
-| slug agenta w SF | slug od administratora, np. `codex-formarketing` |
-| Katalog roboczy | katalog, w którym agent ma pracować, np. `/Users/ty/praca-sf`. **Musi istnieć** — zadanie ze wskazanym nieistniejącym katalogiem zostanie odrzucone |
-| Wykonawca | `codex` (`shell` jest trybem testowym administratora — §10) |
-
-Kończy się liniami „Klucz … zapisany" i „Ochrona przed zapisaniem klucza w repozytorium:
-włączona".
-
-**Uruchomienie `init` po raz drugi nadpisuje poprzedni klucz** — to jest właściwy sposób
-poprawienia literówki albo wpisania nowego klucza. Enter przy każdym pytaniu zostawia
-dotychczasową wartość, więc można zmienić sam klucz.
+Każde kolejne `sf-kit init` zaczyna się od **listy agentów tej maszyny** i pytania
+`[numer] edytuj agenta · [n] dodaj nowego · [q] wyjdź` — wybór numerem otwiera edycję
+(Enter przy polu zostawia wartość w nawiasie, pusty Enter przy kluczu = bez zmian; nowy
+klucz musi należeć do tego samego agenta). Klucz agenta, który już jest na liście, prowadzi
+do tej edycji zamiast do zapisu drugiej kopii.
 
 > **To polecenie wykonuje człowiek, sam, w terminalu.** Nie przez model, nie przez wklejenie
 > klucza w czat. Powód jest w §4.
@@ -192,8 +224,8 @@ dotychczasową wartość, więc można zmienić sam klucz.
 Spodziewany wynik:
 
 ```
-agent:        codex-formarketing   profil: worker
-ustawienia:   ~/.config/sf-kit/codex-formarketing.json
+agent:        claude-jkowalski   profil: worker
+ustawienia:   ~/.config/sf-kit/claude-jkowalski/config.json
 klucz:        sk_live_…a7f2
 adres:        https://sf.dpakula.pl
 konto:        Codex (FORmarketing) · agent
@@ -205,7 +237,7 @@ Organizacje:
 
 pracuję w:    formarketing (FORmarketing sp. z o.o.)
 uprawnienia:  tickets:read, tickets:comment, tasks:own
-slug w SF:    codex-formarketing
+slug w SF:    claude-jkowalski
 
 odczyt zadań: działa
 zadania:      Twoje w kolejce: 3 · przejrzano zadań Organizacji: 100 z 518
@@ -247,7 +279,7 @@ Kody błędów i co z nimi zrobić: §7.
 Wypisuje zadania czekające w kolejce dla sluga agenta:
 
 ```
-Zadania w kolejce dla „codex-formarketing” (1 z 518 pozycji kolejki):
+Zadania w kolejce dla „claude-jkowalski” (1 z 518 pozycji kolejki):
 
   ADVERTPR-901
     Uporządkuj katalog raportów
@@ -258,12 +290,13 @@ Zadania w kolejce dla „codex-formarketing” (1 z 518 pozycji kolejki):
 Liczba w nawiasie („z 518 pozycji kolejki") mówi, ile zadań w ogóle przejrzano; gdy pojawi
 się przy niej ostrzeżenie o bezpieczniku, wynik NIE jest pewnym „brak zadań".
 
-> **Uwaga na literówkę w slugu.** Slug wpisany w `init` musi zgadzać się **znak w znak**
-> z tym, który administrator ustawił na koncie agenta. Przy pomyłce wszystko wygląda
-> poprawnie — `whoami` mówi „działa" — a `tasks` pokazuje „brak zadań" **nieodróżnialnie
-> od stanu, w którym naprawdę nic nie przypisano**. Gdy zadanie zostało przypisane,
-> a lista jest pusta, sprawdź slug w pierwszej kolejności: `sf-kit whoami` wypisuje go
-> w linii `mój slug:`; poproś administratora o porównanie z kontem.
+> **Uwaga na literówkę w slugu.** `init` nie pyta już o slug — bierze go z SF (`GET /me`),
+> więc literówka człowieka odpada. Problem może zostać tylko po **ręcznej poprawce pliku**
+> z ustawieniami: przy rozjechanym slugu wszystko wygląda poprawnie — `whoami` mówi „działa"
+> — a `tasks` pokazuje „brak zadań" **nieodróżnialnie od stanu, w którym naprawdę nic nie
+> przypisano**. Gdy zadanie zostało przypisane, a lista jest pusta, sprawdź slug
+> w pierwszej kolejności: `sf-kit whoami` wypisuje `slug w SF:` — poproś administratora
+> o porównanie z kontem.
 
 **5. Wykonaj jedno zadanie próbnie**
 
@@ -652,8 +685,8 @@ Agent jest tu przewodnikiem: człowiek po drugiej stronie najczęściej nie zna 
 i nie ma powodu go poznawać. Kilka rzeczy, które ułatwiają tę rolę.
 
 **Przy pierwszym uruchomieniu u nowej osoby** — zacznij od sprawdzenia, czy ma komplet
-czterech danych od administratora (§1). Brak choćby jednej z nich zatrzyma pracę na kroku 2,
-a wygląda to wtedy jak usterka narzędzia.
+danych od administratora (§1: adres, slug, klucz). Brak choćby jednej z nich zatrzyma pracę
+na kroku 2, a wygląda to wtedy jak usterka narzędzia.
 
 **Czego nie robić za człowieka:** klucz wpisuje **on sam**, w terminalu, poleceniem
 `sf-kit init`. Nie proś o klucz w rozmowie i nie proponuj, że go wpiszesz — nawet gdy to
@@ -812,7 +845,7 @@ i poprosić o powtórzenie.
 
 **Do panelu SalesForge człowiek potrzebuje własnego dostępu.** Klucz wpisany w `sf-kit init`
 należy do **konta agenta** — to nie jest login człowieka i nie otworzy nim przeglądarki.
-To osobna rzecz do poproszenia administratora, obok czterech danych z §1:
+To osobna rzecz do poproszenia administratora, obok danych z §1 (adres, slug, klucz):
 
 > „Proszę o dostęp do panelu SalesForge dla mnie osobiście, żebym mógł/mogła oglądać sprawy
 > i wpisy agenta w przeglądarce."
@@ -1409,7 +1442,7 @@ jedynym miejscem, gdzie ląduje wynik, i nie ma go co przykrywać.
 sprawdzenia, czy cała pętla (odbiór → wykonanie → wpis → zamknięcie) działa **bez modelu** —
 i do niczego więcej.
 
-Jest wyłączony. Włącza się go świadomie, dopisując do `~/.config/sf-kit/config.json`:
+Jest wyłączony. Włącza się go świadomie, dopisując do `~/.config/sf-kit/<nazwa>/config.json`:
 
 ```json
 "zezwol_shell": true
@@ -1534,14 +1567,16 @@ Kit trzyma wtedy **osobną konfigurację i osobny klucz dla każdego**:
 
 **Przy jednym agencie nie trzeba nic robić** — żadnej flagi, żadnego przenoszenia.
 Dotyczy to też tych, którzy skonfigurowali Kit przed wersją 0.3: stary układ
-(`~/.config/sf-kit/config.json`) działa dalej, bez zmian.
+(`~/.config/sf-kit/config.json`) działa dalej — `sf-kit init` pokaże go na liście z adnotacją
+„STARY UKŁAD" i na życzenie przeniesie do podkatalogu (config i klucz; jednostkę usługi
+przegeneruj potem przez `sf-kit usluga`).
 
-Drugi agent powstaje przez zwykłe `sf-kit init` — pierwsze pytanie brzmi o slug i to on
-wskazuje, gdzie wszystko wyląduje. Od tej chwili każde polecenie chce wiedzieć, o którego
-agenta chodzi:
+Kolejni agenci powstają przez `sf-kit init` → `[n] dodaj nowego`: klucz tego agenta
+przez `GET /me` ustala jego nazwę i profil, a Kit zapisuje go w osobnym podkatalogu. Od tej
+chwili każde polecenie chce wiedzieć, o którego agenta chodzi:
 
 ```bash
-sf-kit --agent codex-formarketing sprawy
+sf-kit --agent claude-jkowalski sprawy
 sf-kit --agent kodeks-dpakula worker
 ```
 
@@ -1605,6 +1640,12 @@ worker po prostu by umarł. Wersje minor i major **zawsze** instaluje człowiek 
 poinformuje o nich raz na dobę, nie spróbuje sam. Gdy automatyczna próba padnie (np.
 brudne drzewo), worker czeka sześć godzin i informuje w dzienniku, zamiast kręcić gitem
 co takt.
+
+**Kilku agentów z jednego katalogu Kita.** Jeden klon (checkout) Kita obsługuje kilku
+agentów tej maszyny — `auto_update` JEDNEGO z nich podmienia pliki wszystkim, a pozostali
+workery dołączają do nowej wersji w swoim następnym takcie (albo przy najbliższym restarcie
+usługi). Jeśli któryś z nich nie może spaść (np. stoi na własnych łatkach śledzonych), jego
+kolejny takt kończy się odmową i wpisem w dzienniku — kod wspólny jest, decyzje per worker.
 
 #### `sf-kit os` — oś sprawy (v0.8)
 
@@ -1672,14 +1713,14 @@ wynik można w całości wkleić do wpisu na sprawie (klucz jest w nim tylko skr
 Slug w ustawieniach różni się od sluga w SF — worker odsiewa zadania po slugu, więc cudzy slug
 znaczy pustą kolejkę. Przykład z SF-32: na macu `init` zapisał `kimi-mac-dpakula` (konwencja
 z VPS), a konto w SF ma `kimi-mac`. Od v0.9:
-- `init` bierze slug z SF (`GET /me`) i mówi, gdy wpisana nazwa jest inna;
+- `init` bierze slug z SF (`GET /me`) i **zapisuje go do ustawień** — nie pyta o niego człowieka;
 - `whoami` pokazuje `slug w SF:` i ostrzega przy rozjeździe;
 - worker z rozjechanym slugiem **odmawia startu** i mówi, co wpisać.
 
-Poprawka: `sf-kit init` (Enter wszędzie — slug poprawi się sam) albo pole `"slug"` w pliku
-ustawień. **Nazwa katalogu ustawień się nie zmienia** i nie musi: katalog, usługa (`launchd`,
-`systemd`), log i plik tętna nazywają się jak agent *na tej maszynie*, a pole `slug` to slug
-*w SF*. Po poprawce wystarczy restart usługi — bez ponownego `sf-kit usluga`.
+Poprawka: pole `"slug"` w pliku ustawień albo `sf-kit init` → wybór agenta z listy otwiera
+jego edycję. **Nazwa katalogu to nazwa lokalna i nie musi być taka sama**: katalog, usługa
+(`launchd`, `systemd`), log i plik tętna nazywają się jak agent *na tej maszynie*, a pole
+`slug` to slug *w SF*. Po poprawce wystarczy restart usługi — bez ponownego `sf-kit usluga`.
 
 **Zadanie wraca do kolejki, we wpisie `unknown option '--print'` albo `Cannot combine --prompt
 with --yolo`.** Kit starszy niż 0.9 z Kimi Code — zaktualizuj Kit (`git pull`) i zrestartuj
@@ -1699,14 +1740,16 @@ po stronie administratora (nadanie na członkostwie).
 
 #### Zmiana ustawień po `init`
 
-Najprościej uruchomić `sf-kit init` jeszcze raz (Enter zostawia dotychczasowe wartości).
-Można też poprawić plik `~/.config/sf-kit/config.json` — nazwy pól:
+Najprościej uruchomić `sf-kit init` jeszcze raz: pokaże listę agentów, a wybór numerem
+otworzy edycję (Enter zostawia dotychczasowe wartości). Można też poprawić plik
+`~/.config/sf-kit/<nazwa>/config.json` — nazwy pól:
 
 ```json
 {
   "adres": "https://sf.dpakula.pl",
   "organizacja": "289cef06-…",
-  "slug": "codex-formarketing",
+  "slug": "claude-jkowalski",
+  "profil": "worker",
   "katalog_roboczy": "/Users/ty/praca-sf",
   "runtime": "codex",
   "odstep_s": 60,
@@ -1856,7 +1899,7 @@ Kitem nie musi jej czytać.
 
 #### Zakładanie konta agenta z panelu
 
-1. **Użytkownicy → Dodaj → Agent.** Podaj nazwę i **slug** (np. `codex-formarketing`) —
+1. **Użytkownicy → Dodaj → Agent.** Podaj nazwę i **slug** (np. `claude-jkowalski`) —
    slug jest tym, po czym agent rozpoznaje swoje zadania i musi być unikalny w Organizacji.
 2. Konto agenta zakładane tą drogą dostaje **zestaw domyślny**: `tickets:read`,
    `tickets:comment`, `tasks:own`. Do pracy Kitem to wystarczy.
@@ -1870,9 +1913,10 @@ Kitem nie musi jej czytać.
 6. **Zadbaj o dostęp do panelu dla człowieka**, który będzie agenta uruchamiał. Klucz agenta
    nie jest jego loginem — bez własnego konta nie zobaczy wpisów, które agent pisze.
 
-**Slug musi się zgadzać znak w znak** z tym, co człowiek wpisze w `sf-kit init`. Literówka
-nie daje żadnego błędu: `whoami` mówi „działa", a `tasks` pokazuje „brak zadań" —
-nieodróżnialnie od stanu, w którym nic jeszcze nie przypisano.
+**Slug musi się zgadzać znak w znak** z tym, co SF podaje dla konta agenta (`GET /me`);
+`init` zapisuje go z SF, więc literówką człowieka tego pola nie zrobisz — rozjazd zostaje
+po ręcznej poprawce pliku. Rozjazd nie daje żadnego błędu: `whoami` mówi „działa", a `tasks`
+pokazuje „brak zadań" — nieodróżnialnie od stanu, w którym nic jeszcze nie przypisano.
 
 #### Zestawy uprawnień per profil
 
@@ -1969,7 +2013,7 @@ jego użytkownik.
 | **Spotlight** | widok najważniejszych spraw przypiętych do szybkiego dostępu |
 | **Puls** | podsumowanie tego, co zmieniło się ostatnio w Organizacji |
 | **Konsola** | kanał, którym prowadzący pracę odkłada decyzje i polecenia dla agentów |
-| **Slug agenta** | krótka nazwa agenta w Organizacji (np. `codex-formarketing`); po niej rozpoznawane są jego zadania |
+| **Slug agenta** | krótka nazwa agenta w Organizacji (np. `claude-jkowalski`); po niej rozpoznawane są jego zadania |
 | **Klucz API** | hasło do konta w postaci ciągu `sk_live_…`; uwierzytelnia żądania zamiast logowania |
 
 ---

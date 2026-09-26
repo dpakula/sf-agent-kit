@@ -10,6 +10,7 @@ parametr dokładnie po to, żeby tu wstrzyknąć atrapę.
 Uruchomienie: `python3 -m unittest discover -s testy`
 """
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -65,13 +66,16 @@ class AtrapaRepo:
     """Atrapa klonu gita: zapamiętuje wywołania, nie wywołuje prawdziwego `git`."""
 
     def __init__(self, *, brudne=None, head="stary-head", head_po_przejsciu=None,
-                 dziennik="abc1234 jedna zmiana\nabc1235 druga zmiana"):
+                 dziennik="abc1234 jedna zmiana\nabc1235 druga zmiana",
+                 tag_wskazuje=None, brak_tagu=False):
         self.brudne = brudne or []
         self._head = head
         self.head_po_przejsciu = head_po_przejsciu or head
         self._dziennik = dziennik
-        self.checkoutowano = []      # (tag/ref, )
-        self.wroc_do_wywolane = []
+        self.tag_wskazuje = tag_wskazuje   # commit, na który wskazuje tag; None = zgadza się z SF
+        self.brak_tagu = brak_tagu
+        self.checkoutowano = []            # COMMITY (B1: checkout --detach <commit>), nie tagi
+        self.weryfikowano = []             # (tag, commit) — potwierdz_zgodnosc
         self.tagi_pobrano = False
         self.dziennik_od = None
 
@@ -84,12 +88,21 @@ class AtrapaRepo:
     def head(self):
         return self._head
 
-    def przejdz_na(self, tag):
-        self.checkoutowano.append(tag)
-        self._head = self.head_po_przejsciu
+    def potwierdz_zgodnosc(self, tag, commit):
+        """Atrapa `git rev-parse --verify <tag>^{commit}` (B1: PRZED checkoutem)."""
+        self.weryfikowano.append((tag, commit))
+        if self.brak_tagu:
+            raise aktualizacje.BladAktualizacji(
+                f"WERYFIKACJA NIE PRZESZŁA: po pobraniu tagów w repo nie ma tagu {tag}")
+        wskazuje = self.tag_wskazuje or commit
+        if wskazuje != commit:
+            raise aktualizacje.BladAktualizacji(
+                f"WERYFIKACJA NIE PRZESZŁA: w repo tag {tag} wskazuje na {wskazuje[:12]}, "
+                f"a SF wymaga {commit[:12]}.")
 
-    def wroc_do(self, ref):
-        self.wroc_do_wywolane.append(ref)
+    def przejdz_na(self, commit):
+        self.checkoutowano.append(commit)
+        self._head = self.head_po_przejsciu
 
     def dziennik_zmian(self, od_sha, do_sha):
         self.dziennik_od = (od_sha, do_sha)
@@ -242,7 +255,7 @@ class TestAktualizuj(unittest.TestCase):
         repo = AtrapaRepo(head="a" * 40, head_po_przejsciu="a" * 40)
         mowione = []
         self.assertTrue(aktualizacje.aktualizuj(kl, repo=repo, mow=mowione.append))
-        self.assertEqual(repo.checkoutowano, [f"v{PATCH_NOWSZY}"])
+        self.assertEqual(repo.checkoutowano, ["a" * 40], "checkout --detach na COMMIT z SF")
 
     def test_szczesliwa_sciezka(self):
         info = info_sf(commit="b" * 40)
@@ -251,22 +264,94 @@ class TestAktualizuj(unittest.TestCase):
         mowione = []
         self.assertTrue(aktualizacje.aktualizuj(kl, repo=repo, mow=mowione.append))
         self.assertTrue(repo.tagi_pobrano)
-        self.assertEqual(repo.checkoutowano, [f"v{PATCH_NOWSZY}"])
+        self.assertEqual(repo.weryfikowano, [(f"v{PATCH_NOWSZY}", "b" * 40)],
+                         "zgodność tag↔commit sprawdzona PRZED checkoutem (B1)")
+        self.assertEqual(repo.checkoutowano, ["b" * 40])
         self.assertEqual(repo.dziennik_od, ("a" * 40, "b" * 40))
         tekst = "\n".join(mowione)
         self.assertIn("jedna zmiana", tekst, "zmiany od obecnej wersji są pokazane")
-        self.assertEqual(repo.wroc_do_wywolane, [], "przy zgodnym HEAD nie wycofujemy nic")
 
-    def test_head_rozni_si_od_commitu_z_sf_wycofanie_i_blad(self):
+    def test_tag_wskazuje_inny_commit_odmowa_PRZED_checkoutem(self):
+        """B1/B2: rozjazd łapiemy PRZED zmianą — bez wycofywania, a komunikat pokazuje
+        NIEZGODNY commit (to z repo), nie stary HEAD."""
         info = info_sf(commit="c" * 40)
         kl = AtrapaKlienta(odpowiedz=info)
-        repo = AtrapaRepo(head="a" * 40, head_po_przejsciu="b" * 40)  # nie ten commit!
+        repo = AtrapaRepo(head="a" * 40, tag_wskazuje="b" * 40)  # tag ≠ commit z SF
         mowione = []
         with self.assertRaises(aktualizacje.BladAktualizacji) as ctx:
             aktualizacje.aktualizuj(kl, repo=repo, mow=mowione.append)
-        self.assertEqual(repo.wroc_do_wywolane, ["a" * 40],
-                         "rozjazd z SF ma wycofać checkout")
+        self.assertEqual(repo.checkoutowano, [], "przy rozjazdzie NIE MA checkoutu (B1)")
+        komunikat = str(ctx.exception)
+        self.assertIn("WERYFIKACJA", komunikat)
+        self.assertIn("b" * 12, komunikat, "komunikat pokazuje commit z repo (B2)")
+        self.assertIn("c" * 12, komunikat, "komunikat pokazuje wymagany commit z SF")
+        self.assertNotIn("a" * 12, komunikat, "stary HEAD nie ma się komunikatu pojawiać (B2)")
+
+    def test_tagu_brak_w_repo_odmowa_przed_checkoutem(self):
+        info = info_sf(commit="c" * 40)
+        kl = AtrapaKlienta(odpowiedz=info)
+        repo = AtrapaRepo(brak_tagu=True)
+        with self.assertRaises(aktualizacje.BladAktualizacji) as ctx:
+            aktualizacje.aktualizuj(kl, repo=repo, mow=lambda s: None)
+        self.assertEqual(repo.checkoutowano, [])
         self.assertIn("WERYFIKACJA", str(ctx.exception))
+
+    def test_sf_wskazuje_STARSZA_wersje_nie_cofa(self):
+        """7a z przeglądu: starsza wersja w SF ≠ „masz najnowszą" — i git zostaje nietknięty."""
+        czesci = [int(c) for c in WERSJA.split(".")]
+        starsza = f"{czesci[0]}.{czesci[1]}.{czesci[2] - 1}"
+        kl = AtrapaKlienta(odpowiedz=info_sf(latest=starsza))
+        repo = AtrapaRepo()
+        mowione = []
+        self.assertFalse(aktualizacje.aktualizuj(kl, repo=repo, mow=mowione.append))
+        tekst = "\n".join(mowione)
+        self.assertIn("starszą wersję", tekst)
+        self.assertIn("nie cofam bez --force", tekst)
+        self.assertNotIn("Masz najnowszą", tekst)
+        self.assertFalse(repo.tagi_pobrano)
+
+    def test_wymuszenie_pozwala_przejsc_na_starsze_wydanie(self):
+        """7a: `--force` (tylko człowiek, nigdy auto-patch) zgadza się na cofnięcie
+        wersji — weryfikacja z SF i tak przechodzi PRZED checkoutem (B1)."""
+        czesci = [int(c) for c in WERSJA.split(".")]
+        starsza = f"{czesci[0]}.{czesci[1]}.{czesci[2] - 1}"
+        info = info_sf(latest=starsza, commit="d" * 40)
+        kl = AtrapaKlienta(odpowiedz=info)
+        repo = AtrapaRepo(head="e" * 40, head_po_przejsciu="d" * 40)
+        mowione = []
+        self.assertTrue(aktualizacje.aktualizuj(kl, repo=repo, mow=mowione.append,
+                                                wymusz=True))
+        self.assertEqual(repo.weryfikowano, [(f"v{starsza}", "d" * 40)],
+                         "zgodność tag↔commit sprawdzona tak samo jak przy zwykłym update")
+        self.assertEqual(repo.checkoutowano, ["d" * 40])
+        self.assertIn("Wymuszam", "\n".join(mowione))
+
+    def test_auto_patch_nigdy_nie_wymusza(self):
+        """Automatyczny patch workera nie przekazuje `wymusz` — starsze wydanie z SF
+        zostawia maszynę nietkniętą (cofnięcie to decyzja człowieka)."""
+        czesci = [int(c) for c in WERSJA.split(".")]
+        starsza = f"{czesci[0]}.{czesci[1]}.{czesci[2] - 1}"
+        kl = AtrapaKlienta(odpowiedz=info_sf(latest=starsza))
+        repo = AtrapaRepo()
+        mowione = []
+        self.assertFalse(aktualizacje.aktualizuj(kl, repo=repo, mow=mowione.append))
+        self.assertEqual(repo.checkoutowano, [])
+
+    def test_tag_niezgodny_z_wzorcem_odmowa_przed_gitem(self):
+        """B1: wartości z SF trafiają do gita — wzorce sprawdzamy lokalnie, bez cudzego
+        polegania na walidacji serwera (napis od `-` byłby przez gita opcją)."""
+        for zly_tag in ("--upload-pack=echo zle", "v0.13", "v0.13.3.1", "vX.Y.Z"):
+            kl = AtrapaKlienta(odpowiedz=info_sf(tag=zly_tag))
+            with self.assertRaises(aktualizacje.BladAktualizacji) as ctx:
+                aktualizacje.aktualizuj(kl, repo=AtrapaRepo(), mow=lambda s: None)
+            self.assertIn("tag", str(ctx.exception))
+
+    def test_commit_niezgodny_z_wzorcem_odmowa_przed_gitem(self):
+        for zly_commit in ("A" * 40, "g" * 40, "abc123", "a" * 39 + "-"):
+            kl = AtrapaKlienta(odpowiedz=info_sf(commit=zly_commit))
+            with self.assertRaises(aktualizacje.BladAktualizacji) as ctx:
+                aktualizacje.aktualizuj(kl, repo=AtrapaRepo(), mow=lambda s: None)
+            self.assertIn("commit", str(ctx.exception))
 
     def test_brak_wymaganego_pola_z_sf(self):
         zle = info_sf()
@@ -352,7 +437,7 @@ class TestAutoPatch(unittest.TestCase):
         kod = aktualizacje.auto_patch(kl, self.konf, teraz=TERAZ, repo=repo,
                                       mow=mowione.append, plik=self.plik)
         self.assertEqual(kod, aktualizacje.KOD_RESTARTU_PO_AKTUALIZACJI)
-        self.assertEqual(repo.checkoutowano, [f"v{PATCH_NOWSZY}"])
+        self.assertEqual(repo.checkoutowano, ["b" * 40])
 
     def test_nowy_minor_czlowiek_nie_worker(self):
         kl = AtrapaKlienta(odpowiedz=info_sf(latest=MINOR_NOWSZY))
@@ -584,6 +669,102 @@ class TestEndToEndGitIHttp(unittest.TestCase):
         self.assertIn("sprawdzone zgodnie z SF", tekst)
         self.assertIn("druga zmiana", tekst, "zmiany od poprzedniej wersji są pokazane")
         self.assertNotEqual(self.stary, self.commit)
+
+
+class TestNaglowkiWersji(unittest.TestCase):
+    """`X-Kit-Latest`/`X-Kit-Min` z KAŻDEJ odpowiedzi (także 401/403) odświeżają pamięć
+    podręczną — dobowe `GET /kit/version` zostaje zapasem (poprawka z przeglądu 94268501)."""
+
+    def setUp(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from sf_kit.api import Klient
+        import threading
+
+        self.katalog = tempfile.TemporaryDirectory()
+        korzen = Path(self.katalog.name) / "sf-kit"
+        (korzen / "agent-testowy").mkdir(parents=True)
+        (korzen / "agent-testowy" / "config.json").write_text("{}", encoding="utf-8")
+        self._stare_xdg = os.environ.get("XDG_CONFIG_HOME")
+        self._stary_dom = os.environ.pop("SF_KIT_HOME", None)
+        os.environ["XDG_CONFIG_HOME"] = self.katalog.name
+        self.plik_pamieci = korzen / "agent-testowy" / aktualizacje.PLIK_PAMIECI
+
+        stan = {"kod": 200, "latest": None, "min": None}
+
+        class Obsluga(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(stan["kod"])
+                self.send_header("Content-Type", "application/json")
+                if stan["latest"]:
+                    self.send_header("X-Kit-Latest", stan["latest"])
+                if stan["min"]:
+                    self.send_header("X-Kit-Min", stan["min"])
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *argumenty):
+                pass
+
+        self.stan = stan
+        self.Klient = Klient
+        self.serwer = ThreadingHTTPServer(("127.0.0.1", 0), Obsluga)
+        self.watek = threading.Thread(target=self.serwer.serve_forever, daemon=True)
+        self.watek.start()
+        self.adres = f"http://127.0.0.1:{self.serwer.server_address[1]}"
+
+    def tearDown(self):
+        self.serwer.shutdown()
+        self.serwer.server_close()
+        if self._stare_xdg is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = self._stare_xdg
+        if self._stary_dom is not None:
+            os.environ["SF_KIT_HOME"] = self._stary_dom
+        self.katalog.cleanup()
+
+    def _pamiec(self) -> dict:
+        return aktualizacje.wczytaj_pamiec(self.plik_pamieci)
+
+    def test_naglowki_z_odpowiedzi_200_odswiezaja_pamiec(self):
+        self.stan.update(latest=PATCH_NOWSZY, min=MINIMALNA)
+        kl = self.Klient(baza=self.adres, klucz="sk_live_testowy")
+        kl.kim_jestem()
+        pamiec = self._pamiec()
+        self.assertEqual(pamiec["latest"], PATCH_NOWSZY)
+        self.assertEqual(pamiec["min"], MINIMALNA)
+
+    def test_naglowki_z_bledu_401_też_odswiezaja_pamiec(self):
+        """Serwer niesie wersje TAKŻE przy 401/403 — Kit ma je zapisać, zanim poleci wyjątek."""
+        self.stan.update(kod=401, latest=PATCH_NOWSZY, min=MINIMALNA)
+        kl = self.Klient(baza=self.adres, klucz="sk_live_testowy")
+        with self.assertRaises(BladAPI):
+            kl.kim_jestem()
+        self.assertEqual(self._pamiec()["latest"], PATCH_NOWSZY)
+
+    def test_odpowiedz_bez_naglowkow_nic_nie_zapisuje(self):
+        kl = self.Klient(baza=self.adres, klucz="sk_live_testowy")
+        kl.kim_jestem()
+        self.assertFalse(self.plik_pamieci.exists(),
+                         "bez nagłówków wersji nie powstaje żaden plik pamięci")
+
+    def test_naglowki_nie_zacieraja_znacznika_dobowego(self):
+        """Zapas zostaje zapasem: świeże `latest` z nagłówków NIE zastępuje pełnego
+        sprawdzenia (dobowe `GET /kit/version` dalej dostarcza tag/commit/breaking)."""
+        self.stan.update(latest=PATCH_NOWSZY, min=MINIMALNA)
+        kl = self.Klient(baza=self.adres, klucz="sk_live_testowy")
+        kl.kim_jestem()
+        self.assertNotIn("sprawdzono_o", self._pamiec(),
+                         "nagłówki mówią TYLKO o wersjach — pełny zapis oznacza pełną odpowiedź")
+
+    def test_bez_istniejacego_agenta_nic_sie_nie_zapisuje(self):
+        """`init` pyta `GET /me`, zanim powstanie podkatalog — taka odpowiedź nie może
+        podpisać cudzej (albo jeszcze żadnej) pamięci podręcznej."""
+        (Path(self.katalog.name) / "sf-kit" / "agent-testowy" / "config.json").unlink()
+        self.stan.update(latest=PATCH_NOWSZY, min=MINIMALNA)
+        kl = self.Klient(baza=self.adres, klucz="sk_live_testowy")
+        kl.kim_jestem()
+        self.assertFalse(self.plik_pamieci.exists())
 
 
 if __name__ == "__main__":

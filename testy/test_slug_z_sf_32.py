@@ -137,9 +137,11 @@ class TestNazwaLokalna(unittest.TestCase):
 
 
 class TestInit(unittest.TestCase):
-    """Cały `init` z podmienionym wejściem, magazynem klucza i SF."""
+    """`init` z podmienionym wejściem, kluczem i SF — NOWY przepłyk (runda 2, 960):
+    klucz → `GET /me` → nazwa/profil/Organizacja z SF → potwierdzenie → zapis."""
 
     def _init(self, odpowiedzi: list[str], me: dict, agent_z_flagi=None) -> tuple[int, str]:
+        from sf_kit import onboarding
         wejscia = iter(odpowiedzi)
 
         class KlientAtrapa:
@@ -149,13 +151,10 @@ class TestInit(unittest.TestCase):
             def kim_jestem(self):
                 return me
 
-        stare = (builtins.input, cli.Klient, klucz.zapytaj_i_zapisz, klucz.wczytaj,
-                 cli._wlacz_ochrone_repozytorium)
+        stare = (builtins.input, onboarding.Klient, klucz.zapytaj)
         builtins.input = lambda _p="": next(wejscia)
-        cli.Klient = KlientAtrapa
-        klucz.zapytaj_i_zapisz = lambda: ("sk_live_…abcd", "atrapa")
-        klucz.wczytaj = lambda: "sk_live_atrapa"
-        cli._wlacz_ochrone_repozytorium = lambda: None
+        onboarding.Klient = KlientAtrapa
+        klucz.zapytaj = lambda **_k: "sk_live_atrapa-nowa"
 
         class Argumenty:
             agent = agent_z_flagi
@@ -163,41 +162,28 @@ class TestInit(unittest.TestCase):
         bledy = io.StringIO()
         try:
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(bledy):
-                kod = cli.polecenie_init(Argumenty())
+                kod = onboarding.polecenie(Argumenty(), ochrona=lambda: None,
+                                           jak_wolac=lambda: "./sf-kit")
         finally:
-            (builtins.input, cli.Klient, klucz.zapytaj_i_zapisz, klucz.wczytaj,
-             cli._wlacz_ochrone_repozytorium) = stare
+            (builtins.input, onboarding.Klient, klucz.zapytaj) = stare
         return kod, bledy.getvalue()
 
-    def test_init_zapisuje_slug_z_SF_a_katalog_zostaje_pod_nazwa_lokalna(self):
-        """Dokładnie przypadek z ADVERTPR-918."""
+    def test_dodawanie_zapisuje_slug_z_SF_i_katalog_pod_nazwa_z_SF(self):
+        """Dokładnie przypadek z ADVERTPR-918 — ale nazwę bierze teraz WYŁĄCZNIE SF."""
         with MaszynaTestowa() as m:
-            # nazwa, profil, adres, katalog roboczy, wykonawca
-            kod, bledy = self._init(["kimi-mac-dpakula", "", "", "", "kimi"],
-                                    _me(_org("sf", "kimi-mac")))
+            # adres (Enter), potwierdzenie zapisu
+            kod, _ = self._init(["", "t"], _me(_org("sf", "kimi-mac")))
             self.assertEqual(kod, 0)
-            ustawienia = m.ustawienia("kimi-mac-dpakula")
+            ustawienia = m.ustawienia("kimi-mac")
         self.assertEqual(ustawienia["slug"], "kimi-mac")
         self.assertEqual(ustawienia["organizacja"], "uuid-sf")
-        self.assertIn("UWAGA", bledy)
-        self.assertIn("kimi-mac-dpakula", bledy)
 
-    def test_ponowny_init_z_Enterem_nie_przenosi_ustawien(self):
-        """Podpowiedź nazwy = katalog. Gdyby była polem `slug`, Enter przeniósłby ustawienia
-        do `kimi-mac/`, a usługa launchd dalej wołałaby `--agent kimi-mac-dpakula`."""
-        with MaszynaTestowa(agent="kimi-mac-dpakula", slug="kimi-mac") as m:
-            kod, _ = self._init(["", "", "", "", ""], _me(_org("sf", "kimi-mac")))
-            self.assertEqual(kod, 0)
-            self.assertEqual(klucz.agenci(), ["kimi-mac-dpakula"])
-            self.assertEqual(m.ustawienia("kimi-mac-dpakula")["slug"], "kimi-mac")
-
-    def test_zgodna_nazwa_bez_ostrzezenia(self):
+    def test_dodawanie_bez_zgody_nic_nie_zapisuje(self):
         with MaszynaTestowa() as m:
-            kod, bledy = self._init(["kimi-mac", "", "", "", "kimi"],
-                                    _me(_org("sf", "kimi-mac")))
+            kod, _ = self._init(["", "n"], _me(_org("sf", "kimi-mac")))
             self.assertEqual(kod, 0)
-            self.assertEqual(m.ustawienia("kimi-mac")["slug"], "kimi-mac")
-        self.assertNotIn("UWAGA", bledy)
+            self.assertEqual(klucz.agenci(), [])
+            self.assertFalse((m.korzen / "kimi-mac").exists())
 
 
 class _Doszlo(Exception):
