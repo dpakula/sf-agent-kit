@@ -11,19 +11,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 from . import WERSJA
 from . import skrzynka
+from . import aktualizacje
 from . import config as konfiguracja
 
-#: Trzy profile w JEDNYM narzędziu (decyzja Damiana 15.09). Profil nie ogranicza uprawnień —
-#: te są po stronie SalesForge — tylko POKAZUJE to, co do danej roli należy, i chowa resztę.
-#: Od v0.4 uprawnienia widać naprawdę: `GET /me` oddaje je per Organizacja (ADVERTPR-796),
-#: więc profil przestał być wyłącznie deklaracją człowieka.
-PROFILE = ("worker", "asystent", "koordynator")
-PROFIL_DOMYSLNY = "worker"
+#: Trzy profile opisuje i wybiera `onboarding` — w Kicie od rundy 2 ADVERTPR-960
+#: (26.09) logika `init` tam mieszka, a `cli` tylko ją woła.
 from . import klucz as magazyn_klucza
 from . import asystent
 from . import flow
@@ -87,161 +85,16 @@ def _klient_i_organizacja(konf: konfiguracja.Konfiguracja,
 
 
 def polecenie_init(args) -> int:
-    """Zapytaj o slug, profil i resztę ustawień. Klucz — bez echa, na końcu.
+    """Zapisz klucz i ustawienia — przez listę agentów, tryb dodawania albo edycji.
 
-    SLUG JEST PIERWSZY I TO NIE JEST KOLEJNOŚĆ Z GRZECZNOŚCI: od niego zależy, GDZIE wyląduje
-    konfiguracja (`~/.config/sf-kit/<slug>/`) i pod jakim kontem klucz w pęku. Pytanie o niego
-    później znaczyłoby zapisywanie do katalogu, o którym jeszcze nie wiemy.
+    Cała logika mieszka w `onboarding` (decyzje Damiana 26.09, ADVERTPR-960 runda 2):
+    ekran startowy z listą agentów, dodawanie zaczyna się od klucza (`GET /me` ustala
+    nazwę, Organizację i profil), edycja wymaga od nowego klucza tego samego agenta.
     """
-    print("Konfiguracja SF Agent Kit. Enter zostawia wartość w nawiasie.\n")
+    from . import onboarding
 
-    def pytaj(etykieta: str, teraz: str) -> str:
-        podane = input(f"{etykieta} [{teraz or 'brak'}]: ").strip()
-        return podane or teraz
-
-    # Nazwa PRZED wczytaniem konfiguracji — bo to ona wskazuje, którą konfigurację wczytać.
-    # To jest nazwa NA TEJ MASZYNIE (katalog, usługa). Slug w SF bierzemy niżej z `GET /me`
-    # (SF-32) — podpowiedzią jest nazwa katalogu, nie pole `slug`, bo po ręcznej poprawce
-    # te dwie rzeczy się różnią i Enter przeniósłby ustawienia do katalogu, którego nie ma.
-    wstepny = konfiguracja.wczytaj_jesli_jest()
-    nazwa = pytaj("Nazwa agenta na tej maszynie — katalog ustawień i usługa "
-                  "(zwykle slug z SF, np. codex-formarketing)",
-                  getattr(args, "agent", None)
-                  or (magazyn_klucza.nazwa_lokalna(wstepny.slug) if wstepny else ""))
-    if not nazwa:
-        print("Bez nazwy nie wiem, którym agentem jesteś ani gdzie zapisać ustawienia.",
-              file=sys.stderr)
-        return 2
-    magazyn_klucza.ustaw_agenta(nazwa)
-
-    konf = konfiguracja.wczytaj()
-    # Do odpowiedzi SF slug = nazwa; `GET /me` niżej go poprawi, jeśli SF mówi inaczej.
-    konf.slug = konf.slug or nazwa
-    konf.profil = pytaj(f"Profil: {' / '.join(PROFILE)}", konf.profil or PROFIL_DOMYSLNY)
-    # ADVERTPR-959: stara nazwa `autor` przyjęta i od razu zamieniona — człowiek wpisujący ją
-    # z pamięci albo ze starej instrukcji nie ma dostać odmowy.
-    konf.profil = konfiguracja.PROFIL_ALIASY.get(konf.profil, konf.profil)
-    if konf.profil not in PROFILE:
-        print(f"Nie znam profilu „{konf.profil}”. Dostępne: {', '.join(PROFILE)}",
-              file=sys.stderr)
-        return 2
-
-    konf.adres = pytaj("Adres SalesForge", konf.adres)
-    if konf.profil == "worker":
-        konf.katalog_roboczy = pytaj("Katalog roboczy (pusty = bieżący)", konf.katalog_roboczy)
-        konf.runtime = pytaj("Wykonawca: codex, kimi albo shell", konf.runtime)
-
-    # KLUCZ PRZED ORGANIZACJĄ — i to jest cała zmiana v0.4. Do v0.3 `init` kazał wpisać
-    # identyfikator Organizacji, którego agent skądś nie ma: dostaje klucz, nie UUID, więc
-    # przepisywał go z cudzej wiadomości. Od 15.09 `GET /me` działa bez nagłówka Organizacji
-    # (ADVERTPR-796), więc możemy zapytać SF, zamiast pytać człowieka o coś, czego nie wie.
-    print()
-    try:
-        skrot, gdzie = magazyn_klucza.zapytaj_i_zapisz()
-    except (ValueError, RuntimeError) as blad:
-        print(f"Klucz NIE został zapisany: {blad}", file=sys.stderr)
-        return 1
-
-    print(f"Klucz {skrot} zapisany: {gdzie}")
-    konf.organizacja, toz = _wybierz_organizacje_w_init(konf, pytaj)
-    konf.slug = _slug_z_sf_w_init(toz, konf, nazwa)
-
-    plik = konfiguracja.zapisz(konf)
-    print(f"\nUstawienia zapisane: {plik}")
-    _wlacz_ochrone_repozytorium()
-    # `./sf-kit`, nie `sf-kit`: dowiązania w PATH nikt jeszcze nie zakładał, więc krótsza
-    # forma kończy się „command not found" w pierwszej minucie pracy z narzędziem.
-    print(f"\nSprawdź, czy działa: {_jak_wolac()} whoami")
-    return 0
-
-
-def _slug_z_sf_w_init(toz: "tozsamosc.Tozsamosc | None", konf: konfiguracja.Konfiguracja,
-                      nazwa: str) -> str:
-    """Slug do zapisania w ustawieniach: ten z SF, a gdy SF nie mówi jednoznacznie — dotychczasowy.
-
-    SF-32: `init` na macu zapisał `kimi-mac-dpakula` (konwencja z VPS), a w SF konto miało
-    `kimi-mac`. Worker odsiewa zadania po tym polu, więc widział „0 zadań". Pytanie człowieka
-    o slug było pytaniem o coś, co SF wie lepiej — i co człowiek przepisuje z pamięci.
-    """
-    if toz is None:
-        print(f"Slug zostaje „{konf.slug}” — nie sprawdziłem go w SF. "
-              f"Worker sprawdzi go przy starcie.", file=sys.stderr)
-        return konf.slug
-    w_sf = tozsamosc.slug_w_sf(toz, konf.organizacja)
-    if not w_sf:
-        print(f"SF nie podaje jednego sluga dla tego konta — zostawiam „{konf.slug}”. "
-              f"Worker porówna go ze slugiem w Organizacji, w której wystartuje.")
-        return konf.slug
-    if w_sf != nazwa:
-        print(f"\nUWAGA: na tej maszynie agent nazywa się „{nazwa}”, a w SF jego slug to "
-              f"„{w_sf}”.\n  Zapisuję „{w_sf}” — po nim worker odsiewa zadania. Katalog "
-              f"ustawień i usługa zostają pod „{nazwa}”.", file=sys.stderr)
-    elif w_sf != konf.slug:
-        print(f"Slug poprawiony według SF: „{konf.slug}” → „{w_sf}”.")
-    else:
-        print(f"Slug w SF: „{w_sf}” — zgodny.")
-    return w_sf
-
-
-def _wybierz_organizacje_w_init(
-        konf: konfiguracja.Konfiguracja,
-        pytaj) -> tuple[str, "tozsamosc.Tozsamosc | None"]:
-    """Pokaż Organizacje z SF i ustal DOMYŚLNĄ. Zwraca (uuid albo pusty napis, tożsamość).
-
-    Tożsamość oddajemy dalej, bo z tej samej odpowiedzi `init` bierze slug (SF-32) — drugie
-    `GET /me` byłoby drugim miejscem, w którym może się nie udać.
-
-    Domyślna Organizacja jest WYGODĄ, nie wyborem podejmowanym za człowieka:
-    · dokładnie jedna z nadaniami → ustawiamy ją i mówimy o tym wprost;
-    · kilka → pytamy, a puste Enter znaczy „nie ustawiaj, będę podawał --org";
-    · zero → nie ustawiamy nic i mówimy, czego brakuje.
-
-    Nieudane `GET /me` NIE przerywa `init`: klucz jest już zapisany, a ustawienia bez domyślnej
-    Organizacji są poprawnym stanem (`--org` działa zawsze). Przerwanie tutaj kazałoby zaczynać
-    od początku z powodu, który może być chwilową awarią sieci.
-    """
-    print("\nPytam SalesForge, do jakich Organizacji należysz…")
-    try:
-        toz = tozsamosc.z_odpowiedzi(
-            Klient(baza=konf.adres, klucz=magazyn_klucza.wczytaj()).kim_jestem())
-    except (BladAPI, SystemExit) as blad:
-        print(f"  nie udało się ({blad}). Ustawienia zapiszę bez domyślnej Organizacji —\n"
-              f"  podawaj --org <slug> przy poleceniach albo uruchom `init` ponownie.",
-              file=sys.stderr)
-        return konf.organizacja, None
-
-    print(f"  konto: {toz.konto_nazwa or '(bez nazwy)'}"
-          f"{' · agent' if toz.konto_kind == 'agent' else ''}")
-    print(f"\nTwoje Organizacje:\n{tozsamosc.lista_do_pokazania(toz.organizacje)}\n")
-
-    z_nadaniami = toz.z_nadaniami
-    if not z_nadaniami:
-        print("W żadnej nie masz jeszcze nadanych uprawnień — poproś administratora.\n"
-              "Ustawienia zapiszę bez domyślnej Organizacji.")
-        return "", toz
-
-    if len(z_nadaniami) == 1:
-        jedyna = z_nadaniami[0]
-        print(f"Uprawnienia masz tylko w „{jedyna.slug}” — ustawiam ją jako domyślną.")
-        return jedyna.uuid, toz
-
-    # Kilka do wyboru: podpowiadamy tę z pliku (migracja z 0.3), ale nie wybieramy za człowieka.
-    teraz = toz.znajdz(konf.organizacja) if konf.organizacja else None
-    podane = pytaj("Domyślna Organizacja (slug; Enter = brak, będę podawał --org)",
-                   teraz.slug if teraz else "")
-    if not podane:
-        print("Dobrze — każde polecenie będzie wymagało --org <slug>.")
-        return "", toz
-    wybrana = toz.znajdz(podane)
-    if wybrana is None:
-        print(f"Nie znam Organizacji „{podane}” na Twojej liście — zapisuję bez domyślnej.",
-              file=sys.stderr)
-        return "", toz
-    if not wybrana.ma_nadania:
-        print(f"W „{wybrana.slug}” nie masz nadań — zapisuję bez domyślnej, "
-              f"żeby polecenia nie kończyły się odmową w połowie.", file=sys.stderr)
-        return "", toz
-    return wybrana.uuid, toz
+    return onboarding.polecenie(args, ochrona=_wlacz_ochrone_repozytorium,
+                                jak_wolac=_jak_wolac)
 
 
 def _jak_wolac() -> str:
@@ -357,6 +210,50 @@ def polecenie_whoami(args) -> int:
     print(f"ważny do:     {_waznosc_klucza(toz)}")
     print("\nZmian statusu nie sonduję — README, sekcja „Kiedy coś nie działa”.")
     return 0 if "NIE DZIAŁA" not in str(wynik.get("odczyt_zadan")) else 1
+
+
+def polecenie_update(args) -> int:
+    """`sf-kit update [--check]` — podmiana kodu na wydanie WSKAZANE PRZEZ SF (ADVERTPR-960).
+
+    `--check` tylko pokazuje (świeże zapytanie do SF, zero gita). Pełne `update` chodzi
+    drogą z `aktualizacje.aktualizuj`: odmowa przy brudnych plikach śledzonych, walidacja
+    wzorców tag/commit, pobranie tagów, weryfikacja `tag^{commit}` == commit z SF PRZED
+    checkoutem (przy rozjazdzie odmowa, nic nie jest zmieniane) i `checkout --detach`
+    na sam commit. `--force` pozwala dodatkowo przejść na wydanie, które SF wskazuje
+    jako starsze od zainstalowanego (cofnięcie wersji — świadomie). Po udanej podmianie
+    uruchamiamy `--version` i `whoami` JUŻ NA NOWYM KODZIE i przypominamy o restarcie
+    workera — podmiana plików sama w sobie nie rusza działającego procesu.
+    """
+    konf = konfiguracja.wczytaj_jesli_jest() or konfiguracja.Konfiguracja()
+    kl = _klient_bez_organizacji(konf)
+    try:
+        if getattr(args, "check", False):
+            return aktualizacje.pokaz_status(kl)
+        podmieniono = aktualizacje.aktualizuj(kl, wymusz=getattr(args, "force", False))
+    except aktualizacje.BladAktualizacji as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+
+    if not podmieniono:
+        return 0
+
+    # Weryfikacja na nowym kodzie: `--version` (czy drzewo się uruchamia) i `whoami`
+    # (czy klucz działa). Nie przerywamy aktualizacji, gdy `whoami` zwącha sieć —
+    # kod jest już podmieniony i zgodny z SF, to osobna sprawa.
+    skrypt = Path(__file__).resolve().parents[1] / "sf-kit"
+    wersja = subprocess.run([sys.executable, str(skrypt), "--version"],
+                            capture_output=True, text=True)
+    print(f"\n{wersja.stdout.strip() or wersja.stderr.strip() or '(nie udało się odczytać wersji)'}")
+    kto = subprocess.run([sys.executable, str(skrypt), "whoami"],
+                         capture_output=True, text=True)
+    if kto.returncode == 0:
+        print("\nwhoami na nowej wersji: klucz działa.")
+    else:
+        print(f"\nUWAGA: `whoami` na nowej wersji nie przeszło — sprawdź ręcznie:\n"
+              f"{(kto.stdout + kto.stderr).strip()[:600]}", file=sys.stderr)
+
+    print(f"\n{aktualizacje.restart_hint(konf)}")
+    return 0
 
 
 def _waznosc_klucza(toz: tozsamosc.Tozsamosc) -> str:
@@ -2243,6 +2140,14 @@ def main(argv: list[str] | None = None) -> int:
 
     pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)
     pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
+    up = pod.add_parser("update", help="zaktualizuj Kita do wydania wskazanego przez SF "
+                                        "(raz na dobę sam powie, że jest nowa wersja)")
+    up.add_argument("--check", action="store_true",
+                    help="tylko pokaż wersje, nie ruszaj kodu")
+    up.add_argument("--force", action="store_true",
+                    help="pozwól przejść na wydanie starsze od zainstalowanego "
+                         "(cofnięcie wersji — używaj świadomie)")
+    up.set_defaults(funkcja=polecenie_update)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
     bl = pod.add_parser("blok", help="[agent] jeden blok osi albo katalog rodzajów (SF-7)")
     bl.add_argument("co", nargs="?", default="typy",
@@ -2540,6 +2445,25 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     magazyn_klucza.ustaw_agenta(getattr(args, "agent", None))
+    # ADVERTPR-960: codzienne sprawdzenie wersji PRZED poleceniem. Odmowa (breaking + wersja
+    # < min) przerywa wykonanie z instrukcją; ostrzeżenie idzie na stderr, nie miesza
+    # wyniku na stdout. `init` nie ma jeszcze klucza, `update` mówi o wersjach sam —
+    # dla reszty każdy błąd po drodze (brak sieci, brak configu) kończy się ciszą:
+    # informacja o nowym wydaniu nie ma prawa zatrzymać pracy.
+    if getattr(args, "polecenie", "") not in ("init", "update"):
+        try:
+            konf = konfiguracja.wczytaj_jesli_jest()
+            kl = magazyn_klucza.wczytaj()
+            if konf and kl:
+                linia = aktualizacje.ostrzezenie_przed_poleceniem(
+                    Klient(baza=konf.adres, klucz=kl))
+                if linia:
+                    print(linia, file=sys.stderr)
+        except aktualizacje.OdmowaPrzedPoleceniem as odmowa:
+            print(str(odmowa), file=sys.stderr)
+            return 2
+        except Exception:                      # noqa: BLE001 — patrz komentarz wyżej
+            pass
     try:
         return args.funkcja(args)
     except magazyn_klucza.WieluAgentow as blad:

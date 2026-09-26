@@ -164,7 +164,7 @@ class TestMonityPekuKluczy(unittest.TestCase):
         więc `init` mówi o tym WCZEŚNIEJ — to jest część, która działa zawsze."""
         import inspect
 
-        zrodlo = inspect.getsource(klucz.zapytaj_i_zapisz)
+        zrodlo = inspect.getsource(klucz.zapytaj)
         self.assertIn("pęku kluczy", zrodlo)
         self.assertIn("nic nie wpisuj", zrodlo.lower())
 

@@ -35,6 +35,34 @@ LIMIT_CZASU_WYSYLKI_S = 300
 #: liczba nie da większej strony, da 422.
 NA_STRONE = 200
 
+#: Zapisywacz wersji z nagłówków odpowiedzi (ADVERTPR-960, poprawka z przeglądu): serwer
+#: niesie `X-Kit-Latest`/`X-Kit-Min` przy KAŻDEJ odpowiedzi na zapytanie z Kita — także
+#: 401/403 — a jedynym miejscem, które widzi wszystkie odpowiedzi, jest `_wywolaj`.
+#: Podpina się tu przy imporcie `aktualizacje` (`odswiez_z_naglowkow`); `None` = brak
+#: zapisu (samodzielne użycie `Klient` bez modułu aktualizacji). Błąd zapisu NIGDY nie
+#: przerwie żądania: pamięć podręczna wersji nie jest warunkiem pracy.
+_odswiez_wersje_z_naglowkow = None
+
+
+def podpin_odswiezanie_wersji(funkcja) -> None:
+    """`funkcja(latest, min)` — wywoływana z nagłówków każdej odpowiedzi, gdy serwer je niesie."""
+    global _odswiez_wersje_z_naglowkow
+    _odswiez_wersje_z_naglowkow = funkcja
+
+
+def _odswiez_wersje_z_naglowkow_jesli_sa(naglowki) -> None:
+    """Wersje z nagłówków odpowiedzi → podpięty zapisywacz (patrz stała wyżej)."""
+    if naglowki is None or _odswiez_wersje_z_naglowkow is None:
+        return
+    latest = naglowki.get("X-Kit-Latest")
+    minimalna = naglowki.get("X-Kit-Min")
+    if not latest and not minimalna:
+        return
+    try:
+        _odswiez_wersje_z_naglowkow(latest, minimalna)
+    except Exception:                      # noqa: BLE001 — pamięć podręczna, nie warunek pracy
+        pass
+
 #: Bezpiecznik przeglądania, nie limit projektowy. Dwadzieścia stron to 4000 zadań; kolejka,
 #: która tego nie mieści, potrzebuje filtru po stronie serwera, a nie kolejnej pętli u klienta.
 STRON_NAJWYZEJ = 20
@@ -124,6 +152,7 @@ class Klient:
         try:
             with urllib.request.urlopen(zadanie, timeout=LIMIT_CZASU_S) as odp:
                 tresc = odp.read().decode("utf-8")
+                _odswiez_wersje_z_naglowkow_jesli_sa(odp.headers)
                 return json.loads(tresc) if tresc else {}
         except urllib.error.HTTPError as blad:
             tresc = ""
@@ -131,6 +160,7 @@ class Klient:
                 tresc = blad.read().decode("utf-8", errors="replace")[:500]
             except Exception:                      # noqa: BLE001 — treść błędu jest dodatkiem
                 pass
+            _odswiez_wersje_z_naglowkow_jesli_sa(getattr(blad, "headers", None))
             raise self._na_wyjatek(blad.code, metoda, sciezka, tresc) from None
         except urllib.error.URLError as blad:
             raise BladAPI(
@@ -496,6 +526,18 @@ class Klient:
         return wynik if isinstance(wynik, dict) else {}
 
     # ── sonda ────────────────────────────────────────────────────────────────
+
+    def wersja_kita(self) -> dict:
+        """`GET /kit/version` — jaka wersja Kita jest najnowsza, jaka wymagana (ADVERTPR-960).
+
+        Działa na każdym ważnym kluczu i NIE ZNA nagłówka Organizacji — to jest droga,
+        którą Kit dowiaduje się o własnych aktualizacjach, więc musi działać wcześnie
+        i niezależnie od wyboru Organizacji. Serwer niesie tu też `tag` i `commit`:
+        to SF wskazuje, CO zainstalować, i to zgodność z tym `commit`-em weryfikuje
+        `sf-kit update` (ochrona przed przesuniętym tagiem).
+        """
+        odp = self._wywolaj("GET", "kit/version")
+        return odp if isinstance(odp, dict) else {}
 
     # ── profil KOORDYNATOR (v0.4) ────────────────────────────────────────────
 

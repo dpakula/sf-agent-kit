@@ -347,8 +347,12 @@ def powod_braku_klucza() -> str:
     return "Nie mam klucza. Uruchom `./sf-kit init` — zapyta o niego i zapisze bezpiecznie."
 
 
-def zapytaj_i_zapisz() -> tuple[str, str]:
-    """Zapytaj człowieka o klucz (bez echa) i zapisz. Zwraca `(skrót, gdzie zapisano)`.
+def zapytaj(czy_pusty_ok: bool = False) -> str:
+    """Zapytaj człowieka o klucz (bez echa) i oddaj wartość — ZAPIS robi wołający.
+
+    Dlaczego osobno od zapisu: `init` w trybie DODAWANIA pyta o klucz, zanim wie, do
+    którego podkatalogu zapisać (nazwę ustala dopiero `GET /me`). Wołający w trybie
+    EDYCJI przekazuje `czy_pusty_ok=True` — wtedy pusty Enter znaczy „zostaw obecny".
 
     Walidujemy WYŁĄCZNIE prefiks i to, czy cokolwiek podano. Sprawdzanie długości albo
     znaków byłoby zgadywaniem cudzego formatu — a klucz, którego nie rozpoznajemy, i tak
@@ -359,10 +363,36 @@ def zapytaj_i_zapisz() -> tuple[str, str]:
               "pytania o hasło — nic nie wpisuj, one dotyczą tego samego klucza.")
     klucz = getpass.getpass("Klucz API SalesForge (nie będzie widoczny): ").strip()
     if not klucz:
+        if czy_pusty_ok:
+            return ""
         raise ValueError("nie podałeś klucza")
     if not klucz.startswith(PREFIKS_KLUCZA):
         raise ValueError(
             f'to nie wygląda na klucz SalesForge — powinien zaczynać się od „{PREFIKS_KLUCZA}”. '
             f"Jeśli wkleiłeś coś innego (np. token GitHuba), zacznij od nowa.")
+    return klucz
+
+
+def zapytaj_i_zapisz() -> tuple[str, str]:
+    """Zapytaj o klucz (bez echa) i od razu zapisz. Zwraca `(skrót, gdzie zapisano)`.
+
+    Zostało dla zgodności ze starszymi wywołaniami — logika pytania mieszka w `zapytaj`,
+    zapis w `zapisz`.
+    """
+    klucz = zapytaj()
     gdzie = zapisz(klucz)
     return skrot(klucz), gdzie
+
+
+def usun_z_peku(konto: str) -> bool:
+    """Skasuj wpis z pęku kluczy macOS (używane przy przenosinach agentów).
+
+    `False` = nie ma czego kasować albo `security` odmówił — obie sytuacje są do
+    przyjęcia przy sprzątaniu po migracji, więc nie wywracamy się przez nie.
+    """
+    if not czy_macos():
+        return False
+    wynik = subprocess.run(
+        ["security", "delete-generic-password", "-a", konto, "-s", USLUGA],
+        capture_output=True, text=True)
+    return wynik.returncode == 0

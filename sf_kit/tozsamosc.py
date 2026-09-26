@@ -89,6 +89,9 @@ class Tozsamosc:
     #: zgadywać identyfikator. Na końcu listy pól z wartością domyślną, żeby istniejące
     #: wywołania `Tozsamosc(...)` — także te w testach — nie musiały się zmieniać.
     klucz_id: str | None = None
+    #: Adres konta — potrzebny, gdy SF nie podaje `agent_slug` (klucz osobisty): nazwę
+    #: agenta na tej maszynie bierzemy z części adresu przed `@` (decyzja Damiana 26.09).
+    konto_email: str | None = None
 
     @property
     def z_nadaniami(self) -> list[Organizacja]:
@@ -107,6 +110,7 @@ def z_odpowiedzi(dane: dict) -> Tozsamosc:
     klucz = dane.get("klucz") or {}
     return Tozsamosc(
         konto_nazwa=konto.get("nazwa") or konto.get("email"),
+        konto_email=konto.get("email"),
         konto_kind=konto.get("kind"),
         klucz_id=(str(klucz.get("id")) if klucz.get("id") else None),
         klucz_prefiks=klucz.get("prefiks"),

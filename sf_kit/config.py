@@ -77,6 +77,15 @@ class Konfiguracja:
     #: (README, „Ograniczenia") — nie docelowy kształt.
     obserwatorzy_domyslni: list = field(default_factory=list)
 
+    #: Automatyczna aktualizacja Kita — WYŁĄCZNIE profil `worker`, WYŁĄCZNIE poprawki
+    #: w obrębie tego samego minor (`0.13.x`). `"patch"` włącza: worker, między zadaniami,
+    #: sam podmienia kod na wydanie wskazane przez SF i kończy proces kodem przeznaczonym
+    #: do restartu — wstawia go systemd (`Restart=always`) albo launchd (`KeepAlive`).
+    #: Wersje minor i major ZAWSZE instaluje człowiek (`sf-kit update`). Domyślnie `"off"`,
+    #: bo podmiana kodu pod działającym procesem bez nadzorującej usługi psuje importy
+    #: i zostawia worker martwym do ręcznego wstawienia (krytyka z ADVERTPR-960).
+    auto_update: str = "off"
+
     def braki(self) -> list[str]:
         """Czego brakuje, żeby worker mógł ruszyć. Pusta lista = wszystko jest.
 
