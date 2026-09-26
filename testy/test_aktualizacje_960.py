@@ -229,6 +229,21 @@ class TestOstrzezeniaPrzedPoleceniem(unittest.TestCase):
             kl, teraz=TERAZ, plik=self.plik))
 
 
+def _starsza_od_zainstalowanej() -> str:
+    """Wersja STARSZA od `WERSJA`, poprawna także dla `x.y.0`.
+
+    Do 26.09 testy liczyły `patch - 1`, co przy wydaniu 0.14.0 dawało „0.14.-1" — napis
+    spoza wzorca vX.Y.Z, więc Kit odmawiał jeszcze PRZED sprawdzaną ścieżką i trzy testy
+    padały. Na gałęzi (0.13.4) błąd był niewidoczny; wyszedł dopiero przy podbiciu wersji.
+    """
+    major, minor, patch = (int(c) for c in WERSJA.split("."))
+    if patch:
+        return f"{major}.{minor}.{patch - 1}"
+    if minor:
+        return f"{major}.{minor - 1}.99"
+    return f"{major - 1}.99.99"
+
+
 class TestAktualizuj(unittest.TestCase):
 
     def test_juz_najnowsza_nie_rusza_gita(self):
@@ -298,8 +313,7 @@ class TestAktualizuj(unittest.TestCase):
 
     def test_sf_wskazuje_STARSZA_wersje_nie_cofa(self):
         """7a z przeglądu: starsza wersja w SF ≠ „masz najnowszą" — i git zostaje nietknięty."""
-        czesci = [int(c) for c in WERSJA.split(".")]
-        starsza = f"{czesci[0]}.{czesci[1]}.{czesci[2] - 1}"
+        starsza = _starsza_od_zainstalowanej()
         kl = AtrapaKlienta(odpowiedz=info_sf(latest=starsza))
         repo = AtrapaRepo()
         mowione = []
@@ -313,8 +327,7 @@ class TestAktualizuj(unittest.TestCase):
     def test_wymuszenie_pozwala_przejsc_na_starsze_wydanie(self):
         """7a: `--force` (tylko człowiek, nigdy auto-patch) zgadza się na cofnięcie
         wersji — weryfikacja z SF i tak przechodzi PRZED checkoutem (B1)."""
-        czesci = [int(c) for c in WERSJA.split(".")]
-        starsza = f"{czesci[0]}.{czesci[1]}.{czesci[2] - 1}"
+        starsza = _starsza_od_zainstalowanej()
         info = info_sf(latest=starsza, commit="d" * 40)
         kl = AtrapaKlienta(odpowiedz=info)
         repo = AtrapaRepo(head="e" * 40, head_po_przejsciu="d" * 40)
@@ -329,8 +342,7 @@ class TestAktualizuj(unittest.TestCase):
     def test_auto_patch_nigdy_nie_wymusza(self):
         """Automatyczny patch workera nie przekazuje `wymusz` — starsze wydanie z SF
         zostawia maszynę nietkniętą (cofnięcie to decyzja człowieka)."""
-        czesci = [int(c) for c in WERSJA.split(".")]
-        starsza = f"{czesci[0]}.{czesci[1]}.{czesci[2] - 1}"
+        starsza = _starsza_od_zainstalowanej()
         kl = AtrapaKlienta(odpowiedz=info_sf(latest=starsza))
         repo = AtrapaRepo()
         mowione = []
