@@ -513,6 +513,11 @@ class Klient:
             "PATCH", f"console/messages/{message_id}/recipients/me", cialo=cialo)
         return wynik if isinstance(wynik, dict) else {}
 
+    def puls(self, meldunki: list[dict]) -> dict:
+        """Puls workera do SF (SF-87, `POST /flota/puls`). Klucz agenta melduje wyłącznie siebie."""
+        wynik = self._wywolaj("POST", "flota/puls", cialo={"meldunki": meldunki})
+        return wynik if isinstance(wynik, dict) else {}
+
     def wiadomosc_do(self, slug: str, tresc: str, *, rodzaj: str = "inject") -> dict:
         """Wiadomość do sesji agenta (`sf-kit wpis --do <slug>`).
 

@@ -24,6 +24,7 @@ a stan po stronie Kitu to pierwsza rzecz, która rozjeżdża się z SF.
 """
 from __future__ import annotations
 
+import contextlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,7 @@ from . import aktualizacje as mod_aktualizacje
 from . import ramka
 from . import reakcje as mod_reakcje
 from . import skrzynka as mod_skrzynka
+from .puls_sf import PulsSF
 from .telemetria import Telemetria
 from . import rotacja as mod_rotacja
 from . import tozsamosc as mod_tozsamosc
@@ -324,7 +326,8 @@ def _zajrzyj_do_komentarzy(klient: Klient, zid: str, *, po: datetime) -> "mod_re
 def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
                    *, stan_prob: StanProb | None = None,
                    teraz: datetime | None = None,
-                   katalog_skrzynki: Path | None = None) -> str:
+                   katalog_skrzynki: Path | None = None,
+                   puls_sf: PulsSF | None = None) -> str:
     """Jedno zadanie od początku do końca. Zwraca krótki opis wyniku (do logu)."""
     tytul = zadanie.get("title", "?")
     zid = str(zadanie.get("id"))
@@ -447,7 +450,10 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
         # zamierzony: skoro treść NIE dotarła do agenta, odbioru też nie potwierdzamy.
         polecenie += "\n\n" + mod_skrzynka.opis(poczta)
 
-    wynik = wykonawca.wykonaj(polecenie, katalog=katalog, limit_s=konf.limit_zadania_s)
+    # SF-87: na czas wykonania puls do SF idzie z wątku co minutę — wykonawca blokuje, a bez
+    # tego ekran floty pokazałby „brak sygnału” przy workerze, który właśnie pracuje.
+    with (puls_sf.w_trakcie(zadanie) if puls_sf is not None else contextlib.nullcontext()):
+        wynik = wykonawca.wykonaj(polecenie, katalog=katalog, limit_s=konf.limit_zadania_s)
 
     # POTWIERDZENIE ODBIORU DOPIERO TUTAJ — PO wywołaniu wykonawcy, nie przed nim.
     #
@@ -621,6 +627,23 @@ def _odloz_do_czlowieka(klient: Klient, zid: str) -> None:
 _ostatni_powod_braku: str | None = None
 
 
+#: Jedna instancja pulsu na agenta w procesie — licznik `nr_sekw` musi rosnąć przez cały proces,
+#: a nie zaczynać się od zera w każdym takcie (SF odrzuciłby wtedy każdy meldunek po pierwszym).
+_pulsy: dict[str, PulsSF] = {}
+
+
+def _puls_dla(klient: Klient, konf: Konfiguracja) -> PulsSF:
+    puls = _pulsy.get(konf.slug)
+    if puls is None:
+        puls = _pulsy[konf.slug] = PulsSF(klient, konf.slug, loguj=_log)
+    else:
+        # Nowy obiekt klienta (np. po rotacji klucza) — ten sam proces, więc ta sama generacja
+        # i licznik idzie DALEJ. Nowy `PulsSF` zacząłby od `nr_sekw` 1 i SF odrzucałby każdy
+        # meldunek jako nieaktualny aż do restartu procesu.
+        puls._klient = klient
+    return puls
+
+
 def _przyjmij_skrzynke(klient: Klient, katalog: Path) -> None:
     """SF-86 etap 3: skrzynka w KAŻDYM takcie, nie tylko przy zadaniu. Nigdy nie przerywa taktu."""
     global _ostatni_powod_braku
@@ -666,6 +689,7 @@ def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
         plik_stanu = sciezka_konfiguracji().with_name("state.json")
     katalog_skrzynki = Path(plik_stanu).with_name(f"skrzynka-{konf.slug}")
     _przyjmij_skrzynke(klient, katalog_skrzynki)
+    puls_sf = _puls_dla(klient, konf)
 
     if not wynik:
         if wynik.urwane:
@@ -673,12 +697,14 @@ def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
             # o tym wprost, bo to jedyny moment, w którym da się to zauważyć.
             _log(f"brak moich zadań w przejrzanych {wynik.przejrzano} z {wynik.wszystkich} "
                  f"pozycji kolejki — przeglądanie urwał bezpiecznik stron")
+        puls_sf.melduj("bezczynny", przyczyna="brak zadań w kolejce")
         return 0
     stan = StanProb(plik_stanu)
     zadanie = next((z for z in wynik.zadania if stan.gotowe(z, teraz=teraz)), None)
     if zadanie is None:
+        puls_sf.melduj("bezczynny", przyczyna="zadania odłożone do ponowienia")
         return 0
-    _log(f"   wynik: {obsluz_zadanie(klient, konf, zadanie, stan_prob=stan, teraz=teraz, katalog_skrzynki=katalog_skrzynki)}")
+    _log(f"   wynik: {obsluz_zadanie(klient, konf, zadanie, stan_prob=stan, teraz=teraz, katalog_skrzynki=katalog_skrzynki, puls_sf=puls_sf)}")
     return 1
 
 
