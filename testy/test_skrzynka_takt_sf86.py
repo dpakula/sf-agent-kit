@@ -46,7 +46,7 @@ class KlientTaktu:
             raise self.odczyt_pada
         return {"wiadomosci": self.wiadomosci, "nieodebrane": len(self.wiadomosci), "zalegle": 0}
 
-    def potwierdz_odbior(self, message_id, *, status="consumed", powod=None):
+    def potwierdz_odbior(self, message_id, *, status="consumed", powod=None, **_):
         plik_byl = bool(self.katalog and (Path(self.katalog) / f"{message_id}.json").exists())
         self.acki.append((str(message_id), status, plik_byl))
         if self.ack_pada:

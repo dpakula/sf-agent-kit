@@ -44,6 +44,9 @@ class KlientZeSkrzynka:
         self._odczyt_pada = odczyt_pada
         self._ack_pada = ack_pada
         self.potwierdzone: list[str] = []
+        #: SF-86: zgłoszenia odmowy odbiornika (`failed` z powodem) — to NIE jest potwierdzenie
+        #: odbioru, więc osobna lista: `potwierdzone` dalej znaczy „treść dotarła do agenta”.
+        self.odmowy: list[tuple[str, str]] = []
         self.zapytania = 0
 
     def skrzynka(self, *, dni=None, limit=None, tylko_nieodebrane=False):
@@ -52,9 +55,12 @@ class KlientZeSkrzynka:
             raise self._odczyt_pada
         return self._dane
 
-    def potwierdz_odbior(self, message_id, *, status="consumed", powod=None):
+    def potwierdz_odbior(self, message_id, *, status="consumed", powod=None, **_):
         if self._ack_pada:
             raise BladAPI("atrapa: ack nie przeszedł", kod=500)
+        if status == "failed":
+            self.odmowy.append((str(message_id), powod or ""))
+            return {}
         self.potwierdzone.append(str(message_id))
         return {}
 
@@ -143,12 +149,16 @@ class KlientWorkera(AtrapaKlienta):
         self._dane = dane or {"wiadomosci": [wiadomosc(tresc="Przypisano Cię do sprawy X.")],
                               "nieodebrane": 1, "zalegle": 0}
         self.potwierdzone: list[str] = []
+        self.odmowy: list[tuple[str, str]] = []
         self.ack_przy_wykonaniu: int | None = None
 
     def skrzynka(self, *, dni=None, limit=None, tylko_nieodebrane=False):
         return self._dane
 
-    def potwierdz_odbior(self, message_id, *, status="consumed", powod=None):
+    def potwierdz_odbior(self, message_id, *, status="consumed", powod=None, **_):
+        if status == "failed":      # SF-86: odmowa odbiornika to nie potwierdzenie odbioru
+            self.odmowy.append((str(message_id), powod or ""))
+            return {}
         self.potwierdzone.append(str(message_id))
         return {}
 
@@ -218,6 +228,10 @@ class TestWorker(unittest.TestCase):
         obsluz_zadanie(klient, konfiguracja(), zadanie(body_md="echo ok"))
         self.assertEqual(klient.potwierdzone, [],
                          "nie pokazaliśmy — nie potwierdzamy")
+        # SF-86: …ale też nie milczymy — odmowa odbiornika idzie do SF jako `failed` z powodem
+        # (licznik prób), żeby czujka widziała, DLACZEGO wiadomość stoi.
+        self.assertEqual([m for m, _ in klient.odmowy], ["m1"])
+        self.assertIn("nie przyjmuje ramki", klient.odmowy[0][1])
 
 
 if __name__ == "__main__":

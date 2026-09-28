@@ -1,5 +1,8 @@
 """Pętla workera: weź zadanie → wykonaj → zdaj sprawozdanie → zamknij.
 
+v0.2 (28.09.2026) - APro Agents / borys-sf
+  0.2 — SF-86: dzierżawa wiadomości przed przekazaniem wykonawcy, odmowa odbiornika (wykonawca
+        bez ramki → `failed` z powodem), instancja/generacja w potwierdzeniach, alarmy Iris.
 v0.1 (14.09.2026) - APro Agents / borys-sf
 
 CZTERY ZASADY, KTÓRE RZĄDZĄ TYM PLIKIEM
@@ -409,12 +412,32 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
     # Skrzynka niesie kontekst („przypisano Cię", „odpowiedź na boxa"), a mieszanie tych dwóch
     # znaczeń dałoby dwa kanały poleceń i żadnego pewnego.
     poczta = mod_skrzynka.pobierz(klient, limit=mod_skrzynka.LIMIT_TAKTU)
+    instancja, generacja = mod_skrzynka.ta_instancja(konf.slug)
+    if poczta.cos_jest and wykonawca.chce_ramke:
+        # SF-86: dzierżawa PRZED doklejeniem do polecenia — druga sesja tego samego agenta nie
+        # może dostać tej samej wiadomości do swojego zadania. Na czas zadania z zapasem.
+        poczta = mod_skrzynka.zadzierzaw(klient, poczta, instancja=instancja,
+                                         sekundy=konf.limit_zadania_s + 120)
+        if poczta.u_innej_instancji:
+            _log(f"   skrzynka: {len(poczta.u_innej_instancji)} wiadomości ma inna sesja "
+                 f"(dzierżawa) — nie doklejam")
+    elif poczta.cos_jest:
+        # SF-86: ODMOWA ODBIORNIKA — wykonawca bez ramki nie może przyjąć kontekstu (polski
+        # akapit w skrypcie powłoki to błąd składni). Do SF idzie `failed` z powodem: licznik
+        # prób rośnie i czujka widzi, DLACZEGO wiadomość stoi — zamiast cichego `delivered`.
+        mod_skrzynka.odmowa(
+            klient, poczta, instancja=instancja, generacja=generacja,
+            powod=f"wykonawca `{wykonawca.nazwa}` nie przyjmuje ramki — skrzynka nieprzekazana")
+        _log(f"   skrzynka: {len(poczta.wiadomosci)} wiadomości zgłoszonych jako odmowa "
+             f"odbiornika (wykonawca bez ramki)")
     if poczta.powod_braku:
         _log(f"   skrzynka niedostępna: {poczta.powod_braku}")
     elif poczta.cos_jest:
         _log(f"   skrzynka: {len(poczta.wiadomosci)} nowych"
              + (f", zalega {poczta.zalegle}" if poczta.zalegle else "")
              + (f", {poczta.ile_dalej} zostaje na potem" if poczta.ile_dalej else ""))
+    if poczta.wygasle:
+        _log(f"   skrzynka: {poczta.wygasle} po terminie ważności — nie wykonuję")
 
     _log(f"   wykonuję przez `{wykonawca.nazwa}` w {katalog} (limit {konf.limit_zadania_s} s)")
     # SF-38: gdzie worker SZUKA wyników — w logu przy starcie, żeby rozjazd katalogów
@@ -459,7 +482,7 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
     # Potwierdzamy TAKŻE gdy wykonanie się nie udało: treść dotarła do wykonawcy, a to jest
     # fakt, o którym mówi „odebrana". Niepowodzenie zadania ma własny ślad i własną drogę.
     if poczta_poszla:
-        mod_skrzynka.potwierdz(klient, poczta)
+        mod_skrzynka.potwierdz(klient, poczta, instancja=instancja, generacja=generacja)
         if katalog_skrzynki is not None:
             mod_skrzynka.zdejmij_z_kolejki(katalog_skrzynki, poczta)
         if poczta.niepotwierdzone:
@@ -621,11 +644,11 @@ def _odloz_do_czlowieka(klient: Klient, zid: str) -> None:
 _ostatni_powod_braku: str | None = None
 
 
-def _przyjmij_skrzynke(klient: Klient, katalog: Path) -> None:
+def _przyjmij_skrzynke(klient: Klient, katalog: Path, slug: str = "") -> None:
     """SF-86 etap 3: skrzynka w KAŻDYM takcie, nie tylko przy zadaniu. Nigdy nie przerywa taktu."""
     global _ostatni_powod_braku
     try:
-        przyjete = mod_skrzynka.przyjmij(klient, katalog)
+        przyjete = mod_skrzynka.przyjmij(klient, katalog, slug=slug)
     except Exception as blad:       # noqa: BLE001 — dysk pełny, brak praw: takt idzie dalej
         przyjete = mod_skrzynka.Odebrane(powod_braku=f"{type(blad).__name__}: {blad}")
     if przyjete.powod_braku:
@@ -637,6 +660,8 @@ def _przyjmij_skrzynke(klient: Klient, katalog: Path) -> None:
     if przyjete.wiadomosci:
         _log(f"skrzynka: przyjęto {len(przyjete.wiadomosci)} do kolejki ({katalog}) — "
              f"odbiór przy najbliższym zadaniu")
+    if przyjete.alarmy:
+        _log(f"skrzynka: {przyjete.alarmy} alarm(ów) Iris (pilne / eskalacja)")
 
 
 def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
@@ -665,7 +690,7 @@ def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
         from .config import sciezka as sciezka_konfiguracji
         plik_stanu = sciezka_konfiguracji().with_name("state.json")
     katalog_skrzynki = Path(plik_stanu).with_name(f"skrzynka-{konf.slug}")
-    _przyjmij_skrzynke(klient, katalog_skrzynki)
+    _przyjmij_skrzynke(klient, katalog_skrzynki, konf.slug)
 
     if not wynik:
         if wynik.urwane:
