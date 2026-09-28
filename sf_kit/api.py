@@ -1,7 +1,7 @@
 """Rozmowa z SalesForge. Wyłącznie biblioteka standardowa — zero `pip install`.
 
 v0.2 (28.09.2026) - APro Agents / borys-sf
-  0.2 — SF-86: `potwierdz_odbior(instancja, generacja)`, `dzierzawa()`.
+  0.2 — SF-86: `potwierdz_odbior(instancja, generacja)`, `dzierzawa()`; SF-87: `puls()`.
 v0.1 (14.09.2026) - APro Agents / borys-sf
 
 DLACZEGO `urllib`, A NIE `requests`
@@ -541,6 +541,11 @@ class Klient:
                 wynik = {}
             return {"przyznana": False, "instancja": wynik.get("instancja"), "do": wynik.get("do")}
         return wynik if isinstance(wynik, dict) else {"przyznana": False}
+
+    def puls(self, meldunki: list[dict]) -> dict:
+        """Puls workera do SF (SF-87, `POST /flota/puls`). Klucz agenta melduje wyłącznie siebie."""
+        wynik = self._wywolaj("POST", "flota/puls", cialo={"meldunki": meldunki})
+        return wynik if isinstance(wynik, dict) else {}
 
     def wiadomosc_do(self, slug: str, tresc: str, *, rodzaj: str = "inject") -> dict:
         """Wiadomość do sesji agenta (`sf-kit wpis --do <slug>`).
