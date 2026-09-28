@@ -323,7 +323,8 @@ def _zajrzyj_do_komentarzy(klient: Klient, zid: str, *, po: datetime) -> "mod_re
 
 def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
                    *, stan_prob: StanProb | None = None,
-                   teraz: datetime | None = None) -> str:
+                   teraz: datetime | None = None,
+                   katalog_skrzynki: Path | None = None) -> str:
     """Jedno zadanie od początku do końca. Zwraca krótki opis wyniku (do logu)."""
     tytul = zadanie.get("title", "?")
     zid = str(zadanie.get("id"))
@@ -459,6 +460,8 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
     # fakt, o którym mówi „odebrana". Niepowodzenie zadania ma własny ślad i własną drogę.
     if poczta_poszla:
         mod_skrzynka.potwierdz(klient, poczta)
+        if katalog_skrzynki is not None:
+            mod_skrzynka.zdejmij_z_kolejki(katalog_skrzynki, poczta)
         if poczta.niepotwierdzone:
             _log(f"   {len(poczta.niepotwierdzone)} wiadomości bez potwierdzenia odbioru "
                  f"— wrócą w następnym takcie")
@@ -613,6 +616,29 @@ def _odloz_do_czlowieka(klient: Klient, zid: str) -> None:
              f"— UWAGA: zadanie wróci w następnym takcie")
 
 
+#: Ostatni powód braku skrzynki — logujemy ZMIANĘ, nie każdy takt. Przy 422 (klucz bez sluga)
+#: log co 60 s przez dobę to 1440 identycznych linii, w których ginie wszystko inne.
+_ostatni_powod_braku: str | None = None
+
+
+def _przyjmij_skrzynke(klient: Klient, katalog: Path) -> None:
+    """SF-86 etap 3: skrzynka w KAŻDYM takcie, nie tylko przy zadaniu. Nigdy nie przerywa taktu."""
+    global _ostatni_powod_braku
+    try:
+        przyjete = mod_skrzynka.przyjmij(klient, katalog)
+    except Exception as blad:       # noqa: BLE001 — dysk pełny, brak praw: takt idzie dalej
+        przyjete = mod_skrzynka.Odebrane(powod_braku=f"{type(blad).__name__}: {blad}")
+    if przyjete.powod_braku:
+        if przyjete.powod_braku != _ostatni_powod_braku:
+            _log(f"skrzynka niedostępna: {przyjete.powod_braku}")
+        _ostatni_powod_braku = przyjete.powod_braku
+        return
+    _ostatni_powod_braku = None
+    if przyjete.wiadomosci:
+        _log(f"skrzynka: przyjęto {len(przyjete.wiadomosci)} do kolejki ({katalog}) — "
+             f"odbiór przy najbliższym zadaniu")
+
+
 def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
              teraz: datetime | None = None) -> int:
     """Jeden przebieg: weź NAJWYŻEJ JEDNO zadanie.
@@ -635,6 +661,12 @@ def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
         _log(f"nie mogę pobrać zadań: {blad}")
         return -1
 
+    if plik_stanu is None:
+        from .config import sciezka as sciezka_konfiguracji
+        plik_stanu = sciezka_konfiguracji().with_name("state.json")
+    katalog_skrzynki = Path(plik_stanu).with_name(f"skrzynka-{konf.slug}")
+    _przyjmij_skrzynke(klient, katalog_skrzynki)
+
     if not wynik:
         if wynik.urwane:
             # Cisza z powodu bezpiecznika wygląda jak cisza z powodu braku pracy. Mówimy
@@ -642,14 +674,11 @@ def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
             _log(f"brak moich zadań w przejrzanych {wynik.przejrzano} z {wynik.wszystkich} "
                  f"pozycji kolejki — przeglądanie urwał bezpiecznik stron")
         return 0
-    if plik_stanu is None:
-        from .config import sciezka as sciezka_konfiguracji
-        plik_stanu = sciezka_konfiguracji().with_name("state.json")
     stan = StanProb(plik_stanu)
     zadanie = next((z for z in wynik.zadania if stan.gotowe(z, teraz=teraz)), None)
     if zadanie is None:
         return 0
-    _log(f"   wynik: {obsluz_zadanie(klient, konf, zadanie, stan_prob=stan, teraz=teraz)}")
+    _log(f"   wynik: {obsluz_zadanie(klient, konf, zadanie, stan_prob=stan, teraz=teraz, katalog_skrzynki=katalog_skrzynki)}")
     return 1
 
 

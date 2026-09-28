@@ -1,5 +1,8 @@
 """Skrzynka wiadomości agenta — odbiór przez PULL (ADVERTPR-812, zakres D).
 
+v0.2 (28.09.2026) - APro Agents / borys-sf
+  0.2 — SF-86 etap 3: `przyjmij` w KAŻDYM takcie (plik z `fsync` → ack `delivered`),
+        `zdejmij_z_kolejki` po odbiorze. Wcześniej skrzynka żyła tylko przy starcie zadania.
 v0.1 (16.09.2026) - APro Agents / borys-sf
 
 PO CO
@@ -24,7 +27,10 @@ DWIE RZECZY, KTÓRE TU PILNUJĘ
 """
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .api import BladAPI, Klient
 
@@ -115,6 +121,85 @@ def potwierdz(klient: Klient, odebrane: Odebrane, *, status: str = "consumed") -
         except Exception:       # noqa: BLE001 — jak wyżej: brak ack jest mały, brak pracy duży
             odebrane.niepotwierdzone.append(mid)
     return odebrane
+
+
+#: Ile bierzemy przy PRZYJMOWANIU do kolejki. Więcej niż `LIMIT_TAKTU`, i to jest konieczne,
+#: nie hojne: skrzynka oddaje nieodebrane NAJSTARSZE pierwsze, a `delivered` dalej jest
+#: nieodebrane. Przy limicie 5 pięć wiadomości przyjętych i czekających na zadanie zasłaniałoby
+#: każdą nowszą — worker bez zadań nie przyjąłby już niczego.
+LIMIT_PRZYJECIA = 50
+
+
+def _zapisz_trwale(sciezka: Path, wiadomosc: dict) -> None:
+    """Plik → `fsync` → `rename` → `fsync` katalogu. Dopiero to wolno nazwać „trwale przyjętą".
+
+    Ta sama kolejność, co u bramki floty (`write` + `fsync`, potem ack). Bez `fsync` katalogu
+    `rename` potrafi nie przeżyć utraty zasilania, a wtedy SF ma `delivered`, a dysk — nic.
+    """
+    sciezka.parent.mkdir(parents=True, exist_ok=True)
+    tymczasowy = sciezka.with_suffix(".tmp")
+    with open(tymczasowy, "w", encoding="utf-8") as plik:
+        json.dump(wiadomosc, plik, ensure_ascii=False)
+        plik.flush()
+        os.fsync(plik.fileno())
+    os.replace(tymczasowy, sciezka)
+    katalog = os.open(sciezka.parent, os.O_RDONLY)
+    try:
+        os.fsync(katalog)
+    finally:
+        os.close(katalog)
+
+
+def przyjmij(klient: Klient, katalog: Path, *, limit: int = LIMIT_PRZYJECIA) -> Odebrane:
+    """W KAŻDYM takcie, także bez zadania: nowe wiadomości do lokalnej kolejki + ack `delivered`.
+
+    PO CO (SF-86, etap 3)
+    ═════════════════════
+    Do SF-86 worker czytał skrzynkę wyłącznie przy starcie zadania. Worker bez zadań nie
+    dowiadywał się o niczym, a SF nie umiał odróżnić „worker leży" od „worker żyje, tylko nie
+    miał pracy" — jedno i drugie wyglądało jak `new` bez końca.
+
+    „Doręczona" znaczy tu dokładnie to, co w kontrakcie z opinii Kodeksa: **trwale przyjęta
+    przez kolejkę odbiornika** — plik z `fsync` w katalogu workera. Nie „przeczytana": odbiór
+    (`consumed`) potwierdza dalej `obsluz_zadanie`, PO przekazaniu treści wykonawcy.
+
+    Plik, który już jest, nie jest pisany drugi raz, a ack `delivered` na wiadomości już
+    `delivered` nie idzie wcale — to jest deduplikacja po stronie odbiornika, po `message_id`,
+    odporna na restart procesu (stan leży na dysku, nie w pamięci).
+    """
+    odebrane = pobierz(klient, limit=limit)
+    if odebrane.powod_braku:
+        return odebrane
+    przyjete: list[dict] = []
+    for w in odebrane.wiadomosci:
+        mid = str(w.get("message_id") or "")
+        if not mid:
+            continue
+        plik = katalog / f"{mid}.json"
+        if not plik.exists():
+            _zapisz_trwale(plik, w)
+        if w.get("status") == "delivered":
+            continue
+        try:
+            klient.potwierdz_odbior(mid, status="delivered")
+        except Exception:       # noqa: BLE001 — brak acka wróci w następnym takcie, plik już jest
+            odebrane.niepotwierdzone.append(mid)
+            continue
+        przyjete.append(w)
+    odebrane.wiadomosci = przyjete
+    return odebrane
+
+
+def zdejmij_z_kolejki(katalog: Path, odebrane: Odebrane) -> None:
+    """Po potwierdzonym `consumed` plik przestaje być potrzebny — prawdą jest SF.
+
+    Pliki NIEpotwierdzonych zostają: wiadomość wróci w następnym takcie i musi dać się
+    odróżnić od nowej.
+    """
+    for w in odebrane.wiadomosci:
+        mid = str(w.get("message_id") or "")
+        if mid and mid not in odebrane.niepotwierdzone:
+            (katalog / f"{mid}.json").unlink(missing_ok=True)
 
 
 def opis(odebrane: Odebrane) -> str:
