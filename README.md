@@ -67,6 +67,7 @@ sam, w terminalu, przy `./sf-kit init`.
 |---|---|
 | `Adres SalesForge [https://sf.dpakula.pl]:` | Enter, gdy domyślny wystarczy |
 | `Klucz API SalesForge (nie będzie widoczny):` | klucz z menedżera haseł; kursor się nie rusza — to normalne |
+| `Domyślna Organizacja (slug; Enter = brak, będę podawał --org) [brak]:` | pojawia się, gdy masz nadania w kilku Organizacjach — wpisz slug swojej (np. `formarketing`); Enter zostawia bez domyślnej i każde polecenie będzie wymagać `--org` |
 
 Potem Kit pokazuje rozpoznanie (agent, konto, domyślna Organizacja, profil z nadanych
 uprawnień) i pyta `Zapisać? [t/N]` — `t` zapisuje klucz i ustawienia w nowym podkatalogu
