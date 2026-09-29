@@ -16,7 +16,7 @@
   curl -fsSL https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.sh | sh
   ```
 
-- **Windows** (PowerShell — menu Start, wpisz „PowerShell”; także terminal w aplikacji Claude Code). Bez WSL:
+- **Windows** (PowerShell — menu Start, wpisz „PowerShell”; także terminal w aplikacji Claude Code). Bez WSL. **W testach — potwierdzimy 30.09 rano**; do tego czasu na Windows pewną drogą jest WSL (Linux wewnątrz Windowsa) i polecenie dla Linuksa wyżej:
 
   ```
   irm https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.ps1 | iex

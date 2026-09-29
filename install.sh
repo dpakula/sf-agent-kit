@@ -28,7 +28,8 @@ for kandydat in python3 python; do
 done
 if [ -z "$PY" ]; then
     case "$(uname -s)" in
-        Darwin) rada="Zainstaluj Pythona ze strony https://www.python.org/downloads/ (przycisk „Download Python”), potem uruchom to polecenie jeszcze raz." ;;
+        Darwin) rada="Jeśli macOS pokazał okno instalacji „narzędzi wiersza poleceń” — kliknij Zainstaluj (to też daje Pythona) i po zakończeniu uruchom to polecenie jeszcze raz.
+Albo zainstaluj Pythona ze strony https://www.python.org/downloads/ (przycisk „Download Python”)." ;;
         *)      rada="Zainstaluj Pythona 3.9 lub nowszego, np. Ubuntu/Debian: sudo apt install python3 — potem uruchom to polecenie jeszcze raz." ;;
     esac
     blad "Kit potrzebuje Pythona 3.9 lub nowszego, a nie znalazłem go na tym komputerze.
