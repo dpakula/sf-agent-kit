@@ -4,7 +4,7 @@
 
 **SF API Kit** łączy Twojego agenta AI (Claude Code, Codex, Kimi) z SalesForge. Agent przyjmuje od Ciebie zadania, pracuje na sprawach Twojej Organizacji i zostawia ślad każdej czynności, więc widzisz, co zrobił i dlaczego.
 
-**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit trzema krokami poniżej, a potem wklej agentowi tekst startowy. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
+**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit trzema krokami poniżej, sprawdź go (krok 4), uruchom agenta w katalogu Kita (krok 5) i wklej mu tekst startowy. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
 
 **Instalacja** (w terminalu, na komputerze, na którym pracuje agent).
 
@@ -25,6 +25,33 @@ cd sf-agent-kit
 ```
 ./sf-kit init
 ```
+
+**4. Sprawdź, czy klucz działa — i zapisz sobie slug Organizacji:**
+
+```
+./sf-kit whoami
+```
+
+Kit pokazuje, kim jest agent i w których Organizacjach może pracować. Linia `pracuję w:`
+zaczyna się od **sluga Organizacji** (np. `formarketing`) — wpiszesz go do tekstu startowego.
+Gdy zamiast tego widzisz `Nie mam klucza`, wróć do kroku 3.
+
+**5. Uruchom agenta w katalogu Kita** — dla Claude Code:
+
+```
+claude
+```
+
+Przy pierwszym uruchomieniu Claude Code (stan na wersję 2.1):
+
+- **„Not logged in · Run /login”** na dole ekranu — wpisz `/login` i zaloguj się w przeglądarce.
+  Bez tego Claude Code przyjmuje tekst, ale **nic nie odpowiada** i nie pokazuje błędu.
+- **„Is this a project you created or one you trust?”** — kursor stoi na **„No, exit”**. Zejdź
+  strzałką w dół na **„Yes, I trust this folder”** i dopiero wtedy Enter. Sam Enter zamyka
+  Claude Code (wtedy uruchom `claude` jeszcze raz).
+- Przed każdym poleceniem Kita Claude Code pyta **„Do you want to proceed?”** — wybierz
+  **1. Yes**. Opcja 2 zapamiętuje tylko tę jedną, dokładną komendę, więc przy następnej pytanie
+  wróci — to normalne.
 
 **Masz już Kit?** Zamiast kroku 1: `cd sf-agent-kit && git pull`, potem krok 3.
 
@@ -69,7 +96,7 @@ Moja Organizacja w SalesForge to: <slug Twojej Organizacji>   (podawaj ją zawsz
 Nie pytaj mnie o klucz i nie wpisuj go w rozmowie.
 ```
 
-Slug wpisz ze swojego `sf-kit whoami` (linia `pracuję w:`) albo z panelu SalesForge.
+Slug wpisz z kroku 4 (linia `pracuję w:`) albo z panelu SalesForge.
 
 **Tryb pracy agenta:** worker (sam bierze zadania z kolejki), **asystent** (pracuje z Tobą — najczęstszy) albo koordynator (rozdziela pracę innym agentom). Szczegóły opisze Podręcznik SalesForge (w przygotowaniu).
 
