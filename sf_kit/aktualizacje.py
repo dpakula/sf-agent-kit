@@ -1,5 +1,7 @@
 """Sprawdzanie i instalowanie aktualizacji Kita (ADVERTPR-960).
 
+v0.2 (29.09.2026) - APro Agents / borys-sf · ADVERTPR-987: instalacja z ZIP-a (bez gita) aktualizuje
+  się ZIP-em commita wskazanego przez SF, sprawdzonym po komentarzu archiwum (`instalacja.py`)
 v0.1 (25.09.2026) - APro Agents / kimi-autor · kontrakt z GO Damiana 25.09 23:2x
 
 DWIE RÓŻNE RZECZY, KTÓRE TEN MODUŁ ROBI
@@ -421,11 +423,15 @@ def aktualizuj(klient, *, repo: Repo | None = None, mow=print, wymusz: bool = Fa
     bo cofanie wersji bez pytania to niespodzianka. Automatyczny patch workera NIGDY
     nie przekazuje `wymusz`.
     """
+    from . import instalacja
+
     repo = repo if repo is not None else Repo.znajdz()
-    if repo is None:
+    z_zipa = repo is None and instalacja.ta_instalacja() is not None
+    if repo is None and not z_zipa:
         raise OdmowaAktualizacji(
-            "Kit nie jest klonem gita — nie wiem, skąd wziąć wydanie. Zainstaluj od nowa: "
-            "git clone https://github.com/dpakula/sf-agent-kit.git i przenieś config.json.")
+            "Kit nie jest ani klonem gita, ani instalacją z instalatora — nie wiem, skąd wziąć "
+            "wydanie. Zainstaluj od nowa jednym poleceniem (README, „Instalacja”); konfiguracja "
+            "i klucz zostaną.")
 
     info = pobierz_info(klient)
     tag = info["tag"]
@@ -445,6 +451,19 @@ def aktualizuj(klient, *, repo: Repo | None = None, mow=print, wymusz: bool = Fa
     if wymusz and porownanie > 0:
         mow(f"Wymuszam przejście z v{WERSJA} na {tag}, choć SF wskazuje wersję "
             f"{info['latest']} — to cofnięcie wersji, rób to świadomie.")
+
+    if z_zipa:
+        # ADVERTPR-987: bez gita. ZIP DOKŁADNIE commita z SF, zgodność sprawdzana komentarzem
+        # archiwum PRZED podmianą — rozjazd = odmowa, obecna wersja zostaje.
+        mow(f"Aktualizuję Kita z v{WERSJA} do {tag}…")
+        try:
+            instalacja.aktualizuj_z_zip(tag=tag, commit=commit, mow=mow)
+        except instalacja.BladInstalacji as blad:
+            raise BladAktualizacji(f"{blad}\nZostałeś przy v{WERSJA}.") from None
+        mow(f"\nZaktualizowano: v{WERSJA} → {tag} (archiwum sprawdzone zgodnie z SF: {commit[:12]}).")
+        if info.get("breaking"):
+            mow(f"UWAGA: to wydanie ZRYWA zgodność — przeczytaj: {info.get('notes_url') or '—'}")
+        return True
 
     brudne = repo.brudne_pliki()
     if brudne:

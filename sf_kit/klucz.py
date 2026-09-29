@@ -1,5 +1,7 @@
 """Przechowywanie klucza API — jedyne miejsce, które go dotyka.
 
+v0.2 (29.09.2026) - APro Agents / borys-sf · ADVERTPR-987: Windows natywnie — Menedżer poświadczeń
+  (`klucz_windows.py`), zamiast pliku, którego prawa na Windows niczego nie chronią
 v0.1 (14.09.2026) - APro Agents / borys-sf
 
 TRZY MIEJSCA, W KTÓRYCH KLUCZ WYCIEKA, I CO Z NIMI ROBIMY
@@ -13,9 +15,10 @@ TRZY MIEJSCA, W KTÓRYCH KLUCZ WYCIEKA, I CO Z NIMI ROBIMY
    którą nic nie przechodzi, i dlatego ten moduł nie ma żadnej funkcji „podaj klucz jako tekst
    do wstawienia gdziekolwiek".
 
-macOS → pęk kluczy (`security`). Linux → plik `600`. Różnica jest w tym, co system oferuje,
-nie w tym, jak bardzo się staramy: pęk kluczy jest szyfrowany i pyta o zgodę, plik `600` broni
-tylko przed innym użytkownikiem tej maszyny — i tak jest napisane w README.
+macOS → pęk kluczy (`security`). Windows → Menedżer poświadczeń (`klucz_windows`, 0.15.0).
+Linux → plik `600`. Różnica jest w tym, co system oferuje, nie w tym, jak bardzo się staramy:
+pęk kluczy i Menedżer poświadczeń są szyfrowane per konto, plik `600` broni tylko przed innym
+użytkownikiem tej maszyny — i tak jest napisane w README.
 """
 from __future__ import annotations
 
@@ -181,6 +184,16 @@ def czy_macos() -> bool:
     return platform.system() == "Darwin"
 
 
+def czy_windows() -> bool:
+    return os.name == "nt"
+
+
+def cel_w_menedzerze(konto: str | None = None) -> str:
+    """Nazwa wpisu w Menedżerze poświadczeń Windows: `sf-agent-kit:<konto>` — to samo konto
+    co w pęku macOS, więc kilku agentów na jednej maszynie nie nadpisuje sobie kluczy."""
+    return f"{USLUGA}:{konto or konto_w_peku()}"
+
+
 def skrot(klucz: str) -> str:
     """Klucz w postaci nadającej się do pokazania człowiekowi. NIGDY całość.
 
@@ -200,7 +213,22 @@ def zapisz(klucz: str) -> str:
     """Zapisz klucz. Zwraca opis miejsca zapisu (do pokazania człowiekowi)."""
     if czy_macos():
         return _zapisz_keychain(klucz)
+    if czy_windows():
+        return _zapisz_windows(klucz)
     return _zapisz_plik(klucz)
+
+
+def _zapisz_windows(klucz: str) -> str:
+    """Menedżer poświadczeń. Błąd zapisu = błąd, NIE cichy zapis do pliku: plik na Windows
+    nie jest chroniony prawami, więc „zapasowa” ścieżka byłaby obniżeniem zabezpieczenia,
+    o którym człowiek by się nie dowiedział."""
+    from . import klucz_windows
+
+    try:
+        klucz_windows.zapisz(cel_w_menedzerze(), konto_w_peku(), klucz)
+    except klucz_windows.BladMenedzera as blad:
+        raise RuntimeError(f"nie udało się zapisać w Menedżerze poświadczeń Windows: {blad}")
+    return f'Menedżer poświadczeń Windows (wpis „{cel_w_menedzerze()}”)'
 
 
 def _zapisz_keychain(klucz: str) -> str:
@@ -287,6 +315,15 @@ def wczytaj() -> str | None:
         if z_keychain:
             return z_keychain
 
+    if czy_windows():
+        from . import klucz_windows
+        try:
+            z_menedzera = klucz_windows.wczytaj(cel_w_menedzerze())
+        except klucz_windows.BladMenedzera:
+            z_menedzera = None
+        if z_menedzera:
+            return z_menedzera
+
     plik = _plik_klucza()
     if plik.exists():
         tresc = plik.read_text(encoding="utf-8").strip()
@@ -345,7 +382,7 @@ def powod_braku_klucza() -> str:
                 "Jeśli jesteś przy terminalu i mimo to widzisz ten komunikat, odblokuj pęk\n"
                 "kluczy (`security unlock-keychain`) albo zezwól narzędziu `security` na dostęp."
             )
-    return "Nie mam klucza. Uruchom `./sf-kit init` — zapyta o niego i zapisze bezpiecznie."
+    return "Nie mam klucza. Uruchom `sf-kit init` — zapyta o niego i zapisze bezpiecznie."
 
 
 def zapytaj(czy_pusty_ok: bool = False) -> str:
@@ -365,6 +402,9 @@ def zapytaj(czy_pusty_ok: bool = False) -> str:
         # Kita — to okno systemu, nie zawieszenie (ADVERTPR-976, pkt 2 seweryna).
         print("Klucz trafi do pęku kluczy macOS. Jeśli system pokaże okno pęku kluczy\n"
               "(bywa przy Kicie instalowanym wcześniej) — kliknij „Zezwalaj zawsze”.")
+    elif czy_windows():
+        print("Klucz trafi do Menedżera poświadczeń Windows (szyfrowany dla Twojego konta).\n"
+              "Wklej go prawym przyciskiem myszy albo Ctrl+V — nie będzie widoczny, to normalne.")
     klucz = getpass.getpass("Klucz API SalesForge (nie będzie widoczny): ").strip()
     if not klucz:
         if czy_pusty_ok:
@@ -394,6 +434,9 @@ def usun_z_peku(konto: str) -> bool:
     `False` = nie ma czego kasować albo `security` odmówił — obie sytuacje są do
     przyjęcia przy sprzątaniu po migracji, więc nie wywracamy się przez nie.
     """
+    if czy_windows():
+        from . import klucz_windows
+        return klucz_windows.usun(cel_w_menedzerze(konto))
     if not czy_macos():
         return False
     wynik = subprocess.run(

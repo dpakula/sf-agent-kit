@@ -4,39 +4,43 @@
 
 **SF API Kit** łączy Twojego agenta AI (Claude Code, Codex, Kimi) z SalesForge. Agent przyjmuje od Ciebie zadania, pracuje na sprawach Twojej Organizacji i zostawia ślad każdej czynności, więc widzisz, co zrobił i dlaczego.
 
-**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit trzema krokami poniżej, sprawdź go (krok 4), uruchom agenta w katalogu Kita (krok 5) i wklej mu tekst startowy. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
+**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit **jednym poleceniem** (krok 1), skonfiguruj go i sprawdź (kroki 2–3), uruchom agenta (krok 4) i wklej mu tekst startowy. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
 
-**Instalacja** (w terminalu, na komputerze, na którym pracuje agent).
+**Potrzebujesz tylko Pythona 3.9 lub nowszego.** Git nie jest potrzebny, uprawnienia administratora komputera też nie. Jeśli Pythona brak, instalator powie, jak go doinstalować.
 
-**1. Pobierz Kit (tylko za pierwszym razem):**
+**1. Zainstaluj Kit** — wklej JEDNO polecenie do terminala:
 
-```
-git clone https://github.com/dpakula/sf-agent-kit.git
-```
+- **macOS i Linux** (aplikacja Terminal):
 
-**2. Wejdź do katalogu Kita:**
+  ```
+  curl -fsSL https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.sh | sh
+  ```
 
-```
-cd sf-agent-kit
-```
+- **Windows** (PowerShell — menu Start, wpisz „PowerShell”; także terminal w aplikacji Claude Code). Bez WSL:
 
-**3. Skonfiguruj agenta — Kit zapyta o klucz i sam rozpozna resztę w SalesForge:**
+  ```
+  irm https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.ps1 | iex
+  ```
 
-```
-./sf-kit init
-```
+Instalator pobiera Kita z GitHuba do Twojego katalogu użytkownika (macOS/Linux: `~/.local/share/sf-kit`, Windows: `%LOCALAPPDATA%\sf-kit`) i zakłada polecenie `sf-kit`. Na macOS/Linux, gdy instalator o to poprosi, **otwórz nowe okno terminala** (albo użyj pełnej ścieżki, którą wypisał). Ponowne uruchomienie instalatora niczego nie psuje — konfiguracja i klucz zostają.
 
-**4. Sprawdź, czy klucz działa — i zapisz sobie slug Organizacji:**
+**2. Skonfiguruj agenta — Kit zapyta o klucz i sam rozpozna resztę w SalesForge:**
 
 ```
-./sf-kit whoami
+sf-kit init
+```
+
+**3. Sprawdź, czy klucz działa — i zapisz sobie slug Organizacji:**
+
+```
+sf-kit whoami
 ```
 
 Kit pokazuje, kim jest agent i w których Organizacjach może pracować. Linia `pracuję w:`
 zaczyna się od **sluga Organizacji** (np. `formarketing`) — wpiszesz go do tekstu startowego.
-Gdy zamiast tego widzisz `Nie mam klucza`, wróć do kroku 3.
+Gdy zamiast tego widzisz `Nie mam klucza`, wróć do kroku 2.
 
-**5. Uruchom agenta w katalogu Kita** — dla Claude Code:
+**4. Uruchom agenta w katalogu, w którym chcesz pracować** (np. nowy folder na pracę z AI) — dla Claude Code:
 
 ```
 claude
@@ -53,13 +57,13 @@ Przy pierwszym uruchomieniu Claude Code (stan na wersję 2.1):
   **1. Yes**. Opcja 2 zapamiętuje tylko tę jedną, dokładną komendę, więc przy następnej pytanie
   wróci — to normalne.
 
-**Masz już Kit?** Zamiast kroku 1: `cd sf-agent-kit && git pull`, potem krok 3.
+**Aktualizacja:** `sf-kit aktualizuj` (to samo co `sf-kit update`).
 
-Potrzebny jest tylko Python 3.9+ i git.
+**Dla programistów — instalacja gitem** (jak do wersji 0.14): `git clone https://github.com/dpakula/sf-agent-kit.git`, `cd sf-agent-kit`, `./sf-kit init`; aktualizacja `sf-kit update` (albo `git pull`). Wszystkie polecenia działają tak samo przez `./sf-kit`.
 
 **Klucz.** Administrator zakłada konto agenta i klucz — klucz widać dokładnie raz, przy
 wystawianiu. Przekazuje go menedżerem haseł, nigdy mailem ani czatem; człowiek wpisuje go
-sam, w terminalu, przy `./sf-kit init`.
+sam, w terminalu, przy `sf-kit init`.
 
 **Co zapyta `init`.** Na pustej maszynie od razu wchodzi w dodawanie agenta:
 
@@ -75,7 +79,7 @@ uprawnień) i pyta `Zapisać? [t/N]` — `t` zapisuje klucz i ustawienia w nowym
 
 **Na Macu** klucz trafia do pęku kluczy. Od Kita 0.14.1 zapis trwa ułamek sekundy i o nic nie pyta
 w terminalu (wcześniej `init` potrafił stanąć po `t` — jeśli masz starszego Kita, zrób
-`git pull`). Jeśli na ekranie pojawi się **okno pęku kluczy** (bywa, gdy Kit był na tym Macu
+`sf-kit aktualizuj`). Jeśli na ekranie pojawi się **okno pęku kluczy** (bywa, gdy Kit był na tym Macu
 instalowany wcześniej), to okno systemu, nie zawieszenie — kliknij **„Zezwalaj zawsze”**.
 
 **Profil i uprawnienia.** Profil (`asystent`, `worker`…) Kit wylicza z uprawnień, które masz
@@ -90,25 +94,31 @@ Organizacja, profil, czy worker żyje) i pyta `[numer] edytuj agenta · [n] doda
 przy kluczu = bez zmian, a nowy klucz musi należeć do tego samego agenta (Kit sprawdza to
 w SF).
 
-**Kilku agentów na jednym komputerze.** `./sf-kit init` pokazuje listę agentów i pozwala
+**Na Windows** klucz trafia do **Menedżera poświadczeń Windows** (Panel sterowania → Menedżer
+poświadczeń → Poświadczenia systemu Windows, wpis `sf-agent-kit:<nazwa agenta>`) — szyfrowany
+dla Twojego konta Windows. Klucz wklejasz prawym przyciskiem myszy albo Ctrl+V; nie będzie
+widoczny, to normalne.
+
+**Kilku agentów na jednym komputerze.** `sf-kit init` pokazuje listę agentów i pozwala
 dodać albo edytować każdego z osobna (każdy mieszka w swoim podkatalogu `~/.config/sf-kit/`).
 W zwykłych poleceniach wybiera się agenta opcją `--agent <nazwa>`, np.
 `sf-kit --agent claude-jkowalski whoami`.
 
-**Aktualizacje.** Kit sam sprawdza raz na dobę, czy wyszła nowa wersja, i mówi o tym jedną linią — nową wersję instaluje `sf-kit update`, a u workerów z włączonym `auto_update` poprawki podmieniają się same, między zadaniami (szczegóły niżej, w części „Dla agenta”).
+**Aktualizacje.** Kit sam sprawdza raz na dobę, czy wyszła nowa wersja, i mówi o tym jedną linią — nową wersję instaluje `sf-kit aktualizuj` (albo `sf-kit update`), a u workerów z włączonym `auto_update` poprawki podmieniają się same, między zadaniami (szczegóły niżej, w części „Dla agenta”).
 
 **Tekst startowy — wklej go agentowi:**
 
 ```
-W katalogu sf-agent-kit przeczytaj README.md, sekcję „Dla agenta”, i postępuj według niej.
+Uruchom `sf-kit readme` — pokaże, gdzie leży instrukcja Kita. Przeczytaj z niej sekcję
+„Dla agenta” i postępuj według niej.
 Moja Organizacja w SalesForge to: <slug Twojej Organizacji>   (podawaj ją zawsze jako --org)
-1. Uruchom ./sf-kit whoami i powiedz mi zwykłym językiem, co widzisz.
+1. Uruchom sf-kit whoami i powiedz mi zwykłym językiem, co widzisz.
 2. Jeśli czegoś brakuje, powiedz mi, o co poprosić administratora.
 3. Gdy dam Ci link do sprawy, odpowiadaj w tej sprawie. Nową sprawę zakładaj tylko wtedy, gdy żadnej nie ma.
 Nie pytaj mnie o klucz i nie wpisuj go w rozmowie.
 ```
 
-Slug wpisz z kroku 4 (linia `pracuję w:`) albo z panelu SalesForge.
+Slug wpisz z kroku 3 (linia `pracuję w:`) albo z panelu SalesForge.
 
 **Tryb pracy agenta:** worker (sam bierze zadania z kolejki), **asystent** (pracuje z Tobą — najczęstszy) albo koordynator (rozdziela pracę innym agentom). Szczegóły opisze Podręcznik SalesForge (w przygotowaniu).
 
@@ -164,24 +174,24 @@ a korzysta z Codexa. Sześć poleceń po kolei; przy każdym napisane, czego si�
 | Codex CLI | `codex --version` wypisuje numer | instalacja wg dokumentacji OpenAI; potem `codex login` |
 | …**zalogowany** | `codex exec "napisz OK"` odpowiada, nie prosi o logowanie | `codex login` |
 | Python 3.9+ | `python3 --version` wypisuje numer | macOS: `brew install python3`; Linux: z menedżera pakietów |
-| git | `git --version` wypisuje numer | macOS: `xcode-select --install`; Linux: z menedżera pakietów |
+| git (**opcjonalnie**, tylko instalacja gitem) | `git --version` wypisuje numer | macOS: `xcode-select --install`; Linux: z menedżera pakietów. Instalator jednym poleceniem (0.15.0) gita nie potrzebuje |
 
 **Nie ma nic do zainstalowania poza tym.** Kit korzysta wyłącznie z biblioteki standardowej
 Pythona, więc `pip install` nie jest potrzebny — po pobraniu od razu działa.
 
-**System: macOS albo Linux.** Na Windows **poza WSL** Kit nie jest bezpieczny i nie należy
-go tam uruchamiać — z dwóch konkretnych powodów, nie z ostrożności:
+**System: macOS, Linux albo Windows (od 0.15.0 natywnie, bez WSL).** Klucz trzyma to, co
+dany system ma najlepszego:
 
-- **klucz nie byłby chroniony prawami pliku.** Na macOS klucz idzie do pęku kluczy, na Linuksie
-  do pliku z prawami `600` (czyta tylko twoje konto). Na Windows `chmod` ustawia jedynie atrybut
-  „tylko do odczytu" i **nie ogranicza tego, kto plik przeczyta** — klucz leżałby otwarty dla
-  innych programów tego konta. Kit mówi o tym wprost przy zapisie, zamiast obiecywać „prawa 600";
-- **ochrona przed zapisaniem klucza w repozytorium by się nie włączyła** — instalator haka jest
-  skryptem powłoki i bez niej nie ma czym go uruchomić. Kit zgłosi to ostrzeżeniem.
+- **macOS** — pęk kluczy (`security`);
+- **Windows** — **Menedżer poświadczeń Windows** (wpis `sf-agent-kit:<nazwa agenta>`, szyfrowany
+  dla konta Windows). Kit zapisuje go wprost przez interfejs systemu, **nie** przez
+  `cmdkey /pass:…`, bo wtedy klucz trafiłby do listy procesów;
+- **Linux** — plik z prawami `600` (czyta tylko twoje konto).
 
-**Na Windows użyj WSL** (Linux wewnątrz Windowsa) — wewnątrz WSL obowiązuje wszystko, co ten
-dokument mówi o Linuksie. Samego WSL nikt tego Kitu jeszcze nie przetestował end-to-end, więc
-przy pierwszym uruchomieniu tam warto zerknąć na wynik `sf-kit whoami` uważniej niż zwykle.
+Na Windows nie działa **usługa workera w tle** (`sf-kit usluga` to systemd/launchd) ani
+instalator haka gita (skrypt powłoki). Uczestnik pracujący z asystentem (`init`, `whoami`,
+`sprawy`, `zglos`, `wpis`) żadnego z nich nie potrzebuje. WSL działa jak dotąd — wewnątrz WSL
+obowiązuje wszystko, co ten dokument mówi o Linuksie.
 
 #### Co dostajesz od administratora SalesForge
 
@@ -1913,7 +1923,7 @@ Co ogranicza nadal:
   To nie jest brak czasu, tylko brak incydentu: żadna z trzech wpadek, które założyły
   ADVERTPR-879, nie dotyczyła tamtych modułów, a polecenie budowane bez obserwacji, jak się
   go używa, jest zgadywaniem kształtu. `sf-kit kontrakt plany` mówi to wprost.
-- **Windows poza WSL** — nieobsługiwany, patrz „System" w §1.
+- **Windows natywnie (0.15.0)** — bez usługi workera w tle i bez haka gita; patrz „System" w §1.
 - **SalesForge nie przyjmuje plików `.html`** (ani `.css`, ani `.js`) jako załączników.
   Dozwolone są obrazy, PDF, dokumenty Office, `.txt`, `.csv`, `.md` oraz **`.zip`**. Makietę
   wysyła się więc spakowaną — Kit mówi o tym **przed** wysyłką i podpowiada spakowanie,

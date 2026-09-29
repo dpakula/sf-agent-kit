@@ -242,10 +242,10 @@ def polecenie_update(args) -> int:
     # kod jest już podmieniony i zgodny z SF, to osobna sprawa.
     skrypt = Path(__file__).resolve().parents[1] / "sf-kit"
     wersja = subprocess.run([sys.executable, str(skrypt), "--version"],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
     print(f"\n{wersja.stdout.strip() or wersja.stderr.strip() or '(nie udało się odczytać wersji)'}")
     kto = subprocess.run([sys.executable, str(skrypt), "whoami"],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
     if kto.returncode == 0:
         print("\nwhoami na nowej wersji: klucz działa.")
     else:
@@ -340,6 +340,37 @@ def polecenie_heartbeat(args) -> int:
     return 0 if zywy else 1
 
 
+def polecenie_readme(args) -> int:
+    """`sf-kit readme` — gdzie leży instrukcja Kita (ADVERTPR-987). Po instalacji jednym
+    poleceniem kod siedzi w katalogu, którego człowiek nie zna, a tekst startowy każe agentowi
+    przeczytać README — agent pyta Kita o ścieżkę zamiast jej szukać."""
+    from . import instalacja
+
+    sciezka = instalacja.katalog_tego_kodu() / "README.md"
+    if getattr(args, "tresc", False):
+        print(sciezka.read_text(encoding="utf-8"))
+    else:
+        print(sciezka)
+    return 0
+
+
+def polecenie_instaluj(args) -> int:
+    """`sf-kit instaluj` — wołane przez `install.sh`/`install.ps1` z ROZPAKOWANEGO archiwum
+    (ADVERTPR-987). Kopiuje ten kod do katalogu użytkownika, zakłada polecenie `sf-kit`
+    i PATH. Człowiek tego nie woła — ale może, żeby naprawić instalację z rozpakowanego ZIP-a."""
+    from . import instalacja
+
+    zrodlo = instalacja.katalog_tego_kodu()
+    try:
+        polecenie = instalacja.zainstaluj(zrodlo, commit=args.commit or None, ref=args.ref or None)
+    except (instalacja.BladInstalacji, OSError) as blad:
+        print(f"Instalacja nie przeszła: {blad}", file=sys.stderr)
+        return 1
+    print(f"Polecenie: {polecenie}\n\nDalej:\n  sf-kit init      (klucz z panelu SalesForge)\n"
+          f"  sf-kit sprawy    (pierwsze sprawdzenie)")
+    return 0
+
+
 def polecenie_usluga(args) -> int:
     """Wygeneruj jednostkę systemd dla workera tego agenta.
 
@@ -349,6 +380,13 @@ def polecenie_usluga(args) -> int:
     """
     from . import usluga
 
+    if os.name == "nt" and not getattr(args, "system", None):
+        # ADVERTPR-987: Kit działa na Windows natywnie jako narzędzie człowieka (init, sprawy,
+        # zglos, wpis). Worker w tle to systemd/launchd — na Windows go nie ma i nie udajemy.
+        print("Usługa workera w tle nie jest dostępna na Windows (to systemd/launchd).\n"
+              "Worker uruchomisz ręcznie: `sf-kit worker` — albo na Linuksie/macOS/WSL.\n"
+              "Plik dla innej maszyny: `sf-kit usluga --system linux --pokaz`.", file=sys.stderr)
+        return 2
     konf = konfiguracja.wczytaj()
     if not konf.slug:
         print("Najpierw `sf-kit init` — bez sluga agenta nie ma czego uruchamiać.", file=sys.stderr)
@@ -2118,7 +2156,22 @@ def polecenie_klucz_wystaw(args) -> int:
     return 0
 
 
+def _utf8_na_windows() -> None:
+    """ADVERTPR-987: wyjście w UTF-8 na Windows. Gdy wyjście czyta program (aplikacja Claude
+    Code, potok), Python bierze kodowanie z ustawień regionalnych (cp1250/cp1252) i pierwszy
+    „cudzysłów” kończy się `UnicodeEncodeError`. Uruchamiacz ustawia też `PYTHONUTF8=1`;
+    to jest zabezpieczenie dla `python sf-kit …` wołanego bez uruchamiacza."""
+    if os.name != "nt":
+        return
+    for strumien in (sys.stdout, sys.stderr):
+        try:
+            strumien.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_na_windows()
     parser = argparse.ArgumentParser(
         prog="sf-kit",
         description="SF Agent Kit — odbieraj zadania z SalesForge, wykonuj je, raportuj.")
@@ -2148,6 +2201,21 @@ def main(argv: list[str] | None = None) -> int:
                     help="pozwól przejść na wydanie starsze od zainstalowanego "
                          "(cofnięcie wersji — używaj świadomie)")
     up.set_defaults(funkcja=polecenie_update)
+    # ADVERTPR-987: polska nazwa tego samego polecenia — ta trafia na slajd i do scenariuszy.
+    ak = pod.add_parser("aktualizuj", help="to samo co `update`: zaktualizuj Kita do wydania "
+                                           "wskazanego przez SF")
+    ak.add_argument("--check", action="store_true", help="tylko pokaż wersje, nie ruszaj kodu")
+    ak.add_argument("--force", action="store_true",
+                    help="pozwól przejść na wydanie starsze od zainstalowanego")
+    ak.set_defaults(funkcja=polecenie_update)
+    rd = pod.add_parser("readme", help="gdzie leży instrukcja Kita (README.md)")
+    rd.add_argument("--tresc", action="store_true", help="wypisz treść zamiast ścieżki")
+    rd.set_defaults(funkcja=polecenie_readme)
+    ins = pod.add_parser("instaluj", help="(woła instalator) zainstaluj ten rozpakowany Kit "
+                                          "w katalogu użytkownika")
+    ins.add_argument("--commit", default=None, help=argparse.SUPPRESS)
+    ins.add_argument("--ref", default=None, help=argparse.SUPPRESS)
+    ins.set_defaults(funkcja=polecenie_instaluj)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
     bl = pod.add_parser("blok", help="[agent] jeden blok osi albo katalog rodzajów (SF-7)")
     bl.add_argument("co", nargs="?", default="typy",
@@ -2450,7 +2518,7 @@ def main(argv: list[str] | None = None) -> int:
     # wyniku na stdout. `init` nie ma jeszcze klucza, `update` mówi o wersjach sam —
     # dla reszty każdy błąd po drodze (brak sieci, brak configu) kończy się ciszą:
     # informacja o nowym wydaniu nie ma prawa zatrzymać pracy.
-    if getattr(args, "polecenie", "") not in ("init", "update"):
+    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme"):
         try:
             konf = konfiguracja.wczytaj_jesli_jest()
             kl = magazyn_klucza.wczytaj()
