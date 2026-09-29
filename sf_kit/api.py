@@ -118,6 +118,20 @@ class Konflikt(BladAPI):
     """409 — ktoś zmienił obiekt przed nami. Pobierz od nowa i spróbuj raz jeszcze."""
 
 
+import re as _re
+
+#: Trzy kształty odmowy uprawnienia w SF (0.14.1): `API key lacks permission: X`,
+#: `Missing permission: X or Y`, `Brak uprawnienia: X` — treść `detail` z odpowiedzi 403.
+_WZOR_BRAKU = _re.compile(r"(?:lacks permission|Missing permission|Brak uprawnienia):\s*"
+                          r"([a-z_]+:[a-z_:\-]+(?:\s+or\s+[a-z_]+:[a-z_:\-]+)*)")
+
+
+def _brakujace_uprawnienie(tresc: str) -> str:
+    """Nazwa brakującego uprawnienia z odpowiedzi 403 (`a` albo `a lub b`) albo ``""``."""
+    m = _WZOR_BRAKU.search(tresc or "")
+    return m.group(1).replace(" or ", " lub ") if m else ""
+
+
 class Klient:
     """Cienka warstwa nad `urllib`. Trzyma klucz i Organizację; nic nie zapisuje na dysk."""
 
@@ -161,14 +175,14 @@ class Klient:
             except Exception:                      # noqa: BLE001 — treść błędu jest dodatkiem
                 pass
             _odswiez_wersje_z_naglowkow_jesli_sa(getattr(blad, "headers", None))
-            raise self._na_wyjatek(blad.code, metoda, sciezka, tresc) from None
+            raise self._na_wyjatek(blad.code, metoda, sciezka, tresc, self.organizacja) from None
         except urllib.error.URLError as blad:
             raise BladAPI(
                 f"nie mogę połączyć się z {self.baza} ({blad.reason}). "
                 f"Sprawdź adres i sieć — to nie jest problem z kluczem.") from None
 
     @staticmethod
-    def _na_wyjatek(kod: int, metoda: str, sciezka: str, tresc: str) -> BladAPI:
+    def _na_wyjatek(kod: int, metoda: str, sciezka: str, tresc: str, organizacja: str = "") -> BladAPI:
         """Kod HTTP → wyjątek z instrukcją. Treść odpowiedzi dokładamy, ale nie liczymy na nią.
 
         Uwaga: `tresc` pochodzi z serwera i MOŻE zawierać wartość pola, które odrzucił walidator
@@ -182,6 +196,16 @@ class Klient:
                 "jeśli dalej nie działa, poproś administratora o nowy — ten mógł zostać odwołany.",
                 kod=kod, szczegoly=tresc)
         if kod == 403:
+            brak = _brakujace_uprawnienie(tresc)
+            if brak:
+                # 0.14.1 (ADVERTPR-976): jaki brak i kogo prosić — uczestnik szkolenia z samym
+                # „nie wolno ci tej operacji” nie wie, czy zepsuł Kita, klucz, czy czego prosić.
+                gdzie_org = f" w Organizacji {organizacja}" if organizacja else ""
+                return BrakUprawnienia(
+                    f"Twój klucz nie ma uprawnienia `{brak}`{gdzie_org} ({gdzie}, 403). Klucz działa, "
+                    f"ale uprawnienia daje członkostwo w Organizacji — poproś administratora "
+                    f"Organizacji o nadanie `{brak}` na Twoim członkostwie. Ponawianie nic nie da.",
+                    kod=kod, szczegoly=tresc)
             podpowiedz = ""
             if "/tasks/" in gdzie and metoda == "PATCH":
                 # Dwie możliwe przyczyny i obie warto wymienić: „brak uprawnienia" i „to nie
@@ -446,7 +470,7 @@ class Klient:
                 tresc = blad.read().decode("utf-8", errors="replace")[:500]
             except Exception:                      # noqa: BLE001
                 pass
-            raise self._na_wyjatek(blad.code, metoda, sciezka, tresc) from None
+            raise self._na_wyjatek(blad.code, metoda, sciezka, tresc, self.organizacja) from None
         except urllib.error.URLError as blad:
             raise BladAPI(
                 f"nie mogę połączyć się z {self.baza} ({blad.reason}). "

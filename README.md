@@ -73,6 +73,17 @@ Potem Kit pokazuje rozpoznanie (agent, konto, domyślna Organizacja, profil z na
 uprawnień) i pyta `Zapisać? [t/N]` — `t` zapisuje klucz i ustawienia w nowym podkatalogu
 `~/.config/sf-kit/<nazwa>/`. **O nazwę agenta NIE pyta** — bierze ją z SalesForge.
 
+**Na Macu** klucz trafia do pęku kluczy. Od Kita 0.14.1 zapis trwa ułamek sekundy i o nic nie pyta
+w terminalu (wcześniej `init` potrafił stanąć po `t` — jeśli masz starszego Kita, zrób
+`git pull`). Jeśli na ekranie pojawi się **okno pęku kluczy** (bywa, gdy Kit był na tym Macu
+instalowany wcześniej), to okno systemu, nie zawieszenie — kliknij **„Zezwalaj zawsze”**.
+
+**Profil i uprawnienia.** Profil (`asystent`, `worker`…) Kit wylicza z uprawnień, które masz
+w Organizacji. Jeśli rozpoznanie pokaże `worker`, a masz zgłaszać sprawy, to znaczy, że Twoje
+członkostwo nie ma `tickets:write` — polecenia `zglos`, `wpis`, `sprawy` odpowiedzą wtedy
+„Twój klucz nie ma uprawnienia `…` — poproś administratora Organizacji o nadanie”. Nadaje je
+administrator Organizacji w SalesForge; nowy klucz nie jest potrzebny.
+
 Gdy na maszynie jest już agent, `init` najpierw pokazuje **listę agentów** (nazwa,
 Organizacja, profil, czy worker żyje) i pyta `[numer] edytuj agenta · [n] dodaj nowego ·
 [q] wyjdź`. Wybór numerem otwiera edycję: Enter zostawia wartość w nawiasie, pusty Enter

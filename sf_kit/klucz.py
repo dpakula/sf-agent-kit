@@ -215,13 +215,14 @@ def _zapisz_keychain(klucz: str) -> str:
     # i nie zostały na ekranie jako monity, których człowiek nie rozumie (Damian zobaczył je
     # przy pierwszym uruchomieniu i nie wiedział, czy ma coś wpisać).
     #
-    # Ostrzeżenie uczciwe: sprawdzone jest to, że dodatkowa linia niczego nie psuje. NIE jest
-    # sprawdzone na macOS, czy `security` czyta te pytania ze standardowego wejścia, czy prosto
-    # z terminala — w tym drugim przypadku monity zostaną mimo wszystko i dlatego `init`
-    # uprzedza o nich jednym zdaniem PRZED wywołaniem.
+    # `start_new_session=True` (0.14.1, ADVERTPR-976 — sprawdził seweryn w pseudoterminalu na macOS):
+    # `security` z terminalem sterującym czyta monity z `/dev/tty`, NIE ze stdin — `init` wisiał
+    # po „Zapisać? t” na „password data for new item:”, a człowiek, uprzedzony „nic nie wpisuj”,
+    # czekał w nieskończoność. Nowa sesja = brak terminala sterującego, więc `security` bierze
+    # wartość ze stdin i zapisuje w ~0,2 s bez żadnego monitu.
     wynik = subprocess.run(
         ["security", "add-generic-password", "-U", "-a", konto_w_peku(), "-s", USLUGA, "-w"],
-        input=f"{klucz}\n{klucz}\n", text=True, capture_output=True,
+        input=f"{klucz}\n{klucz}\n", text=True, capture_output=True, start_new_session=True,
     )
     if wynik.returncode != 0:
         # Komunikat `security` nie zawiera klucza — możemy go pokazać w całości.
@@ -359,8 +360,11 @@ def zapytaj(czy_pusty_ok: bool = False) -> str:
     odrzuci serwer, i zrobi to wiarygodniej niż my.
     """
     if czy_macos():
-        print("Klucz trafi do pęku kluczy macOS. System może przy tym wyświetlić własne\n"
-              "pytania o hasło — nic nie wpisuj, one dotyczą tego samego klucza.")
+        # 0.14.1: bez „nic nie wpisuj” — monitów `security` już nie ma (`start_new_session`).
+        # Zostaje uprzedzenie o OKNIE pęku kluczy: pojawia się, gdy w pęku jest wpis ze starszego
+        # Kita — to okno systemu, nie zawieszenie (ADVERTPR-976, pkt 2 seweryna).
+        print("Klucz trafi do pęku kluczy macOS. Jeśli system pokaże okno pęku kluczy\n"
+              "(bywa przy Kicie instalowanym wcześniej) — kliknij „Zezwalaj zawsze”.")
     klucz = getpass.getpass("Klucz API SalesForge (nie będzie widoczny): ").strip()
     if not klucz:
         if czy_pusty_ok:
