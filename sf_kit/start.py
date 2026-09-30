@@ -30,7 +30,10 @@ from pathlib import Path
 
 ZNACZNIK_START = "<!-- sf-kit:start — tę sekcję zapisuje `sf-kit start`; zmiany w niej nadpisze -->"
 ZNACZNIK_KONIEC = "<!-- sf-kit:end -->"
-REGULA = "Bash(sf-kit:*)"
+#: Claude Code ma DWA narzędzia powłoki i reguły są osobne (dokumentacja „permissions”, sekcja
+#: PowerShell): na Windows bez Git for Windows polecenia idą przez PowerShell i `Bash(…)` ich nie
+#: obejmuje — kursant ForMarketing dostałby pytanie przy każdym poleceniu Kita (0.15.2).
+REGULY = ("Bash(sf-kit:*)", "PowerShell(sf-kit *)")
 PLIKI_INSTRUKCJI = ("CLAUDE.md", "AGENTS.md")
 
 
@@ -68,6 +71,15 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 ## Co trzeba zrobić
 …
 EOF
+```
+
+W PowerShellu (Windows bez Git Bash) heredoc nie istnieje — ten sam tekst podaj rurą:
+
+```
+@'
+## Co trzeba zrobić
+…
+'@ | {k} zglos --tytul "Ankieta po szkoleniu" --opis -
 ```
 
 ## Zasady
@@ -118,9 +130,10 @@ def dopisz_regule(istniejacy: str | None) -> tuple[str, bool]:
     dozwolone = uprawnienia.setdefault("allow", [])
     if not isinstance(dozwolone, list):
         raise ZepsutyPlik("pole `permissions.allow` nie jest listą")
-    if REGULA in dozwolone:
+    brakujace = [r for r in REGULY if r not in dozwolone]
+    if not brakujace:
         return istniejacy or "", False
-    dozwolone.append(REGULA)
+    dozwolone.extend(brakujace)
     return json.dumps(dane, ensure_ascii=False, indent=2) + "\n", True
 
 
@@ -143,10 +156,10 @@ def przygotuj(katalog: Path, *, org_slug: str, org_nazwa: str, readme: Path,
         nowy, zmiana = dopisz_regule(stary)
     except ZepsutyPlik as blad:
         raport.append(f"  .claude/settings.json  NIE ZMIENIONY ({blad}) — dopisz ręcznie "
-                      f"do \"permissions\": {{\"allow\": [...]}} regułę \"{REGULA}\"")
+                      f"do \"permissions\": {{\"allow\": [...]}} reguły {', '.join(chr(34) + r + chr(34) for r in REGULY)}")
         return raport
     if zmiana:
         ustawienia.parent.mkdir(parents=True, exist_ok=True)
         ustawienia.write_text(nowy, encoding="utf-8")
-    raport.append(f"  .claude/settings.json  {'dopisana reguła ' + REGULA if zmiana else 'reguła już była'}")
+    raport.append(f"  .claude/settings.json  {'dopisane reguły ' + ', '.join(REGULY) if zmiana else 'reguły już były'}")
     return raport

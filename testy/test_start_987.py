@@ -52,7 +52,7 @@ class TestPlikiStartu(unittest.TestCase):
             # polecenie Kita obejmuje reguła `Bash(sf-kit:*)`.
             self.assertIn("sf-kit readme --tresc", tresc)
         ust = json.loads((self.k / ".claude" / "settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(ust["permissions"]["allow"], ["Bash(sf-kit:*)"])
+        self.assertEqual(ust["permissions"]["allow"], ["Bash(sf-kit:*)", "PowerShell(sf-kit *)"])
 
     def test_kazde_polecenie_w_sciadze_niesie_org(self):
         """Zapis bez --org Kit odrzuca (0.13.0) — ściąga nie może uczyć polecenia bez niego."""
@@ -89,7 +89,7 @@ class TestPlikiStartu(unittest.TestCase):
         raport = _przygotuj(self.k)
         po = {p: p.read_bytes() for p in self.k.rglob("*") if p.is_file()}
         self.assertEqual(przed, po)
-        self.assertIn("reguła już była", "\n".join(raport))
+        self.assertIn("reguły już były", "\n".join(raport))
 
     def test_istniejace_ustawienia_dostaja_regule_obok_swoich(self):
         (self.k / ".claude").mkdir()
@@ -100,7 +100,22 @@ class TestPlikiStartu(unittest.TestCase):
         ust = json.loads((self.k / ".claude" / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(ust["model"], "opus")
         self.assertEqual(ust["permissions"]["deny"], ["Read(.env)"])
-        self.assertEqual(ust["permissions"]["allow"], ["Bash(git status)", "Bash(sf-kit:*)"])
+        self.assertEqual(ust["permissions"]["allow"],
+                         ["Bash(git status)", "Bash(sf-kit:*)", "PowerShell(sf-kit *)"])
+
+    def test_folder_z_0151_dostaje_brakujaca_regule_powershell(self):
+        """0.15.1 zapisywał tylko `Bash(…)`; na Windows bez Git Bash Claude Code woła PowerShell,
+        którego ta reguła nie obejmuje. Ponowne `start` ma dopisać brak, nie dublować reszty."""
+        (self.k / ".claude").mkdir()
+        plik = self.k / ".claude" / "settings.json"
+        plik.write_text(json.dumps({"permissions": {"allow": ["Bash(sf-kit:*)"]}}), encoding="utf-8")
+        _przygotuj(self.k)
+        self.assertEqual(json.loads(plik.read_text(encoding="utf-8"))["permissions"]["allow"],
+                         ["Bash(sf-kit:*)", "PowerShell(sf-kit *)"])
+
+    def test_sciaga_ma_wariant_dla_powershella(self):
+        tresc = start.instrukcja(org_slug="fm", org_nazwa="FM", readme=README, agent=None)
+        self.assertIn("'@ | sf-kit --org fm zglos", tresc)
 
     def test_zepsuty_json_NIE_jest_nadpisywany(self):
         (self.k / ".claude").mkdir()
