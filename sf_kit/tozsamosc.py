@@ -163,6 +163,35 @@ def rozjazd_sluga(slug_z_ustawien: str, org: Organizacja) -> str | None:
             f"z tym ustawieniem nie zobaczy żadnego swojego zadania.")
 
 
+def pisze_z_klucza_osobistego(toz: Tozsamosc) -> bool:
+    """Klucz należy do CZŁOWIEKA (`kind=human`) — wpisy SF podpisze imieniem tej osoby.
+    Brak `kind` (starsze SF) traktujemy jak agenta: przed kluczami osobistymi (SF-110) SF
+    wystawiało klucze wyłącznie kontom agentów."""
+    return toz.konto_kind == "human"
+
+
+def kim_pisze(toz: Tozsamosc) -> str:
+    """Jedno zdanie o tym, czyim podpisem pójdą wpisy (0.15.3, decyzja Damiana 30.09 03:5x).
+
+    Asystent na kluczu osobistym pisze CUDZYM imieniem — człowiek musi to wiedzieć, zanim
+    pozwoli wysłać cokolwiek w swoim imieniu."""
+    kto = toz.konto_email or toz.konto_nazwa or "(konto bez adresu)"
+    if pisze_z_klucza_osobistego(toz):
+        return f"Piszesz jako {kto} · klucz osobisty (Twoje wpisy są podpisane Twoim imieniem)"
+    return f"Piszesz jako {kto} · agent {toz.konto_nazwa or '(bez nazwy)'}"
+
+
+def regula_podpisu(toz: Tozsamosc) -> str:
+    """Reguła podpisu dla asystenta — trafia do CLAUDE.md/AGENTS.md generowanych przez `start`."""
+    if pisze_z_klucza_osobistego(toz):
+        return ("Piszesz z KLUCZA OSOBISTEGO człowieka — SalesForge podpisze każdy wpis jego imieniem. "
+                "Każdą treść, którą wysyłasz (sprawa, odpowiedź, wpis), zakończ osobną linią "
+                "`(przez asystenta)`, żeby odbiorca wiedział, że tekst przygotował asystent.")
+    return ("Piszesz jako AGENT — SalesForge podpisuje wpisy nazwą agenta. Nie dopisuj "
+            "`(przez asystenta)` ani imienia człowieka; jeśli treść jest w jego imieniu, napisz to "
+            "w treści („na prośbę <imię>”).")
+
+
 def lista_do_pokazania(organizacje: list[Organizacja]) -> str:
     """Lista Organizacji dla człowieka przy terminalu — z nadaniami na wierzchu."""
     if not organizacje:

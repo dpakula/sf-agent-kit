@@ -148,6 +148,10 @@ Slug wpisz z kroku 3 (linia `pracuję w:`) albo z panelu SalesForge.
 
 **Zasada pierwsza.** Pracuj zawsze w sprawie, której dotyczy zadanie. Gdy w poleceniu jest link do sprawy, odpowiadaj w niej (`sf-kit odpowiedz <link> --opis plik.md`). Nową sprawę zakładaj tylko wtedy, gdy żadnej jeszcze nie ma.
 
+**Oryginalne słowa.** Pracuj na oryginalnych słowach zgłaszającego (sekcja „Oryginalne słowa” w opisie sprawy). Streszczenie asystenta jest pomocnicze; przy rozbieżności zapytaj wpisem na sprawie, nie zgaduj.
+
+**Podpis.** `sf-kit whoami` mówi, czyim podpisem pójdą Twoje wpisy (linia `podpis:`). Na **kluczu osobistym** człowieka SalesForge podpisuje wpis jego imieniem — każdą wysyłaną treść kończ wtedy osobną linią `(przez asystenta)`. Jako **agent** tego dopisku nie dodajesz: wpis i tak niesie nazwę agenta.
+
 **Organizacja.** Podawaj ją przy każdym zapisie jawnie: `sf-kit --org <slug> <polecenie>` (opcja stoi przed poleceniem) albo link do sprawy z `?org=`. Bez tego Kit odmówi (od v0.13.0) — nie obchodź odmowy, zapytaj użytkownika, o którą Organizację chodzi.
 
 **Treść.** Gdy rozwijasz dłuższą treść (analizę, umowę, plan), oddawaj ją w wersjach: `sf-kit --org <slug> tresc-wersja <sprawa> <plik.md>`. Opisu sprawy nie nadpisuj długim tekstem — Kit zatrzyma takie polecenie.

@@ -37,9 +37,14 @@ REGULY = ("Bash(sf-kit:*)", "PowerShell(sf-kit *)")
 PLIKI_INSTRUKCJI = ("CLAUDE.md", "AGENTS.md")
 
 
-def instrukcja(*, org_slug: str, org_nazwa: str, readme: Path, agent: str | None) -> str:
-    """Treść sekcji — dla Claude Code, Codexa i Kimi ta sama."""
+def instrukcja(*, org_slug: str, org_nazwa: str, readme: Path, agent: str | None,
+               kim_pisze: str | None = None, podpis: str | None = None) -> str:
+    """Treść sekcji — dla Claude Code, Codexa i Kimi ta sama.
+
+    `kim_pisze` i `podpis` liczy `tozsamosc` z `GET /me` (0.15.3): na kluczu osobistym SF
+    podpisuje wpisy imieniem człowieka, więc asystent ma to wiedzieć i oznaczać swoje teksty."""
     k = "sf-kit" + (f" --agent {agent}" if agent else "") + f" --org {org_slug}"
+    kto = f"- **Podpis:** {kim_pisze}. {podpis}\n" if kim_pisze and podpis else ""
     return f"""{ZNACZNIK_START}
 # Praca w SalesForge (SF Agent Kit)
 
@@ -47,7 +52,7 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 `sf-kit` — nie wchodzisz na stronę SF i nie wołasz API ręcznie.
 
 - **Organizacja:** {org_nazwa} — w każdym poleceniu podawaj `--org {org_slug}` (przed nazwą polecenia).
-- **Pełna instrukcja:** `sf-kit readme --tresc` (sekcja „Dla agenta”; plik: `{readme}`). Gdy nie wiesz,
+{kto}- **Pełna instrukcja:** `sf-kit readme --tresc` (sekcja „Dla agenta”; plik: `{readme}`). Gdy nie wiesz,
   jak coś zrobić — przeczytaj ją tym poleceniem, nie zgaduj. Czytaj ją poleceniem, nie z pliku:
   plik leży poza tym katalogiem i Claude Code pytałby człowieka o zgodę na odczyt.
 - **Na początku rozmowy** uruchom `{k} whoami` i powiedz człowiekowi zwykłym językiem, kim jesteś w SF i co możesz.
@@ -138,10 +143,12 @@ def dopisz_regule(istniejacy: str | None) -> tuple[str, bool]:
 
 
 def przygotuj(katalog: Path, *, org_slug: str, org_nazwa: str, readme: Path,
-              agent: str | None) -> list[str]:
+              agent: str | None, kim_pisze: str | None = None,
+              podpis: str | None = None) -> list[str]:
     """Zapisz pliki w `katalog`. Zwraca linie raportu dla człowieka (co zrobiono)."""
     raport: list[str] = []
-    sekcja = instrukcja(org_slug=org_slug, org_nazwa=org_nazwa, readme=readme, agent=agent)
+    sekcja = instrukcja(org_slug=org_slug, org_nazwa=org_nazwa, readme=readme, agent=agent,
+                        kim_pisze=kim_pisze, podpis=podpis)
     for nazwa in PLIKI_INSTRUKCJI:
         plik = katalog / nazwa
         stary = plik.read_text(encoding="utf-8") if plik.exists() else None

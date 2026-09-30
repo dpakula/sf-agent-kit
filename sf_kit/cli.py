@@ -70,6 +70,15 @@ def _klient_i_organizacja(konf: konfiguracja.Konfiguracja,
     nadania, a praca bez nadań kończy się odmową serwera W POŁOWIE — po założeniu sprawy,
     przed dołożeniem załącznika. `worker` płaci ją raz, przy starcie pętli, nie co takt.
     """
+    klient, org, _ = _klient_organizacja_tozsamosc(konf, args)
+    return klient, org
+
+
+def _klient_organizacja_tozsamosc(
+        konf: konfiguracja.Konfiguracja,
+        args=None) -> tuple[Klient, tozsamosc.Organizacja, tozsamosc.Tozsamosc]:
+    """Jak `_klient_i_organizacja`, plus cała odpowiedź `GET /me` — `start` z niej bierze,
+    czyim podpisem pójdą wpisy (0.15.3). Bez drugiego pytania o `/me`."""
     klient = _klient_bez_organizacji(konf)
     toz = _tozsamosc(klient)
     try:
@@ -81,7 +90,7 @@ def _klient_i_organizacja(konf: konfiguracja.Konfiguracja,
     except tozsamosc.BrakWyboru as brak:
         raise SystemExit(str(brak)) from None
     klient.organizacja = org.uuid
-    return klient, org
+    return klient, org, toz
 
 
 def polecenie_init(args) -> int:
@@ -168,6 +177,7 @@ def polecenie_whoami(args) -> int:
     toz = _tozsamosc(Klient(baza=konf.adres, klucz=kl))
     print(f"konto:        {toz.konto_nazwa or '(bez nazwy)'}"
           f"{' · agent' if toz.konto_kind == 'agent' else ''}")
+    print(f"podpis:       {tozsamosc.kim_pisze(toz)}")
     if toz.klucz_prefiks:
         zaw = " · ZAWĘŻONY" if toz.klucz_zawezony else ""
         print(f"klucz w SF:   {toz.klucz_prefiks} · scope {toz.klucz_scope}{zaw}")
@@ -373,17 +383,20 @@ def polecenie_start(args) -> int:
         return 2
 
     konf = konfiguracja.wczytaj()
-    _, org = _klient_i_organizacja(konf, args)
+    _, org, toz = _klient_organizacja_tozsamosc(konf, args)
     readme = instalacja.katalog_tego_kodu() / "README.md"
     try:
         raport = start.przygotuj(katalog, org_slug=org.slug, org_nazwa=org.nazwa or org.slug,
-                                 readme=readme, agent=getattr(args, "agent", None))
+                                 readme=readme, agent=getattr(args, "agent", None),
+                                 kim_pisze=tozsamosc.kim_pisze(toz),
+                                 podpis=tozsamosc.regula_podpisu(toz))
     except OSError as blad:
         print(f"Nie udało się zapisać plików w {katalog}: {blad}", file=sys.stderr)
         return 1
     print(f"Katalog {katalog} przygotowany dla asystenta (Organizacja: {org.nazwa or org.slug}, "
           f"--org {org.slug}):")
     print("\n".join(raport))
+    print(f"\n{tozsamosc.kim_pisze(toz)}")
     print("\nDalej: uruchom w tym katalogu `claude` (albo `codex`) i powiedz, co chcesz zrobić,\n"
           "np. „pokaż sprawy”. Tekstu startowego nie trzeba już wklejać.\n"
           "Przy pierwszym `claude` wybierz strzałką „Yes, I trust this folder” — dopiero w zaufanym\n"

@@ -27,6 +27,29 @@ from sf_kit import cli, start, tozsamosc  # noqa: E402
 README = Path("/opt/sf-kit/README.md")
 
 
+def _toz(kind):
+    return tozsamosc.Tozsamosc(
+        konto_nazwa="Asystent Anny" if kind == "agent" else "Anna Nowak", konto_kind=kind,
+        klucz_prefiks="sk_live_x", klucz_scope="member", klucz_zawezony=False, organizacje=[],
+        konto_email="anna@formarketing.pl")
+
+
+class TestKimPisze(unittest.TestCase):
+
+    def test_czlowiek(self):
+        self.assertEqual(tozsamosc.kim_pisze(_toz("human")),
+                         "Piszesz jako anna@formarketing.pl · klucz osobisty "
+                         "(Twoje wpisy są podpisane Twoim imieniem)")
+
+    def test_agent(self):
+        self.assertEqual(tozsamosc.kim_pisze(_toz("agent")),
+                         "Piszesz jako anna@formarketing.pl · agent Asystent Anny")
+
+    def test_starsze_sf_bez_kind_to_agent(self):
+        self.assertIn("· agent", tozsamosc.kim_pisze(_toz(None)))
+        self.assertNotIn("(przez asystenta)`, żeby", tozsamosc.regula_podpisu(_toz(None)))
+
+
 def _przygotuj(katalog, **kw):
     return start.przygotuj(katalog, org_slug=kw.get("slug", "formarketing"),
                            org_nazwa="ForMarketing", readme=README, agent=kw.get("agent"))
@@ -139,19 +162,39 @@ class TestPolecenieStart(unittest.TestCase):
             self.assertIn("katalog domowy", err.getvalue())
             self.assertFalse((Path(dom) / "CLAUDE.md").exists())
 
-    def test_start_zapisuje_z_organizacja_z_sf(self):
+    def _start(self, kind):
         org = tozsamosc.Organizacja(uuid="u-1", slug="formarketing", nazwa="ForMarketing")
+        toz = _toz(kind)
         with tempfile.TemporaryDirectory() as k, \
                 mock.patch.object(cli.konfiguracja, "wczytaj", return_value=object()), \
-                mock.patch.object(cli, "_klient_i_organizacja", return_value=(None, org)), \
+                mock.patch.object(cli, "_klient_organizacja_tozsamosc",
+                                  return_value=(None, org, toz)), \
                 mock.patch.object(cli.aktualizacje, "ostrzezenie_przed_poleceniem",
                                   return_value=None):
             out = io.StringIO()
             with redirect_stdout(out):
                 kod = cli.main(["start", "--katalog", k])
-            self.assertEqual(kod, 0)
-            self.assertIn("--org formarketing", (Path(k) / "CLAUDE.md").read_text(encoding="utf-8"))
-            self.assertIn("Tekstu startowego nie trzeba", out.getvalue())
+            return kod, (Path(k) / "CLAUDE.md").read_text(encoding="utf-8"), out.getvalue()
+
+    def test_start_zapisuje_z_organizacja_z_sf(self):
+        kod, claude_md, out = self._start("agent")
+        self.assertEqual(kod, 0)
+        self.assertIn("--org formarketing", claude_md)
+        self.assertIn("Tekstu startowego nie trzeba", out)
+
+    def test_klucz_osobisty_kaze_podpisywac_przez_asystenta(self):
+        """0.15.3: na kluczu człowieka SF podpisuje wpisy JEGO imieniem — asystent oznacza teksty."""
+        kod, claude_md, out = self._start("human")
+        self.assertEqual(kod, 0)
+        self.assertIn("Piszesz jako anna@formarketing.pl · klucz osobisty", out)
+        self.assertIn("Piszesz jako anna@formarketing.pl · klucz osobisty", claude_md)
+        self.assertIn("(przez asystenta)", claude_md)
+        self.assertIn("KLUCZA OSOBISTEGO", claude_md)
+
+    def test_agent_nie_dopisuje_przez_asystenta(self):
+        kod, claude_md, out = self._start("agent")
+        self.assertIn("· agent Asystent Anny", out)
+        self.assertIn("Nie dopisuj `(przez asystenta)`", claude_md)
 
 
 class TestSprawaZLinku(unittest.TestCase):
