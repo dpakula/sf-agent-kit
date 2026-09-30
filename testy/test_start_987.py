@@ -48,6 +48,9 @@ class TestPlikiStartu(unittest.TestCase):
             self.assertIn("--org formarketing", tresc)
             self.assertIn(str(README), tresc)
             self.assertIn("pokaż sprawy", tresc)
+            # README leży poza katalogiem pracy — odczyt pliku Claude Code blokuje (e2e 30.09),
+            # polecenie Kita obejmuje reguła `Bash(sf-kit:*)`.
+            self.assertIn("sf-kit readme --tresc", tresc)
         ust = json.loads((self.k / ".claude" / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(ust["permissions"]["allow"], ["Bash(sf-kit:*)"])
 

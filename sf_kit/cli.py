@@ -385,7 +385,9 @@ def polecenie_start(args) -> int:
           f"--org {org.slug}):")
     print("\n".join(raport))
     print("\nDalej: uruchom w tym katalogu `claude` (albo `codex`) i powiedz, co chcesz zrobić,\n"
-          "np. „pokaż sprawy”. Tekstu startowego nie trzeba już wklejać.")
+          "np. „pokaż sprawy”. Tekstu startowego nie trzeba już wklejać.\n"
+          "Przy pierwszym `claude` wybierz strzałką „Yes, I trust this folder” — dopiero w zaufanym\n"
+          "folderze Claude Code stosuje zgodę na polecenia Kita (inaczej pyta przy każdym).")
     return 0
 
 

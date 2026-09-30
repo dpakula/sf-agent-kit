@@ -44,14 +44,16 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 `sf-kit` — nie wchodzisz na stronę SF i nie wołasz API ręcznie.
 
 - **Organizacja:** {org_nazwa} — w każdym poleceniu podawaj `--org {org_slug}` (przed nazwą polecenia).
-- **Pełna instrukcja:** `{readme}` (sekcja „Dla agenta”). Gdy nie wiesz, jak coś zrobić — przeczytaj ją, nie zgaduj.
+- **Pełna instrukcja:** `sf-kit readme --tresc` (sekcja „Dla agenta”; plik: `{readme}`). Gdy nie wiesz,
+  jak coś zrobić — przeczytaj ją tym poleceniem, nie zgaduj. Czytaj ją poleceniem, nie z pliku:
+  plik leży poza tym katalogiem i Claude Code pytałby człowieka o zgodę na odczyt.
 - **Na początku rozmowy** uruchom `{k} whoami` i powiedz człowiekowi zwykłym językiem, kim jesteś w SF i co możesz.
 
 ## Człowiek mówi → Ty robisz
 
 | człowiek mówi | polecenie |
 |---|---|
-| „pokaż sprawy” | `{k} sprawy` |
+| „pokaż sprawy” | `{k} sprawy` (ostatnie sprawy całej Organizacji, nie tylko tej osoby — tak to powiedz) |
 | „co jest w sprawie <link albo numer>” | `{k} sprawa <link albo numer>` |
 | „zgłoś sprawę: …” | `{k} zglos --tytul "…" --opis plik.md` |
 | „odpowiedz w tej sprawie: …” | `{k} odpowiedz <link> --opis plik.md` (wiadomość widoczna na zewnątrz) albo z `--wewn` (notatka dla zespołu) |
