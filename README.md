@@ -4,7 +4,7 @@
 
 **SF API Kit** łączy Twojego agenta AI (Claude Code, Codex, Kimi) z SalesForge. Agent przyjmuje od Ciebie zadania, pracuje na sprawach Twojej Organizacji i zostawia ślad każdej czynności, więc widzisz, co zrobił i dlaczego.
 
-**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit **jednym poleceniem** (krok 1), skonfiguruj go i sprawdź (kroki 2–3), uruchom agenta (krok 4) i wklej mu tekst startowy. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
+**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit **jednym poleceniem** (krok 1), skonfiguruj go i sprawdź (kroki 2–3), przygotuj folder pracy (krok 4) i uruchom w nim agenta (krok 5) — od 0.15.1 tekstu startowego nie trzeba wklejać. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
 
 **Potrzebujesz tylko Pythona 3.9 lub nowszego.** Git nie jest potrzebny, uprawnienia administratora komputera też nie. Jeśli Pythona brak, instalator powie, jak go doinstalować.
 
@@ -40,7 +40,17 @@ Kit pokazuje, kim jest agent i w których Organizacjach może pracować. Linia `
 zaczyna się od **sluga Organizacji** (np. `formarketing`) — wpiszesz go do tekstu startowego.
 Gdy zamiast tego widzisz `Nie mam klucza`, wróć do kroku 2.
 
-**4. Uruchom agenta w katalogu, w którym chcesz pracować** (np. nowy folder na pracę z AI) — dla Claude Code:
+**4. Przygotuj folder na pracę z asystentem** (od 0.15.1) — załóż nowy folder, wejdź do niego i uruchom `sf-kit start`:
+
+```
+mkdir praca-z-ai
+cd praca-z-ai
+sf-kit start
+```
+
+`start` zapisuje w tym folderze `CLAUDE.md` (Claude Code) i `AGENTS.md` (Codex) z instrukcją dla asystenta i Twoją Organizacją, oraz `.claude/settings.json` ze zgodą na polecenia `sf-kit` — asystent od razu wie, co robić, a Claude Code nie pyta przy każdym poleceniu Kita. W katalogu domowym `start` odmówi (CLAUDE.md stamtąd czytałby każdy Twój projekt). Twoje własne treści w tych plikach zostają; ponowne `start` podmienia tylko sekcję Kita.
+
+**5. Uruchom agenta w tym folderze** — dla Claude Code:
 
 ```
 claude
@@ -53,9 +63,13 @@ Przy pierwszym uruchomieniu Claude Code (stan na wersję 2.1):
 - **„Is this a project you created or one you trust?”** — kursor stoi na **„No, exit”**. Zejdź
   strzałką w dół na **„Yes, I trust this folder”** i dopiero wtedy Enter. Sam Enter zamyka
   Claude Code (wtedy uruchom `claude` jeszcze raz).
-- Przed każdym poleceniem Kita Claude Code pyta **„Do you want to proceed?”** — wybierz
-  **1. Yes**. Opcja 2 zapamiętuje tylko tę jedną, dokładną komendę, więc przy następnej pytanie
-  wróci — to normalne.
+- **Zaufanie folderu jest warunkiem zgody z kroku 4**: w niezaufanym folderze Claude Code
+  ignoruje `.claude/settings.json` i przed każdym poleceniem Kita pyta **„Do you want to proceed?”**
+  (wtedy wybierz **1. Yes**).
+
+Potem po prostu powiedz, czego chcesz: „pokaż sprawy”, „co jest w sprawie <link>”, „zgłoś sprawę: …”,
+„odpowiedz w tej sprawie: …”, „załącz plik …”. Przed każdym zapisem w SalesForge asystent pokaże,
+co wyśle, i zapyta o zgodę.
 
 **Aktualizacja:** `sf-kit aktualizuj` (to samo co `sf-kit update`).
 
@@ -106,7 +120,7 @@ W zwykłych poleceniach wybiera się agenta opcją `--agent <nazwa>`, np.
 
 **Aktualizacje.** Kit sam sprawdza raz na dobę, czy wyszła nowa wersja, i mówi o tym jedną linią — nową wersję instaluje `sf-kit aktualizuj` (albo `sf-kit update`), a u workerów z włączonym `auto_update` poprawki podmieniają się same, między zadaniami (szczegóły niżej, w części „Dla agenta”).
 
-**Tekst startowy — wklej go agentowi:**
+**Tekst startowy — tylko bez `sf-kit start`** (np. agent inny niż Claude Code/Codex albo folder, w którym nie chcesz `CLAUDE.md`):
 
 ```
 Uruchom `sf-kit readme` — pokaże, gdzie leży instrukcja Kita. Przeczytaj z niej sekcję
