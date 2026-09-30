@@ -354,6 +354,41 @@ def polecenie_readme(args) -> int:
     return 0
 
 
+def polecenie_start(args) -> int:
+    """`sf-kit start` — katalog pracy gotowy dla asystenta: CLAUDE.md, AGENTS.md i reguła
+    uprawnień Claude Code (ADVERTPR-987, 0.15.1). Logika plików w `start`."""
+    from . import instalacja
+    from . import start
+
+    katalog = Path(args.katalog or ".").expanduser().resolve()
+    if not katalog.is_dir():
+        print(f"Nie ma katalogu {katalog}.", file=sys.stderr)
+        return 2
+    # Claude Code czyta CLAUDE.md także z katalogów NADRZĘDNYCH: plik w katalogu domowym
+    # trafiłby do każdego projektu tego człowieka, nie tylko do pracy z SalesForge.
+    if katalog == Path.home().resolve() or katalog.parent == katalog:
+        print("To katalog domowy (albo główny dysku) — CLAUDE.md stąd czytałby każdy Twój projekt.\n"
+              "Załóż osobny folder na pracę z asystentem i uruchom w nim `sf-kit start`, np.:\n"
+              "  mkdir praca-z-ai\n  cd praca-z-ai\n  sf-kit start", file=sys.stderr)
+        return 2
+
+    konf = konfiguracja.wczytaj()
+    _, org = _klient_i_organizacja(konf, args)
+    readme = instalacja.katalog_tego_kodu() / "README.md"
+    try:
+        raport = start.przygotuj(katalog, org_slug=org.slug, org_nazwa=org.nazwa or org.slug,
+                                 readme=readme, agent=getattr(args, "agent", None))
+    except OSError as blad:
+        print(f"Nie udało się zapisać plików w {katalog}: {blad}", file=sys.stderr)
+        return 1
+    print(f"Katalog {katalog} przygotowany dla asystenta (Organizacja: {org.nazwa or org.slug}, "
+          f"--org {org.slug}):")
+    print("\n".join(raport))
+    print("\nDalej: uruchom w tym katalogu `claude` (albo `codex`) i powiedz, co chcesz zrobić,\n"
+          "np. „pokaż sprawy”. Tekstu startowego nie trzeba już wklejać.")
+    return 0
+
+
 def polecenie_instaluj(args) -> int:
     """`sf-kit instaluj` — wołane przez `install.sh`/`install.ps1` z ROZPAKOWANEGO archiwum
     (ADVERTPR-987). Kopiuje ten kod do katalogu użytkownika, zakłada polecenie `sf-kit`
@@ -367,7 +402,7 @@ def polecenie_instaluj(args) -> int:
         print(f"Instalacja nie przeszła: {blad}", file=sys.stderr)
         return 1
     print(f"Polecenie: {polecenie}\n\nDalej:\n  sf-kit init      (klucz z panelu SalesForge)\n"
-          f"  sf-kit sprawy    (pierwsze sprawdzenie)")
+          f"  sf-kit sprawy    (pierwsze sprawdzenie)\n  sf-kit start     (w folderze na pracę z asystentem)")
     return 0
 
 
@@ -1689,10 +1724,18 @@ def polecenie_sprawa(args) -> int:
     from . import kontekst
 
     konf = konfiguracja.wczytaj()
+    # 0.15.1 (ADVERTPR-987): asystent w rozmowie dostaje od człowieka LINK („co jest w sprawie
+    # <link>”), a to polecenie znało tylko numer i identyfikator — link kończył się tracebackiem
+    # z `ValueError`. Link niesie własną Organizację; jawne `--org` ma pierwszeństwo.
+    if flow.sprawa_z_linku(args.sprawa) and not getattr(args, "org", None):
+        args.org = flow.organizacja_z_linku(args.sprawa) or None
     klient = _klient(konf, args)
     try:
-        wskazana = asystent.znajdz_sprawe(klient, args.sprawa)
+        wskazana, _ = _sprawa_dla_zapisu(klient, args.sprawa)
         karta = klient.sprawa(str(wskazana.get("id")))
+    except ValueError as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
     except BladAPI as blad:
         print(f"Nie udało się pobrać sprawy: {blad}", file=sys.stderr)
         return 1
@@ -2216,6 +2259,11 @@ def main(argv: list[str] | None = None) -> int:
     ins.add_argument("--commit", default=None, help=argparse.SUPPRESS)
     ins.add_argument("--ref", default=None, help=argparse.SUPPRESS)
     ins.set_defaults(funkcja=polecenie_instaluj)
+    stp = pod.add_parser("start", help="przygotuj ten katalog dla asystenta: CLAUDE.md, "
+                                        "AGENTS.md i zgoda Claude Code na polecenia Kita")
+    stp.add_argument("--katalog", default=None, metavar="ŚCIEŻKA",
+                     help="który katalog (domyślnie bieżący)")
+    stp.set_defaults(funkcja=polecenie_start)
     pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
     bl = pod.add_parser("blok", help="[agent] jeden blok osi albo katalog rodzajów (SF-7)")
     bl.add_argument("co", nargs="?", default="typy",
@@ -2377,7 +2425,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--limit", type=int, default=50)
     sp.set_defaults(funkcja=polecenie_sprawy)
     sa = pod.add_parser("sprawa", help="[wykonawca] karta sprawy: opis, wpisy, załączniki (SF-38)")
-    sa.add_argument("sprawa", help="numer (ADVERTPR-927) albo identyfikator sprawy")
+    sa.add_argument("sprawa", help="numer (ADVERTPR-927), identyfikator albo link do sprawy z ?org=…")
     sa.add_argument("--wszystkie", action="store_true", help="wszystkie wpisy, nie ostatnie 15")
     sa.set_defaults(funkcja=polecenie_sprawa)
     za = pod.add_parser("zalacznik", help="[wykonawca] pobierz jeden załącznik do pliku (SF-38)")

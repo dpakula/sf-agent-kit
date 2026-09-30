@@ -320,6 +320,7 @@ def _tryb_dodawania(*, ochrona, jak_wolac) -> int:
     print(f"Ustawienia zapisane: {plik}")
     ochrona()
     print(f"\nSprawdź, czy działa: {jak_wolac()} whoami")
+    print(f"Potem w folderze na pracę z asystentem: {jak_wolac()} start  (CLAUDE.md i zgoda na polecenia Kita)")
     return 0
 
 
@@ -427,6 +428,7 @@ def _tryb_edycji(nazwa: str, *, ochrona, jak_wolac) -> int:
     print(f"\nUstawienia zapisane: {plik}")
     ochrona()
     print(f"\nSprawdź, czy działa: {jak_wolac()} whoami")
+    print(f"Potem w folderze na pracę z asystentem: {jak_wolac()} start  (CLAUDE.md i zgoda na polecenia Kita)")
     return 0
 
 
