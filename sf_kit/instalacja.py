@@ -67,6 +67,34 @@ def czy_windows() -> bool:
     return os.name == "nt"
 
 
+def w_kontenerze_aplikacji() -> bool:
+    """Windows: proces działa w pakiecie aplikacji (MSIX — np. terminal w aplikacji Claude).
+
+    Zapisy do `AppData\\Local` trafiają wtedy do `AppData\\Local\\Packages\\<aplikacja>\\LocalCache`:
+    ten proces widzi Kita pod zwykłą ścieżką, a zwykłe okno PowerShell — nie widzi go wcale
+    (zgłoszenie z JULIAPAK-11, 0.15.5). Tożsamość pakietu daje `GetCurrentPackageFullName`:
+    bez pakietu zwraca APPMODEL_ERROR_NO_PACKAGE (15700).
+    """
+    if not czy_windows():
+        return False
+    try:
+        import ctypes
+        dlugosc = ctypes.c_uint32(0)
+        kod = ctypes.windll.kernel32.GetCurrentPackageFullName(ctypes.byref(dlugosc), None)
+    except (AttributeError, OSError):
+        return False                   # starszy Windows bez tej funkcji — nie ma też kontenerów MSIX
+    return kod != 15700
+
+
+KOMUNIKAT_KONTENERA = (
+    "UWAGA: instalator działa w terminalu aplikacji (np. Claude) — Windows zapisał Kita w kontenerze\n"
+    "tej aplikacji i Twoje zwykłe okno PowerShell go NIE zobaczy („sf-kit nie jest rozpoznawane”).\n"
+    "Zrób to sam, we własnym oknie: menu Start → PowerShell → wklej:\n"
+    "  irm https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.ps1 | iex\n"
+    "Potem `sf-kit init` też w tym oknie. Klucz (Menedżer poświadczeń) i ustawienia są wspólne,\n"
+    "więc asystent w aplikacji będzie działał po Twoim `init`.")
+
+
 def korzen() -> Path:
     if czy_windows():
         baza = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")

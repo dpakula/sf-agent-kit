@@ -16,7 +16,7 @@
   curl -fsSL https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.sh | sh
   ```
 
-- **Windows** (PowerShell — menu Start, wpisz „PowerShell”; także terminal w aplikacji Claude Code). Bez WSL. **W testach — potwierdzimy 30.09 rano**; do tego czasu na Windows pewną drogą jest WSL (Linux wewnątrz Windowsa) i polecenie dla Linuksa wyżej:
+- **Windows** (PowerShell — menu Start, wpisz „PowerShell”). **Uruchom to sam, we własnym oknie PowerShell — nie przez agenta w aplikacji Claude**: aplikacja działa w kontenerze Windows i Kit zainstalowany z jej terminala jest niewidoczny dla zwykłego okna (od 0.15.5 instalator to wykrywa i mówi, co zrobić). Bez WSL. **W testach — potwierdzimy 30.09 rano**; do tego czasu na Windows pewną drogą jest WSL (Linux wewnątrz Windowsa) i polecenie dla Linuksa wyżej:
 
   ```
   irm https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.ps1 | iex
@@ -151,6 +151,8 @@ Slug wpisz z kroku 3 (linia `pracuję w:`) albo z panelu SalesForge.
 **Oryginalne słowa.** Pracuj na oryginalnych słowach zgłaszającego (sekcja „Oryginalne słowa” w opisie sprawy). Streszczenie asystenta jest pomocnicze; przy rozbieżności zapytaj wpisem na sprawie, nie zgaduj.
 
 **Zadanie czytasz w całości.** `sf-kit zadanie <id>` pokazuje treść, status, termin i sprawę (`sf-kit tasks --pelne` — wszystkie naraz). Nie zgadujesz zadania z tytułu; gdy treści brak, pytasz zlecającego wpisem na sprawie.
+
+**Ważność i termin.** `zglos … --priorytet low|medium|high|urgent --termin 2026-10-02` (także „dziś”, „jutro”, „2026-10-02 14:00”). Termin trafia na górę opisu — sprawa w SalesForge nie ma dziś osobnego pola terminu i sama o nim nie przypomni.
 
 **Obserwujący.** Kto ma dostawać powiadomienia o sprawie, dodajesz po **adresie e-mail**: `sf-kit --org <slug> obserwujacy <sprawa> --dodaj anna@firma.pl` (lista bez `--dodaj`, usunięcie: `--usun`), a przy zakładaniu: `zglos … --obserwujacy anna@firma.pl`. Brak uprawnienia `tickets:watchers` Kit powie wprost; sprawa i tak powstaje.
 

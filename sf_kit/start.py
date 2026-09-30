@@ -63,7 +63,7 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 |---|---|
 | „pokaż sprawy” | `{k} sprawy` (ostatnie sprawy całej Organizacji, nie tylko tej osoby — tak to powiedz) |
 | „co jest w sprawie <link albo numer>” | `{k} sprawa <link albo numer>` |
-| „zgłoś sprawę: …” | `{k} zglos --tytul "…" --opis -` + treść (niżej) |
+| „zgłoś sprawę: …” | `{k} zglos --tytul "…" --opis -` + treść (niżej); „ważne” → `--priorytet high`, „na jutro” → `--termin jutro` |
 | „odpowiedz w tej sprawie: …” | `{k} odpowiedz <link> --opis -` (wiadomość widoczna na zewnątrz) albo z `--wewn` (notatka dla zespołu) |
 | „dopisz postęp / notatkę” | `{k} wpis <link> --opis -` |
 | „załącz plik” | `{k} zalacz <link> plik [plik…]` |

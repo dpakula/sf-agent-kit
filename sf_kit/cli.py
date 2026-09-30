@@ -132,8 +132,14 @@ def _wlacz_ochrone_repozytorium() -> None:
     import subprocess
     from pathlib import Path
 
-    instalator = Path(__file__).resolve().parent.parent / "hooks" / "install.sh"
-    if not instalator.exists():
+    import shutil as _shutil
+    katalog_kitu = Path(__file__).resolve().parent.parent
+    instalator = katalog_kitu / "hooks" / "install.sh"
+    # 0.15.5 (JULIAPAK-11): Kit z instalatora (ZIP) nie jest repozytorium gita — nie ma commitów,
+    # nie ma czego pilnować; na Windows nie ma też `bash`. Ostrzeżenie „UWAGA … WinError 2” przy
+    # kluczu tylko straszyło. Pomijamy CICHO, gdy nie ma czego włączać.
+    if (not instalator.exists() or not (katalog_kitu / ".git").exists()
+            or _shutil.which("bash") is None):
         return
     try:
         wynik = subprocess.run(["bash", str(instalator)], cwd=str(instalator.parent.parent),
@@ -411,6 +417,11 @@ def polecenie_instaluj(args) -> int:
     from . import instalacja
 
     zrodlo = instalacja.katalog_tego_kodu()
+    if instalacja.w_kontenerze_aplikacji():
+        # 0.15.5 (JULIAPAK-11): instalacja „udałaby się” — w miejscu, którego człowiek nie widzi.
+        # Kod ≠ 0, żeby install.ps1 nie wypisał „Gotowe”.
+        print(instalacja.KOMUNIKAT_KONTENERA, file=sys.stderr)
+        return 3
     try:
         polecenie = instalacja.zainstaluj(zrodlo, commit=args.commit or None, ref=args.ref or None)
     except (instalacja.BladInstalacji, OSError) as blad:
@@ -1279,6 +1290,38 @@ def _ostrzez_o_szkicu(klient: Klient, sprawa_id: str) -> None:
         pass                              # ostrzeżenie jest dodatkiem, nie bramką
 
 
+_DNI = ("poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela")
+_MIESIACE = ("stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia",
+             "września", "października", "listopada", "grudnia")
+
+
+def _termin_po_ludzku(wartosc: str, *, dzis=None) -> str:
+    """`2026-10-02` / `2026-10-02 14:00` / `dziś` / `jutro` → „czwartek, 2 października 2026, 14:00”.
+    Data w przeszłości albo nie do odczytania → ValueError z przykładem poprawnej."""
+    import datetime as _dt
+    dzis = dzis or _dt.date.today()
+    w = wartosc.strip().lower()
+    godzina = None
+    if w in ("dziś", "dzis", "dzisiaj"):
+        data = dzis
+    elif w == "jutro":
+        data = dzis + _dt.timedelta(days=1)
+    else:
+        try:
+            if len(w) > 10:
+                chwila = _dt.datetime.fromisoformat(w.replace(" ", "T"))
+                data, godzina = chwila.date(), chwila.strftime("%H:%M")
+            else:
+                data = _dt.date.fromisoformat(w)
+        except ValueError:
+            raise ValueError(f"Nie rozumiem terminu „{wartosc}”. Podaj np. 2026-10-02, "
+                             f"„2026-10-02 14:00”, „dziś” albo „jutro”.") from None
+    if data < dzis:
+        raise ValueError(f"Termin {data.isoformat()} jest w przeszłości.")
+    tekst = f"{_DNI[data.weekday()]}, {data.day} {_MIESIACE[data.month - 1]} {data.year}"
+    return f"{tekst}, {godzina}" if godzina else tekst
+
+
 _WZORZEC_ADRESU = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -1362,9 +1405,17 @@ def polecenie_nowa_sprawa(args) -> int:
     klient = _klient_dla_zapisu(konf, args)[0]
 
     opis = _opis_z_wejscia(args) or asystent.opis_domyslny(args.tytul)
+    termin = getattr(args, "termin", None)
+    if termin:
+        try:
+            opis = f"**Termin:** {_termin_po_ludzku(termin)}\n\n{opis}"
+        except ValueError as blad:
+            print(str(blad), file=sys.stderr)
+            return 2
     try:
         odp = klient.zaloz_sprawe(
             tytul=args.tytul, opis=opis, kategoria=args.tag or None,
+            priorytet=getattr(args, "priorytet", None) or "medium",
             obserwatorzy=konf.obserwatorzy_domyslni or None,
             szkic=bool(getattr(args, "szkic", False)),
         )
@@ -1395,6 +1446,13 @@ def polecenie_nowa_sprawa(args) -> int:
                           co_dalej=f"Dołóż brakujących: sf-kit obserwujacy {numer or sprawa_id} "
                                    f"--dodaj {' '.join(nieudane)}")
             return 1
+
+    if termin:
+        print("Termin wpisany na górę opisu — sprawa w SalesForge nie ma dziś osobnego pola terminu, "
+              "więc nie przypomni o nim sama.")
+    if not getattr(args, "obserwujacy", None) and not konf.obserwatorzy_domyslni:
+        print(f"Obserwujący: poza autorem nikt nie dostanie powiadomienia o tej sprawie. Dodaj: "
+              f"sf-kit obserwujacy {numer or sprawa_id} --dodaj adres@…")
 
     if asystent.czy_opis_wymaga_uzupelnienia(opis):
         print("\nUWAGA: opis został ze szkieletu (nawiasy do wypełnienia). "
@@ -2452,6 +2510,11 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--tag", default=None, help="kategoria sprawy, np. makieta")
         p.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK",
                        help="pliki do dołączenia (idą JEDNYM wpisem)")
+        p.add_argument("--priorytet", default="medium", choices=["low", "medium", "high", "urgent"],
+                       help="ważność sprawy (domyślnie medium)")
+        p.add_argument("--termin", default=None, metavar="DATA",
+                       help="np. 2026-10-02, „2026-10-02 14:00”, „dziś”, „jutro” — trafia na górę opisu "
+                            "(sprawa w SF nie ma dziś pola terminu)")
         p.add_argument("--obserwujacy", nargs="+", default=[], metavar="EMAIL",
                        help="kto ma dostawać powiadomienia o tej sprawie (adresy e-mail)")
         p.add_argument("--szkic", action="store_true",

@@ -17,7 +17,7 @@
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-    $ref = if ($env:SF_KIT_REF) { $env:SF_KIT_REF } else { 'v0.15.4' }
+    $ref = if ($env:SF_KIT_REF) { $env:SF_KIT_REF } else { 'v0.15.5' }
     $adres = "https://codeload.github.com/dpakula/sf-agent-kit/zip/$ref"
 
     # Python: najpierw `py -3` (instalator z python.org), potem `python`/`python3`.
