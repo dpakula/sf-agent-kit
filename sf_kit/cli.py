@@ -764,6 +764,55 @@ def polecenie_os(args) -> int:
     return 0
 
 
+def _drukuj_tresc_zadania(z: dict, *, wciecie: str = "") -> None:
+    if z.get("short_desc"):
+        print(f"{wciecie}skrót: {z['short_desc']}")
+    tresc = (z.get("body_md") or "").strip()
+    if tresc:
+        print(f"{wciecie}treść:")
+        for linia in tresc.splitlines():
+            print(f"{wciecie}  {linia}")
+    else:
+        print(f"{wciecie}treść: (zadanie nie ma opisu — zapytaj zlecającego wpisem na sprawie, nie zgaduj z tytułu)")
+
+
+_STATUSY_ZADAN = ("queued", "in_progress", "review", "blocked", "done")
+
+
+def polecenie_zadanie(args) -> int:
+    """`sf-kit zadanie <id|external_id>` — pełna treść jednego zadania (0.15.4, JULIAPAK-13)."""
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    wskazanie = args.zadanie.strip()
+    try:
+        if asystent.WZORZEC_UUID.match(wskazanie):
+            z = klient.zadanie(wskazanie)
+        else:
+            z = None
+            for status in _STATUSY_ZADAN:
+                z = next((x for x in klient.moje_zadania(slug=konf.slug, status=status)
+                          if (x.get("external_id") or "").lower() == wskazanie.lower()), None)
+                if z:
+                    break
+            if z is None:
+                print(f"Nie znalazłem zadania „{wskazanie}” wśród Twoich zadań. Podaj identyfikator "
+                      f"z `sf-kit tasks` (kolumna id).", file=sys.stderr)
+                return 1
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać zadania: {blad}", file=sys.stderr)
+        return 1
+    print(f"{z.get('external_id') or ''}  {z.get('title') or ''}")
+    termin = z.get("deadline")
+    print(f"status: {z.get('status')} · priorytet: {z.get('priority')}"
+          f"{' · PILNE' if z.get('urgent') else ''}"
+          f"{f' · termin: {termin}' if termin else ''}")
+    sprawa = z.get("ticket_ref") or z.get("ticket_id")
+    print(f"sprawa: {sprawa}" if sprawa else "sprawa: brak — wynik trafi tylko do komentarza zadania")
+    print(f"id: {z.get('id')}\n")
+    _drukuj_tresc_zadania(z)
+    return 0
+
+
 def polecenie_tasks(args) -> int:
     """Moje zadania w kolejce."""
     konf = konfiguracja.wczytaj()
@@ -784,6 +833,10 @@ def polecenie_tasks(args) -> int:
         sprawa = z.get("ticket_ref") or z.get("ticket_id")
         print(f"  {z.get('external_id')}")
         print(f"    {z.get('title')}")
+        if getattr(args, "pelne", False):
+            # 0.15.4 (JULIAPAK-13): asystent widział sam tytuł i zgadywał resztę. Treść zadania
+            # (`body_md`) jest poleceniem — bez niej wykonanie to domysł.
+            _drukuj_tresc_zadania(z, wciecie="    ")
         if sprawa:
             print(f"    sprawa: {sprawa}   id: {z.get('id')}")
         else:
@@ -1226,6 +1279,63 @@ def _ostrzez_o_szkicu(klient: Klient, sprawa_id: str) -> None:
         pass                              # ostrzeżenie jest dodatkiem, nie bramką
 
 
+_WZORZEC_ADRESU = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _dodaj_obserwujacych(klient: Klient, sprawa_id: str, adresy: list[str]) -> list[str]:
+    """Dodaj obserwujących po adresie; wypisz wynik każdego. Zwraca adresy, których NIE dodano."""
+    nieudane = []
+    for adres in adresy:
+        adres = adres.strip()
+        if not _WZORZEC_ADRESU.match(adres):
+            print(f"  ✗ {adres}: to nie jest adres e-mail — SF dodaje obserwujących po adresie",
+                  file=sys.stderr)
+            nieudane.append(adres)
+            continue
+        try:
+            klient.dodaj_obserwujacego(sprawa_id, adres)
+            print(f"  ✓ obserwuje: {adres}")
+        except BladAPI as blad:
+            print(f"  ✗ {adres}: {blad}", file=sys.stderr)
+            nieudane.append(adres)
+    return nieudane
+
+
+def polecenie_obserwujacy(args) -> int:
+    """`sf-kit obserwujacy <sprawa>` — lista; `--dodaj adres…` / `--usun adres…` (0.15.4)."""
+    konf = konfiguracja.wczytaj()
+    if flow.sprawa_z_linku(args.sprawa) and not getattr(args, "org", None):
+        args.org = flow.organizacja_z_linku(args.sprawa) or None
+    zapis = bool(args.dodaj or args.usun)
+    klient = _klient_dla_zapisu(konf, args)[0] if zapis else _klient(konf, args)
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    sprawa_id = str(sprawa["id"])
+    nieudane: list[str] = []
+    if args.dodaj:
+        nieudane += _dodaj_obserwujacych(klient, sprawa_id, args.dodaj)
+    for adres in args.usun or []:
+        try:
+            klient.usun_obserwujacego(sprawa_id, adres.strip())
+            print(f"  ✓ nie obserwuje: {adres}")
+        except BladAPI as blad:
+            print(f"  ✗ {adres}: {blad}", file=sys.stderr)
+            nieudane.append(adres)
+    try:
+        lista = klient.obserwujacy(sprawa_id)
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać obserwujących: {blad}", file=sys.stderr)
+        return 1
+    print(f"\nObserwujący ({len(lista)}):")
+    for o in lista:
+        nazwa = o.get("name") or ""
+        print(f"  {o.get('email') or '?'}{f'  ({nazwa})' if nazwa else ''}")
+    return 1 if nieudane else 0
+
+
 def polecenie_nowa_sprawa(args) -> int:
     """Nowa sprawa z gotową pracą — z załącznikami, obserwującymi i numerem na wyjściu.
 
@@ -1274,6 +1384,16 @@ def polecenie_nowa_sprawa(args) -> int:
             print(f"Sprawa powstała, ale załączniki NIE poszły: {blad}", file=sys.stderr)
             _pokaz_sprawe(konf, sprawa_id, numer,
                           co_dalej="Dołóż pliki: sf-kit zalacz <sprawa> <plik…>")
+            return 1
+
+    if getattr(args, "obserwujacy", None):
+        # 0.15.4: sprawa JUŻ jest — obserwujący to dodatek. Nieudany adres nie cofa sprawy; mówimy,
+        # którzy weszli, którzy nie i dlaczego, z poleceniem na dołożenie brakujących.
+        nieudane = _dodaj_obserwujacych(klient, sprawa_id, args.obserwujacy)
+        if nieudane:
+            _pokaz_sprawe(konf, sprawa_id, numer,
+                          co_dalej=f"Dołóż brakujących: sf-kit obserwujacy {numer or sprawa_id} "
+                                   f"--dodaj {' '.join(nieudane)}")
             return 1
 
     if asystent.czy_opis_wymaga_uzupelnienia(opis):
@@ -2279,7 +2399,12 @@ def main(argv: list[str] | None = None) -> int:
     stp.add_argument("--katalog", default=None, metavar="ŚCIEŻKA",
                      help="który katalog (domyślnie bieżący)")
     stp.set_defaults(funkcja=polecenie_start)
-    pod.add_parser("tasks", help="pokaż moje zadania").set_defaults(funkcja=polecenie_tasks)
+    tk = pod.add_parser("tasks", help="pokaż moje zadania")
+    tk.add_argument("--pelne", action="store_true", help="z treścią każdego zadania (body_md)")
+    tk.set_defaults(funkcja=polecenie_tasks)
+    zd = pod.add_parser("zadanie", help="pełna treść jednego zadania: status, termin, sprawa, opis")
+    zd.add_argument("zadanie", metavar="ID|EXTERNAL_ID")
+    zd.set_defaults(funkcja=polecenie_zadanie)
     bl = pod.add_parser("blok", help="[agent] jeden blok osi albo katalog rodzajów (SF-7)")
     bl.add_argument("co", nargs="?", default="typy",
                     help="identyfikator bloku (rdzeniowy albo dziennikowy) "
@@ -2327,6 +2452,8 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--tag", default=None, help="kategoria sprawy, np. makieta")
         p.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK",
                        help="pliki do dołączenia (idą JEDNYM wpisem)")
+        p.add_argument("--obserwujacy", nargs="+", default=[], metavar="EMAIL",
+                       help="kto ma dostawać powiadomienia o tej sprawie (adresy e-mail)")
         p.add_argument("--szkic", action="store_true",
                        help="wersja robocza: NIC nie wysyła, publikuje człowiek w SF (SF-4)")
         p.add_argument("--kontekst", default=None, metavar="TEKST",
@@ -2435,6 +2562,12 @@ def main(argv: list[str] | None = None) -> int:
                          "sprawy tej Organizacji, ≤ 7 dni) albo jego początek ≥ 6 znaków "
                          "z publikowanej sprawy")
     pu.set_defaults(funkcja=polecenie_publikuj)
+
+    ob = pod.add_parser("obserwujacy", help="[asystent] obserwujący sprawy: lista, --dodaj, --usun")
+    ob.add_argument("sprawa", help="numer (FM-12), identyfikator albo link do sprawy z ?org=…")
+    ob.add_argument("--dodaj", nargs="+", default=[], metavar="EMAIL")
+    ob.add_argument("--usun", nargs="+", default=[], metavar="EMAIL")
+    ob.set_defaults(funkcja=polecenie_obserwujacy)
 
     sp = pod.add_parser("sprawy", help="[asystent] sprawy w tej Organizacji")
     sp.add_argument("--limit", type=int, default=50)

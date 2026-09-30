@@ -602,6 +602,22 @@ class Klient:
         return self._wywolaj(
             "GET", f"tickets/{ticket_id}/entries?limit={int(limit)}&offset={int(offset)}")
 
+    # ── obserwujący sprawy (0.15.4) ───────────────────────────────────────────
+
+    def obserwujacy(self, ticket_id: str) -> list[dict]:
+        odp = self._wywolaj("GET", f"tickets/{ticket_id}/watchers")
+        return odp if isinstance(odp, list) else []
+
+    def dodaj_obserwujacego(self, ticket_id: str, email: str) -> dict:
+        """`POST /tickets/{id}/watchers {email}` — SF przyjmuje ADRES (identyfikator konta daje 422).
+        Klucz potrzebuje `tickets:watchers` (klucz osobisty człowieka ma je z członkostwa, SF-139)."""
+        odp = self._wywolaj("POST", f"tickets/{ticket_id}/watchers", cialo={"email": email})
+        return odp if isinstance(odp, dict) else {}
+
+    def usun_obserwujacego(self, ticket_id: str, wskazanie: str) -> None:
+        from urllib.parse import quote
+        self._wywolaj("DELETE", f"tickets/{ticket_id}/watchers/{quote(wskazanie, safe='')}")
+
     # ── kontekst sprawy dla wykonawcy (SF-38) ────────────────────────────────
 
     def sprawa(self, ticket_id: str) -> dict:

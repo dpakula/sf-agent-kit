@@ -150,6 +150,10 @@ Slug wpisz z kroku 3 (linia `pracuję w:`) albo z panelu SalesForge.
 
 **Oryginalne słowa.** Pracuj na oryginalnych słowach zgłaszającego (sekcja „Oryginalne słowa” w opisie sprawy). Streszczenie asystenta jest pomocnicze; przy rozbieżności zapytaj wpisem na sprawie, nie zgaduj.
 
+**Zadanie czytasz w całości.** `sf-kit zadanie <id>` pokazuje treść, status, termin i sprawę (`sf-kit tasks --pelne` — wszystkie naraz). Nie zgadujesz zadania z tytułu; gdy treści brak, pytasz zlecającego wpisem na sprawie.
+
+**Obserwujący.** Kto ma dostawać powiadomienia o sprawie, dodajesz po **adresie e-mail**: `sf-kit --org <slug> obserwujacy <sprawa> --dodaj anna@firma.pl` (lista bez `--dodaj`, usunięcie: `--usun`), a przy zakładaniu: `zglos … --obserwujacy anna@firma.pl`. Brak uprawnienia `tickets:watchers` Kit powie wprost; sprawa i tak powstaje.
+
 **Podpis.** `sf-kit whoami` mówi, czyim podpisem pójdą Twoje wpisy (linia `podpis:`). Na **kluczu osobistym** człowieka SalesForge podpisuje wpis jego imieniem — każdą wysyłaną treść kończ wtedy osobną linią `(przez asystenta)`. Jako **agent** tego dopisku nie dodajesz: wpis i tak niesie nazwę agenta.
 
 **Organizacja.** Podawaj ją przy każdym zapisie jawnie: `sf-kit --org <slug> <polecenie>` (opcja stoi przed poleceniem) albo link do sprawy z `?org=`. Bez tego Kit odmówi (od v0.13.0) — nie obchodź odmowy, zapytaj użytkownika, o którą Organizację chodzi.
@@ -166,7 +170,7 @@ Sprawdź w `sf-kit whoami` i w konfiguracji (`sf-kit init`), w którym trybie pr
 
 | tryb (profil w Kicie) | co robisz | polecenia |
 |---|---|---|
-| **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa` |
+| **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa`, `obserwujacy` |
 | **worker** (`worker`) | bierzesz zadania z kolejki i wykonujesz je w tle | `tasks`, `worker` |
 | **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status`, `publikuj` |
 

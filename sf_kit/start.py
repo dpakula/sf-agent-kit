@@ -67,6 +67,7 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 | „odpowiedz w tej sprawie: …” | `{k} odpowiedz <link> --opis -` (wiadomość widoczna na zewnątrz) albo z `--wewn` (notatka dla zespołu) |
 | „dopisz postęp / notatkę” | `{k} wpis <link> --opis -` |
 | „załącz plik” | `{k} zalacz <link> plik [plik…]` |
+| „dodaj X jako obserwującego” | `{k} obserwujacy <link> --dodaj adres@… [adres…]` (po ADRESIE e-mail; przy nowej sprawie: `zglos … --obserwujacy adres@…`) |
 
 **Treść podawaj przez standardowe wejście, w tym samym poleceniu** — bez zakładania plików
 (każdy nowy plik Claude Code każe człowiekowi osobno zatwierdzić):
