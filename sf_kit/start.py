@@ -55,12 +55,20 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 |---|---|
 | „pokaż sprawy” | `{k} sprawy` (ostatnie sprawy całej Organizacji, nie tylko tej osoby — tak to powiedz) |
 | „co jest w sprawie <link albo numer>” | `{k} sprawa <link albo numer>` |
-| „zgłoś sprawę: …” | `{k} zglos --tytul "…" --opis plik.md` |
-| „odpowiedz w tej sprawie: …” | `{k} odpowiedz <link> --opis plik.md` (wiadomość widoczna na zewnątrz) albo z `--wewn` (notatka dla zespołu) |
-| „dopisz postęp / notatkę” | `{k} wpis <link> --opis plik.md` |
+| „zgłoś sprawę: …” | `{k} zglos --tytul "…" --opis -` + treść (niżej) |
+| „odpowiedz w tej sprawie: …” | `{k} odpowiedz <link> --opis -` (wiadomość widoczna na zewnątrz) albo z `--wewn` (notatka dla zespołu) |
+| „dopisz postęp / notatkę” | `{k} wpis <link> --opis -` |
 | „załącz plik” | `{k} zalacz <link> plik [plik…]` |
 
-Treść dłuższą niż jedno zdanie zapisz do pliku `.md` w tym katalogu i podaj go w `--opis`.
+**Treść podawaj przez standardowe wejście, w tym samym poleceniu** — bez zakładania plików
+(każdy nowy plik Claude Code każe człowiekowi osobno zatwierdzić):
+
+```
+{k} zglos --tytul "Ankieta po szkoleniu" --opis - <<'EOF'
+## Co trzeba zrobić
+…
+EOF
+```
 
 ## Zasady
 
