@@ -60,6 +60,8 @@ def sekcja(do_mnie: dict | None, wszystkie_otwarte: dict | None, *, baza: str,
             linie.append(f"    odpowiedz na osi tej sprawy: {adres}")
     if len(moje) > POKAZ:
         linie.append(f"  … i {len(moje) - POKAZ} kolejnych")
+    if moje:
+        linie.append("  odpowiedź z Kita: `sf-kit odpowiedz <sprawa> --blok <#numer> --opis -` (SF-185)")
     if inne:
         linie.append(f"  (otwartych bloków do innych osób przy tej sprawie: {inne})")
     return "\n".join(linie)

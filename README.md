@@ -1352,6 +1352,7 @@ sf-kit nowa-sprawa --tytul "…" [--kontekst TEKST]            # jak zglos + str
 sf-kit wpis <sprawa> [--opis plik.md|-] [--zalacz plik…] [--widocznosc internal|external]
 sf-kit raport <sprawa> plik.md [--styl sitrep] [--widocznosc internal|external]   # SF-184 (0.15.7)
 sf-kit odpowiedz <link|numer> [--opis plik.md|-] [--wewn]    # odpowiedź w istniejącej sprawie (SF-51)
+sf-kit odpowiedz <link|numer> --blok '#1094' --opis -        # odpowiedź na BLOK konsoli z „Do Ciebie” (SF-185, 0.15.7)
 sf-kit tresc-wersja <sprawa> <plik.md> [--zmiany plik.md|-]  # treść w wersjach (SF-51)
 sf-kit opis-sprawy <sprawa> --plik plik.md [--mimo-to]       # zmiana opisu pod strażnikiem (SF-51)
 sf-kit publikuj <sprawa> --zgoda <wpis>                      # publikacja szkicu ze zgodą ownera/admina (SF-51)

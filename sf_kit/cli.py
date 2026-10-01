@@ -1769,6 +1769,8 @@ def polecenie_odpowiedz(args) -> int:
 
     sprawa_id = str(sprawa["id"])
     _ostrzez_o_szkicu(klient, sprawa_id)
+    if getattr(args, "blok", None):
+        return _odpowiedz_na_blok(klient, sprawa, args.blok, tresc, args)
     widocznosc = "internal" if args.wewn else "external"
     try:
         klient.wpis(sprawa_id, tresc, widocznosc=widocznosc)
@@ -1777,6 +1779,50 @@ def polecenie_odpowiedz(args) -> int:
         return 1
     co = "Notatka wewnętrzna dodana." if args.wewn else "Odpowiedź wysłana (widoczna na zewnątrz)."
     _pokaz_sprawe(konf, sprawa_id, asystent.numer_sprawy(sprawa), co_dalej=co)
+    return 0
+
+
+def _odpowiedz_na_blok(klient, sprawa: dict, wskazanie: str, tresc: str, args) -> int:
+    """SF-185: odpowiedź na blok konsoli przy sprawie — identyfikator albo numer z „Do Ciebie” (`#1094`)."""
+    import uuid as _uuid
+
+    if args.wewn:
+        print("`--wewn` nie dotyczy odpowiedzi na blok — trafia ona do bloku i jako notatka na oś.",
+              file=sys.stderr)
+        return 2
+    sprawa_id = str(sprawa["id"])
+    box_id = None
+    try:
+        box_id = str(_uuid.UUID(wskazanie))
+    except ValueError:
+        try:
+            bloki = klient.bloki_konsoli(sprawa_id, tylko_otwarte=False)
+        except BladAPI as blad:
+            print(f"Nie udało się pobrać bloków przy sprawie: {blad}", file=sys.stderr)
+            return 1
+        if bloki is None:
+            print("Ta wersja SalesForge nie odpowiada na bloki z osi sprawy (SF-185) — odpowiedz "
+                  "w Konsoli A.", file=sys.stderr)
+            return 1
+        szukany = wskazanie.lstrip("#")
+        pasujace = [b for b in bloki.get("pozycje") or []
+                    if (b.get("ref") or "").lstrip("#") == szukany or b.get("box_id", "").startswith(wskazanie)]
+        if len(pasujace) != 1:
+            print(f"Nie znajduję jednego bloku „{wskazanie}” przy tej sprawie "
+                  f"({len(pasujace)} pasujących). Lista: `sf-kit sprawa <sprawa>` → „Do Ciebie”.",
+                  file=sys.stderr)
+            return 1
+        box_id = pasujace[0]["box_id"]
+    try:
+        wynik = klient.odpowiedz_na_blok(sprawa_id, box_id, tresc)
+    except BladAPI as blad:
+        if getattr(blad, "kod", None) == 404:
+            print("Nie ma takiego bloku przy tej sprawie (albo nie masz do niego wglądu).", file=sys.stderr)
+        else:
+            print(f"Nie udało się odpowiedzieć na blok: {_powod_serwera(blad) or blad}", file=sys.stderr)
+        return 1
+    print(f"Odpowiedź na blok zapisana — status: {wynik.get('status')}. Trafiła do bloku i na oś sprawy; "
+          f"autor bloku dostanie powiadomienie.")
     return 0
 
 
@@ -2681,6 +2727,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="treść odpowiedzi (albo `-` = ze standardowego wejścia)")
     od.add_argument("--wewn", action="store_true",
                     help="notatka wewnętrzna (domyślnie: wiadomość widoczna na zewnątrz)")
+    od.add_argument("--blok", default=None, metavar="ID|#NUMER",
+                    help="odpowiedz na BLOK konsoli przy tej sprawie (numer z „Do Ciebie”, np. #1094) "
+                         "— SF-185")
     od.set_defaults(funkcja=polecenie_odpowiedz)
 
     tv = pod.add_parser("tresc-wersja", help="[asystent] kolejna wersja treści: załącznik "

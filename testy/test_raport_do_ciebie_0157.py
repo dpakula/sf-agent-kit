@@ -169,5 +169,56 @@ class PolecenieRaport(unittest.TestCase):
         self.assertIn("bez treści", err)
 
 
+class OdpowiedzNaBlok(unittest.TestCase):
+    """`sf-kit odpowiedz <sprawa> --blok #1094` (SF-185)."""
+
+    def _uruchom(self, klient, blok="#1094", wewn=False):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
+            f.write("Decyzja: tak")
+        args = SimpleNamespace(sprawa="https://sf.example/tickets/t1?org=sf", opis=f.name, wewn=wewn,
+                               blok=blok, org=None)
+        wyj, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(cli.konfiguracja, "wczytaj", return_value=SimpleNamespace(adres=BAZA)), \
+                mock.patch.object(cli, "_klient_dla_zapisu", return_value=(klient, None)), \
+                mock.patch.object(cli, "_sprawa_dla_zapisu", return_value=({"id": "t1"}, None)), \
+                mock.patch.object(cli, "_ostrzez_o_szkicu"), mock.patch.object(cli, "_pokaz_sprawe"), \
+                redirect_stdout(wyj), redirect_stderr(err):
+            kod = cli.polecenie_odpowiedz(args)
+        Path(f.name).unlink()
+        return kod, wyj.getvalue(), err.getvalue()
+
+    def test_numer_rozwiazany_i_odpowiedz_wyslana(self):
+        klient = mock.Mock()
+        klient.bloki_konsoli.return_value = {"pozycje": [_blok(), _blok(box_id="b2", ref="#7")]}
+        klient.odpowiedz_na_blok.return_value = {"ok": True, "status": "answered"}
+        kod, wyj, _ = self._uruchom(klient)
+        self.assertEqual(kod, 0)
+        klient.odpowiedz_na_blok.assert_called_once_with("t1", "b1", "Decyzja: tak")
+        self.assertIn("answered", wyj)
+        klient.wpis.assert_not_called()                    # nie zwykły wpis
+
+    def test_brak_jednego_bloku(self):
+        klient = mock.Mock()
+        klient.bloki_konsoli.return_value = {"pozycje": [_blok(ref="#7")]}
+        kod, _, err = self._uruchom(klient)
+        self.assertEqual(kod, 1)
+        self.assertIn("Nie znajduję jednego bloku", err)
+        klient.odpowiedz_na_blok.assert_not_called()
+
+    def test_404_mowi_po_ludzku(self):
+        klient = mock.Mock()
+        klient.bloki_konsoli.return_value = {"pozycje": [_blok()]}
+        klient.odpowiedz_na_blok.side_effect = api.BladAPI("404", kod=404, szczegoly='{"detail":"x"}')
+        kod, _, err = self._uruchom(klient)
+        self.assertEqual(kod, 1)
+        self.assertIn("Nie ma takiego bloku", err)
+
+    def test_wewn_z_blokiem_to_blad_uzycia(self):
+        kod, _, err = self._uruchom(mock.Mock(), wewn=True)
+        self.assertEqual(kod, 2)
+        self.assertIn("--wewn", err)
+
+
 if __name__ == "__main__":
     unittest.main()
