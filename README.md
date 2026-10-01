@@ -93,16 +93,17 @@ co wyśle, i zapyta o zgodę.
 >    klucza w czacie** — agent nie ma go widzieć.
 > 2. **Uruchom nową sesję.** Zmienną dostają tylko sesje otwarte po jej dodaniu; bieżąca jej nie zobaczy.
 > 3. Kit instaluje się w każdej nowej sesji od nowa. Poproś agenta: „zainstaluj SF Agent Kit
->    z github.com/dpakula/sf-agent-kit i pokaż sprawy z <slug>”. Jeśli instalator z kroku 1 zgłosi
->    **błąd 403** przy pobieraniu archiwum (proxy chmury blokuje `codeload.github.com`), agent pobiera
->    to samo wydanie gitem i uruchamia ten sam krok, który wykonuje `install.sh`:
+>    z github.com/dpakula/sf-agent-kit i pokaż sprawy z <slug>”. Proxy chmury blokuje
+>    `codeload.github.com` (błąd 403 przy pobieraniu archiwum) — **od 0.15.6 instalator z kroku 1
+>    sam pobiera wtedy to samo wydanie gitem**. Ręcznie, gdyby trzeba było (ten sam krok, który
+>    wykonuje `install.sh`; `v0.15.6` zastąp najnowszym tagiem wydania):
 >
 >    ```
->    git clone --depth 1 --branch v0.15.5 https://github.com/dpakula/sf-agent-kit.git /tmp/sf-agent-kit
->    python3 /tmp/sf-agent-kit/sf-kit instaluj --ref v0.15.5
+>    git clone --depth 1 --branch v0.15.6 https://github.com/dpakula/sf-agent-kit.git /tmp/sf-agent-kit
+>    python3 /tmp/sf-agent-kit/sf-kit instaluj --ref v0.15.6
 >    ```
 >
->    (`v0.15.5` zastąp najnowszym tagiem wydania). Wygodniej: zapisz w repozytorium mały skrypt
+>    Wygodniej: zapisz w repozytorium mały skrypt
 >    startowy, który to robi, i `CLAUDE.md` z tekstem startowym — kolejne sesje przeczytają go same.
 > 4. Agent może nie mieć prawa zapisać `.claude/settings.json` (zgoda na polecenia Kita), bo zasady
 >    sesji w chmurze blokują zmiany ustawień Claude Code. Zrobi to `sf-kit start`, gdy klucz już
@@ -110,9 +111,10 @@ co wyśle, i zapyta o zgodę.
 >
 > **Cena drogi B.** Klucz leży w zmiennej środowiskowej procesu (wygoda, nie zalecany sposób domyślny),
 > a Kit instaluje się przy każdej sesji od nowa. Klucz agenta jest ważny 30 dni i **odnawiasz go sam**:
-> nowy klucz od administratora wpisujesz w ustawieniach środowiska. **Nie uruchamiaj w chmurze
-> `sf-kit worker`** — worker odnawia klucz sam i zapisuje nowy w kontenerze, który zniknie, a w zmiennej
-> zostaje stary, już unieważniony. Następna sesja dostanie wtedy „klucz nie został przyjęty (401)”.
+> nowy klucz od administratora wpisujesz w ustawieniach środowiska. Samoodnowienie nie działa przy
+> kluczu ze zmiennej — nowy sekret zostałby w kontenerze, który zniknie, a zmienna podawałaby stary,
+> już unieważniony. Od 0.15.6 Kit tego nie próbuje i mówi to wprost (w 0.15.5 i starszych **nie
+> uruchamiaj w chmurze `sf-kit worker`** — następna sesja dostałaby „klucz nie został przyjęty (401)”).
 
 **Aktualizacja:** `sf-kit aktualizuj` (to samo co `sf-kit update`).
 
@@ -523,8 +525,9 @@ Claude Code) — nigdy agent i nigdy w rozmowie.
 Cena: zmienną widzi każdy proces uruchomiony z tego środowiska (i `/proc/<pid>/environ` dla właściciela
 procesu), więc to wygoda dla maszyn bez terminala, nie domyślny sposób na własnym komputerze. Druga cena:
 **samoodnowienie nie ma dokąd zapisać nowego klucza** — odnowiony sekret ląduje w pliku albo pęku kluczy,
-a zmienna dalej podaje stary, już unieważniony. Przy `SF_KIT_KEY` nie uruchamiaj więc `sf-kit worker`
-ani odnawiania i wymieniaj klucz ręcznie w ustawieniach środowiska. Dlaczego w ogóle chodzi o chmurę —
+a zmienna dalej podaje stary, już unieważniony. Dlatego od 0.15.6 Kit **nie odnawia klucza ze zmiennej**
+(worker i `sf-kit rotate` mówią to wprost); wymieniasz go ręcznie w ustawieniach środowiska.
+W 0.15.5 i starszych przy `SF_KIT_KEY` nie uruchamiaj `sf-kit worker`. Dlaczego w ogóle chodzi o chmurę —
 patrz ramka po kroku 5 w sekcji „Dla użytkownika”.
 
 #### Trzy rzeczy, których z kluczem nie wolno

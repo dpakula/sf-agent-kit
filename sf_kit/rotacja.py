@@ -1,5 +1,6 @@
 """Samoodnowienie klucza — Kit wymienia sekret, zanim ten wygaśnie (ADVERTPR-779, zakres B).
 
+v0.7.1 (01.10.2026) - APro Agents / borys-sf — SF-175: klucz ze `SF_KIT_KEY` NIE jest odnawiany (niżej)
 v0.7.0 (19.09.2026) - APro Agents / borys-sf
 
 PO CO
@@ -21,6 +22,13 @@ Kit nie sprawdza, czy wolno mu się odnowić — próbuje i czyta odpowiedź. Up
 (`keys:self-renew`) i okno T-7 liczy SF; gdyby Kit liczył je drugi raz, po pierwszej zmianie
 reguły jedna z tych dwóch arytmetyk byłaby nieprawdziwa i nikt by nie wiedział która.
 Odmowa SF jest odpowiedzią, nie awarią: wraca jako zdanie dla człowieka.
+
+KLUCZ ZE ZMIENNEJ ŚRODOWISKOWEJ — JEDYNA ODMOWA PO STRONIE KITU (0.15.6, SF-175)
+Gdy klucz przyszedł z `SF_KIT_KEY`, nowego sekretu nie ma gdzie oddać: zapis trafiłby do pliku
+albo pęku kluczy (w chmurze — do kontenera, który zniknie), a zmienna w ustawieniach środowiska
+dalej podawałaby stary, w chwili odnowienia już martwy. Następna sesja dostałaby 401. To nie
+jest reguła SF liczona drugi raz, tylko fakt o tym procesie, którego serwer nie zna — dlatego
+sprawdzamy go tutaj, ZANIM cokolwiek pójdzie do SF.
 """
 from __future__ import annotations
 
@@ -63,6 +71,13 @@ def rotuj(klient, *, zapis=None) -> Wynik:
     (brak sieci) — o tym decyduje wołający, bo worker ma pracować dalej, a człowiek przy
     terminalu chce zobaczyć błąd.
     """
+    if magazyn_klucza.z_srodowiska():
+        return Wynik(False,
+                     f"Klucz pochodzi ze zmiennej {magazyn_klucza.ZMIENNA_KLUCZA} — nie odnawiam go, "
+                     "bo nowego nie miałbym gdzie zapisać, a stary przestałby działać w chwili "
+                     "odnowienia. Przed terminem poproś administratora o nowy klucz i podmień go "
+                     "w ustawieniach środowiska.")
+
     zapis = zapis or magazyn_klucza.zapisz
 
     toz = mod_tozsamosc.z_odpowiedzi(klient.kim_jestem())

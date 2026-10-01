@@ -1,5 +1,6 @@
 """`sf-kit init` — lista agentów, tryb dodawania (klucz → `GET /me`) i tryb edycji.
 
+v0.1.2 (01.10.2026) - APro Agents / borys-sf — SF-175: „Brak wejścia” mówi o `SF_KIT_KEY` (sesja bez terminala)
 v0.1.1 (26.09.2026) - APro Agents / borys-sf — B3: nazwa z /me walidowana przed użyciem w ścieżce
 v0.1 (26.09.2026) - APro Agents / kimi-autor · decyzje Damiana 26.09 (ADVERTPR-960, runda 2)
 
@@ -45,6 +46,11 @@ from .api import BladAPI, Klient
 #: te są po stronie SalesForge — tylko POKAZUJE to, co do danej roli należy.
 PROFILE = ("worker", "asystent", "koordynator")
 PROFIL_DOMYSLNY = "worker"
+
+
+#: Jedno zdanie na koniec wejścia — także dla sesji bez terminala (SF-175), gdzie `init` nigdy nie zadziała.
+_BRAK_WEJSCIA = ("\nBrak wejścia — `init` jest interakcyjne, uruchom je w terminalu.\n"
+                 + magazyn_klucza.RADA_BEZ_TERMINALA)
 
 
 class _KoniecWejscia(Exception):
@@ -538,8 +544,7 @@ def polecenie(args, *, ochrona, jak_wolac=None) -> int:
                 wybor = input("[numer] edytuj agenta · [n] dodaj nowego · [q] wyjdź: "
                               ).strip()
             except EOFError:
-                print("\nBrak wejścia — `init` jest interakcyjne, uruchom je w terminalu.",
-                      file=sys.stderr)
+                print(_BRAK_WEJSCIA, file=sys.stderr)
                 return 2
             if wybor.lower() == "q":
                 return 0
@@ -560,6 +565,5 @@ def polecenie(args, *, ochrona, jak_wolac=None) -> int:
             print(f"Nie rozumiem „{wybor}” — podaj numer z listy, n albo q.",
                   file=sys.stderr)
     except _KoniecWejscia:
-        print("\nBrak wejścia — `init` jest interakcyjne, uruchom je w terminalu.",
-              file=sys.stderr)
+        print(_BRAK_WEJSCIA, file=sys.stderr)
         return 2

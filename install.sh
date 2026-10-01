@@ -3,6 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.sh | sh
 #
+# v0.2 (01.10.2026) - APro Agents / borys-sf — SF-175: zapas `git clone`, gdy codeload odmawia (proxy chmury: 403)
 # v0.1 (29.09.2026) - APro Agents / borys-sf
 #
 # Robi TYLKO to, czego Python nie zrobi, zanim go znajdziemy: sprawdza Pythona 3.9+, pobiera
@@ -13,8 +14,9 @@
 # SF_KIT_REF — inne wydanie niż domyślne: tag, gałąź albo SHA (codeload rozwiązuje każde); przy wydaniu podbijamy niżej.
 set -eu
 
-REF="${SF_KIT_REF:-v0.15.5}"
+REF="${SF_KIT_REF:-v0.15.6}"
 ADRES="https://codeload.github.com/dpakula/sf-agent-kit/zip/${REF}"
+REPO="https://github.com/dpakula/sf-agent-kit.git"
 
 blad() { printf '\n%s\n' "$*" >&2; exit 1; }
 
@@ -40,16 +42,18 @@ TMP="$(mktemp -d 2>/dev/null || mktemp -d -t sf-kit)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 echo "Pobieram SF Agent Kit ${REF}…"
+POBRANE=""
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$ADRES" -o "$TMP/kit.zip" || blad "Nie udało się pobrać Kita ($ADRES). Sprawdź połączenie z internetem."
+    curl -fsSL "$ADRES" -o "$TMP/kit.zip" && POBRANE=1 || true
 else
     "$PY" -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$ADRES" "$TMP/kit.zip" \
-        || blad "Nie udało się pobrać Kita ($ADRES). Sprawdź połączenie z internetem."
+        && POBRANE=1 || true
 fi
 
-# Rozpakowanie Pythonem (zipfile), nie `unzip` — tego na świeżym Linuksie bywa brak.
-# Komentarz archiwum GitHuba = pełny SHA commita; idzie do znacznika instalacji.
-COMMIT="$("$PY" - "$TMP/kit.zip" "$TMP/src" <<'PYEOF'
+if [ -n "$POBRANE" ]; then
+    # Rozpakowanie Pythonem (zipfile), nie `unzip` — tego na świeżym Linuksie bywa brak.
+    # Komentarz archiwum GitHuba = pełny SHA commita; idzie do znacznika instalacji.
+    COMMIT="$("$PY" - "$TMP/kit.zip" "$TMP/src" <<'PYEOF'
 import sys, zipfile
 from pathlib import Path
 arch, cel = sys.argv[1], Path(sys.argv[2]).resolve()
@@ -62,8 +66,20 @@ with zipfile.ZipFile(arch) as z:
     print(z.comment.decode("ascii", "replace").strip())
 PYEOF
 )" || blad "Nie udało się rozpakować Kita."
+    SRC="$(find "$TMP/src" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+elif command -v git >/dev/null 2>&1; then
+    # SF-175: proxy sesji Claude Code w chmurze blokuje codeload.github.com (403), a github.com
+    # przepuszcza. To samo wydanie gitem — i ten sam krok `sf-kit instaluj` niżej.
+    echo "Archiwum niedostępne ($ADRES) — pobieram to samo wydanie gitem…"
+    git clone --quiet --depth 1 --branch "$REF" "$REPO" "$TMP/src-git" >/dev/null 2>&1 \
+        || blad "Nie udało się pobrać Kita ani archiwum ($ADRES), ani gitem ($REPO, $REF). Sprawdź połączenie z internetem."
+    SRC="$TMP/src-git"
+    COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
+else
+    blad "Nie udało się pobrać Kita ($ADRES). Sprawdź połączenie z internetem.
+Jeśli pracujesz w sesji w chmurze, która blokuje codeload.github.com, zainstaluj git — instalator pobierze Kita nim."
+fi
 
-SRC="$(find "$TMP/src" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 [ -f "$SRC/sf-kit" ] || blad "Pobrane archiwum nie wygląda na Kita."
 
 "$PY" "$SRC/sf-kit" instaluj --ref "$REF" --commit "$COMMIT"

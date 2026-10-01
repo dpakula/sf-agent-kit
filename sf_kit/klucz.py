@@ -1,5 +1,7 @@
 """Przechowywanie klucza API — jedyne miejsce, które go dotyka.
 
+v0.3 (01.10.2026) - APro Agents / borys-sf · SF-175: `z_srodowiska()` + komunikat bez terminala mówi
+  o `SF_KIT_KEY` (sesje Claude Code z telefonu/chmury nie mają gdzie wpisać `init`)
 v0.2 (29.09.2026) - APro Agents / borys-sf · ADVERTPR-987: Windows natywnie — Menedżer poświadczeń
   (`klucz_windows.py`), zamiast pliku, którego prawa na Windows niczego nie chronią
 v0.1 (14.09.2026) - APro Agents / borys-sf
@@ -298,6 +300,34 @@ def czy_prawa_chronia() -> bool:
 
 # ── odczyt ───────────────────────────────────────────────────────────────────
 
+#: Zmienna środowiskowa z kluczem — CI i kontenery bez terminala (README, „Klucz — skąd się bierze”).
+ZMIENNA_KLUCZA = "SF_KIT_KEY"
+
+#: Dopisek dla procesu bez terminala: tam `init` nie ma kogo zapytać, a jedyna droga to zmienna.
+RADA_BEZ_TERMINALA = (
+    "Nie masz tu terminala (Claude Code z telefonu albo w chmurze, CI)? Wtedy `init` nie zadziała.\n"
+    f"Podaj klucz w zmiennej środowiskowej {ZMIENNA_KLUCZA} w ustawieniach środowiska — NIE w rozmowie\n"
+    "z agentem — i otwórz nową sesję (zmienną dostają tylko sesje otwarte po jej dodaniu).\n"
+    "Organizację podawaj wtedy przez --org <slug>. README: ramka po kroku 5."
+)
+
+
+def z_srodowiska() -> bool:
+    """Czy klucz, którego Kit użyje, pochodzi ze zmiennej `SF_KIT_KEY` (ma pierwszeństwo w `wczytaj`).
+
+    Ważne dla odnowienia: nowego sekretu nie da się zapisać z powrotem do zmiennej ustawionej
+    w środowisku, więc odnowienie zabiłoby klucz, którego środowisko dalej będzie używać.
+    """
+    return bool((os.environ.get(ZMIENNA_KLUCZA) or "").strip())
+
+
+def _ma_terminal() -> bool:
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):     # stdin zamknięty albo podmieniony
+        return False
+
+
 def wczytaj() -> str | None:
     """Klucz albo `None`. Kolejność: zmienna środowiskowa → pęk kluczy → plik.
 
@@ -306,7 +336,7 @@ def wczytaj() -> str | None:
     środowiskowa jest widoczna w `/proc/<pid>/environ` dla właściciela procesu — to wygoda
     z ceną, nie zalecany domyślny sposób.
     """
-    ze_srodowiska = os.environ.get("SF_KIT_KEY")
+    ze_srodowiska = os.environ.get(ZMIENNA_KLUCZA)
     if ze_srodowiska:
         return ze_srodowiska.strip()
 
@@ -359,7 +389,7 @@ def _wczytaj_keychain() -> tuple[str | None, str]:
     return None, BRAK_DOSTEPU
 
 
-def powod_braku_klucza() -> str:
+def powod_braku_klucza(ma_terminal: bool | None = None) -> str:
     """Zdanie tłumaczące, dlaczego `wczytaj()` nic nie oddało. Do pokazania człowiekowi.
 
     Wołane WYŁĄCZNIE wtedy, gdy klucza nie ma — sprawdza pęk drugi raz, ale tylko na ścieżce
@@ -382,7 +412,10 @@ def powod_braku_klucza() -> str:
                 "Jeśli jesteś przy terminalu i mimo to widzisz ten komunikat, odblokuj pęk\n"
                 "kluczy (`security unlock-keychain`) albo zezwól narzędziu `security` na dostęp."
             )
-    return "Nie mam klucza. Uruchom `sf-kit init` — zapyta o niego i zapisze bezpiecznie."
+    zdanie = "Nie mam klucza. Uruchom `sf-kit init` — zapyta o niego i zapisze bezpiecznie."
+    if not (_ma_terminal() if ma_terminal is None else ma_terminal):
+        zdanie += "\n" + RADA_BEZ_TERMINALA
+    return zdanie
 
 
 def zapytaj(czy_pusty_ok: bool = False) -> str:
