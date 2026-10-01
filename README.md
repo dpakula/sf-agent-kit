@@ -71,6 +71,49 @@ Potem po prostu powiedz, czego chcesz: „pokaż sprawy”, „co jest w sprawie
 „odpowiedz w tej sprawie: …”, „załącz plik …”. Przed każdym zapisem w SalesForge asystent pokaże,
 co wyśle, i zapyta o zgodę.
 
+> **Uruchamiasz Claude Code z aplikacji mobilnej albo w chmurze (claude.ai/code)?** Przeczytaj to,
+> zanim zaczniesz, bo kroki 1–4 wyglądają wtedy inaczej.
+>
+> Sesja uruchomiona z telefonu albo z przeglądarki działa **w kontenerze w chmurze, nie na Twoim
+> komputerze**. Kontener jest ulotny (znika po zakończeniu sesji) i **nie masz do niego terminala**.
+> Nie ma więc gdzie wpisać `sf-kit init`, a Kit zainstalowany przez agenta zniknie razem z sesją.
+> Zostaje tylko podpięte repozytorium Git. Masz dwie drogi.
+>
+> **Droga A (zalecana): Kit na Twoim komputerze.** Zrób kroki 1–4 na swoim Macu albo PC. Z telefonu
+> pracujesz potem dalej przez aplikację Claude Desktop albo przez `claude remote-control` uruchomione
+> w folderze pracy. Taka sesja pojawia się w aplikacji mobilnej, ale działa na Twoim komputerze —
+> i tam żyją Kit, klucz i sprawy.
+>
+> **Droga B: zostajesz w chmurze, klucz w zmiennej środowiskowej `SF_KIT_KEY`.** Kit sprawdza tę
+> zmienną jako pierwszą, przed pękiem kluczy i plikiem. `sf-kit init` nie jest wtedy potrzebny:
+> Organizację podajesz w każdym poleceniu przez `--org <slug>`, a nazwę agenta Kit bierze z SalesForge.
+>
+> 1. W aplikacji otwórz menu środowiska chmurowego (pasek tytułu sesji) → **Edit** i dodaj klucz jako
+>    zmienną środowiskową (albo poświadczenie API) o nazwie dokładnie `SF_KIT_KEY`. **Nie wklejaj
+>    klucza w czacie** — agent nie ma go widzieć.
+> 2. **Uruchom nową sesję.** Zmienną dostają tylko sesje otwarte po jej dodaniu; bieżąca jej nie zobaczy.
+> 3. Kit instaluje się w każdej nowej sesji od nowa. Poproś agenta: „zainstaluj SF Agent Kit
+>    z github.com/dpakula/sf-agent-kit i pokaż sprawy z <slug>”. Jeśli instalator z kroku 1 zgłosi
+>    **błąd 403** przy pobieraniu archiwum (proxy chmury blokuje `codeload.github.com`), agent pobiera
+>    to samo wydanie gitem i uruchamia ten sam krok, który wykonuje `install.sh`:
+>
+>    ```
+>    git clone --depth 1 --branch v0.15.5 https://github.com/dpakula/sf-agent-kit.git /tmp/sf-agent-kit
+>    python3 /tmp/sf-agent-kit/sf-kit instaluj --ref v0.15.5
+>    ```
+>
+>    (`v0.15.5` zastąp najnowszym tagiem wydania). Wygodniej: zapisz w repozytorium mały skrypt
+>    startowy, który to robi, i `CLAUDE.md` z tekstem startowym — kolejne sesje przeczytają go same.
+> 4. Agent może nie mieć prawa zapisać `.claude/settings.json` (zgoda na polecenia Kita), bo zasady
+>    sesji w chmurze blokują zmiany ustawień Claude Code. Zrobi to `sf-kit start`, gdy klucz już
+>    działa; do tego czasu Claude Code pyta przy każdym poleceniu Kita.
+>
+> **Cena drogi B.** Klucz leży w zmiennej środowiskowej procesu (wygoda, nie zalecany sposób domyślny),
+> a Kit instaluje się przy każdej sesji od nowa. Klucz agenta jest ważny 30 dni i **odnawiasz go sam**:
+> nowy klucz od administratora wpisujesz w ustawieniach środowiska. **Nie uruchamiaj w chmurze
+> `sf-kit worker`** — worker odnawia klucz sam i zapisuje nowy w kontenerze, który zniknie, a w zmiennej
+> zostaje stary, już unieważniony. Następna sesja dostanie wtedy „klucz nie został przyjęty (401)”.
+
 **Aktualizacja:** `sf-kit aktualizuj` (to samo co `sf-kit update`).
 
 **Dla programistów — instalacja gitem** (jak do wersji 0.14): `git clone https://github.com/dpakula/sf-agent-kit.git`, `cd sf-agent-kit`, `./sf-kit init`; aktualizacja `sf-kit update` (albo `git pull`). Wszystkie polecenia działają tak samo przez `./sf-kit`.
@@ -469,6 +512,20 @@ Polecenie pyta o klucz **bez pokazywania go na ekranie** i zapisuje:
 
 - **macOS** → do pęku kluczy (`security add-generic-password`),
 - **Linux** → do `~/.config/sf-kit/credentials` z prawami `600` (czyta tylko twoje konto).
+
+**Zmienna środowiskowa `SF_KIT_KEY` — dla CI i kontenerów, gdzie nie ma kogo zapytać.** Kit szuka
+klucza w tej kolejności: **`SF_KIT_KEY` → pęk kluczy systemu → plik `credentials`**. Gdy zmienna jest
+ustawiona, wygrywa z kluczem zapisanym przez `init`, a `init` nie jest potrzebny: adres to domyślnie
+`https://sf.dpakula.pl`, Organizację podajesz przez `--org <slug>`, nazwę agenta Kit bierze z SalesForge.
+Wartość ustawia **człowiek**, w ustawieniach środowiska (sekrety CI, zmienne środowiska chmurowego
+Claude Code) — nigdy agent i nigdy w rozmowie.
+
+Cena: zmienną widzi każdy proces uruchomiony z tego środowiska (i `/proc/<pid>/environ` dla właściciela
+procesu), więc to wygoda dla maszyn bez terminala, nie domyślny sposób na własnym komputerze. Druga cena:
+**samoodnowienie nie ma dokąd zapisać nowego klucza** — odnowiony sekret ląduje w pliku albo pęku kluczy,
+a zmienna dalej podaje stary, już unieważniony. Przy `SF_KIT_KEY` nie uruchamiaj więc `sf-kit worker`
+ani odnawiania i wymieniaj klucz ręcznie w ustawieniach środowiska. Dlaczego w ogóle chodzi o chmurę —
+patrz ramka po kroku 5 w sekcji „Dla użytkownika”.
 
 #### Trzy rzeczy, których z kluczem nie wolno
 
