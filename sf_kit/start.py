@@ -62,10 +62,11 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 | człowiek mówi | polecenie |
 |---|---|
 | „pokaż sprawy” | `{k} sprawy` (ostatnie sprawy całej Organizacji, nie tylko tej osoby — tak to powiedz) |
-| „co jest w sprawie <link albo numer>” | `{k} sprawa <link albo numer>` |
+| „co jest w sprawie <link albo numer>” | `{k} sprawa <link albo numer>` (na końcu „Do Ciebie”: otwarte pytania z konsoli do tego konta — powiedz o nich najpierw) |
 | „zgłoś sprawę: …” | `{k} zglos --tytul "…" --opis -` + treść (niżej); „ważne” → `--priorytet high`, „na jutro” → `--termin jutro` |
 | „odpowiedz w tej sprawie: …” | `{k} odpowiedz <link> --opis -` (wiadomość widoczna na zewnątrz) albo z `--wewn` (notatka dla zespołu) |
 | „dopisz postęp / notatkę” | `{k} wpis <link> --opis -` |
+| „wyślij raport / SITREP” | `{k} raport <link> plik.md` (Markdown z blokami ```energia/kpi/status/tabela; błędy bloków SF zwraca z numerem linii — popraw plik, nie omijaj zwykłym wpisem) |
 | „załącz plik” | `{k} zalacz <link> plik [plik…]` |
 | „dodaj X jako obserwującego” | `{k} obserwujacy <link> --dodaj adres@… [adres…]` (po ADRESIE e-mail; przy nowej sprawie: `zglos … --obserwujacy adres@…`) |
 

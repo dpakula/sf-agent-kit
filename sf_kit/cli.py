@@ -1544,6 +1544,62 @@ def polecenie_wpis(args) -> int:
     return 0
 
 
+def polecenie_raport(args) -> int:
+    """SF-184: raport na sprawie — Markdown z blokami ```energia/kpi/status/tabela, styl `sitrep`.
+
+    Kit wysyła treść jak jest; bloki waliduje SalesForge (jedna reguła, po stronie SF). Odmowa
+    wraca z numerem linii i zdaniem — Kit pokazuje je tak, żeby dało się poprawić plik bez
+    zgadywania. Zapis: Organizacja jawna (`--org` albo link z `?org=`), jak przy `wpis`.
+    """
+    from . import api as _api
+
+    konf = konfiguracja.wczytaj()
+    org_z_linku = ""
+    if flow.sprawa_z_linku(args.sprawa):
+        org_z_linku = flow.organizacja_z_linku(args.sprawa) or ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    args.opis = args.plik
+    try:
+        tresc = _opis_z_wejscia(args)
+    except (OSError, ValueError) as blad:
+        print(f"Nie mogę przeczytać raportu: {blad}", file=sys.stderr)
+        return 2
+    if not (tresc or "").strip():
+        print("Raport bez treści nie niesie niczego. Podaj plik z raportem (albo `-`).",
+              file=sys.stderr)
+        return 2
+
+    sprawa_id = str(sprawa["id"])
+    _ostrzez_o_szkicu(klient, sprawa_id)
+    try:
+        klient.raport(sprawa_id, tresc, styl=args.styl, widocznosc=args.widocznosc)
+    except BladAPI as blad:
+        bledy = _api.bledy_raportu(blad)
+        if bledy:
+            print(f"Raport odrzucony przez SalesForge — {len(bledy)} "
+                  f"{'błąd' if len(bledy) == 1 else 'błędy' if len(bledy) < 5 else 'błędów'} w pliku "
+                  f"{args.plik}:", file=sys.stderr)
+            for b in bledy:
+                gdzie = f"linia {b.get('linia')}" + (f" · blok {b['blok']}" if b.get("blok") else "")
+                print(f"  {gdzie}: {b.get('komunikat')}", file=sys.stderr)
+            print("Popraw i wyślij ponownie — nic nie zostało zapisane.", file=sys.stderr)
+            return 1
+        powod = _powod_serwera(blad)
+        if getattr(blad, "kod", None) == 422 and "entry_type" in (blad.szczegoly or ""):
+            print("Ta wersja SalesForge nie przyjmuje jeszcze raportów (SF-184). Wyślij treść "
+                  "zwykłym wpisem: `sf-kit wpis <sprawa> --opis <plik>`.", file=sys.stderr)
+            return 1
+        print(f"Nie udało się dodać raportu: {powod or blad}", file=sys.stderr)
+        return 1
+    _pokaz_sprawe(konf, sprawa_id, asystent.numer_sprawy(sprawa), co_dalej="Raport dodany.")
+    return 0
+
+
 def _powod_serwera(blad: BladAPI) -> str:
     """`detail` z odpowiedzi SF, gdy jest napisem — tam SF mówi, DLACZEGO odmówił."""
     try:
@@ -1944,7 +2000,24 @@ def polecenie_sprawa(args) -> int:
         print("\nZałączniki (id → nazwa), pobranie: `sf-kit zalacznik <id> --do <plik>`:")
         for zid, nazwa in zal:
             print(f"  {zid}  {nazwa}")
+    _pokaz_do_ciebie(klient, konf, str(wskazana.get("id")), getattr(args, "org", None))
     return 0
+
+
+def _pokaz_do_ciebie(klient, konf, sprawa_id: str, org: str | None) -> None:
+    """SF-182: sekcja „Do Ciebie” pod kartą sprawy. Fail-soft: karta już jest wypisana — błąd
+    tej sekcji to jedna linia, nie wywrócenie polecenia, które swoje zrobiło."""
+    from . import do_ciebie
+
+    try:
+        moje = klient.bloki_konsoli(sprawa_id, do_mnie=True)
+        wszystkie = klient.bloki_konsoli(sprawa_id) if moje is not None else None
+    except BladAPI as blad:
+        print(f"\nDo Ciebie: nie udało się pobrać bloków konsoli ({blad}).")
+        return
+    tekst = do_ciebie.sekcja(moje, wszystkie, baza=konf.adres, org=org)
+    if tekst:
+        print(tekst)
 
 
 def polecenie_zalacznik(args) -> int:
@@ -2558,6 +2631,17 @@ def main(argv: list[str] | None = None) -> int:
     wp.add_argument("--widocznosc", choices=["internal", "external"], default="internal",
                     help="internal = widzi zespół (domyślnie), external = widzi też klient")
     wp.set_defaults(funkcja=polecenie_wpis)
+
+    # SF-184: raport (SITREP i podobne) — dane w blokach, nie HTML; styl renderuje SF.
+    rp = pod.add_parser("raport", help="[asystent] raport na sprawie: Markdown z blokami "
+                                       "energia/kpi/status/tabela, styl sitrep (SF-184)")
+    rp.add_argument("sprawa", help="numer (FM-12), identyfikator albo link do sprawy z ?org=…")
+    rp.add_argument("plik", help="plik z raportem Markdown (albo `-` = ze standardowego wejścia)")
+    rp.add_argument("--styl", choices=["sitrep"], default="sitrep",
+                    help="styl bloku na osi (dziś: sitrep)")
+    rp.add_argument("--widocznosc", choices=["internal", "external"], default="internal",
+                    help="internal = widzi zespół (domyślnie), external = widzi też klient")
+    rp.set_defaults(funkcja=polecenie_raport)
 
     # ADVERTPR-782: poprawianie wpisów. Nazwy po polsku jak reszta Kitu, trasy i pola —
     # dokładnie te z API (`PATCH …/entries/{id}`, `…/versions`; decyzja D1, 24.09).

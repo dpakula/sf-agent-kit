@@ -96,11 +96,11 @@ co wyśle, i zapyta o zgodę.
 >    z github.com/dpakula/sf-agent-kit i pokaż sprawy z <slug>”. Proxy chmury blokuje
 >    `codeload.github.com` (błąd 403 przy pobieraniu archiwum) — **od 0.15.6 instalator z kroku 1
 >    sam pobiera wtedy to samo wydanie gitem**. Ręcznie, gdyby trzeba było (ten sam krok, który
->    wykonuje `install.sh`; `v0.15.6` zastąp najnowszym tagiem wydania):
+>    wykonuje `install.sh`; `v0.15.7` zastąp najnowszym tagiem wydania):
 >
 >    ```
->    git clone --depth 1 --branch v0.15.6 https://github.com/dpakula/sf-agent-kit.git /tmp/sf-agent-kit
->    python3 /tmp/sf-agent-kit/sf-kit instaluj --ref v0.15.6
+>    git clone --depth 1 --branch v0.15.7 https://github.com/dpakula/sf-agent-kit.git /tmp/sf-agent-kit
+>    python3 /tmp/sf-agent-kit/sf-kit instaluj --ref v0.15.7
 >    ```
 >
 >    Wygodniej: zapisz w repozytorium mały skrypt
@@ -1350,6 +1350,7 @@ sf-kit worker --interval 60     # co ile sekund odpytywać (domyślnie 60)
 sf-kit zglos --tytul "…" [--opis plik.md|-] [--tag makieta] [--zalacz plik…] [--szkic]
 sf-kit nowa-sprawa --tytul "…" [--kontekst TEKST]            # jak zglos + strażnik kontekstu (SF-51)
 sf-kit wpis <sprawa> [--opis plik.md|-] [--zalacz plik…] [--widocznosc internal|external]
+sf-kit raport <sprawa> plik.md [--styl sitrep] [--widocznosc internal|external]   # SF-184 (0.15.7)
 sf-kit odpowiedz <link|numer> [--opis plik.md|-] [--wewn]    # odpowiedź w istniejącej sprawie (SF-51)
 sf-kit tresc-wersja <sprawa> <plik.md> [--zmiany plik.md|-]  # treść w wersjach (SF-51)
 sf-kit opis-sprawy <sprawa> --plik plik.md [--mimo-to]       # zmiana opisu pod strażnikiem (SF-51)
@@ -1359,6 +1360,31 @@ sf-kit sprawy [--limit 50]
 sf-kit wpis-edytuj <sprawa> <wpis> (--plik plik.md|- | --tresc "…") [--powod "…"]   # v0.11
 sf-kit wpis-wersje <sprawa> <wpis> [--pelne] [--json]                                 # v0.11
 ```
+
+**Raport (`sf-kit raport`, od 0.15.7, SF-184).** Treść to Markdown, a dane idą w blokach ```typ —
+SalesForge sam rysuje z nich klocki w stylu `sitrep` (nie wpisujesz HTML-a; HTML jest odrzucany):
+
+````
+```energia
+4/6 Energia rozgrywki
+```
+```kpi
+w pracy: 4
+czeka: 15 | uwaga
+```
+```status
+ok: Bramka backendu zielona
+blad: PROD 500 na /tickets
+```
+```tabela
+| Sprawa | Stan |
+|---|---|
+| [SF-174](sf://sprawa/<uuid>) | w pracy |
+```
+````
+
+Stany: `ok`, `uwaga`, `blad`, `info`, `neutralny`. Błąd w bloku SF zwraca z numerem linii — Kit go
+pokazuje, nic nie zostaje zapisane; popraw plik i wyślij ponownie. Wykresy i diagramy — później (etap 2).
 
 **Profil `koordynator` — rozdajesz pracę flocie i odbierasz ją:**
 
@@ -1509,6 +1535,7 @@ Wykonawca doczytuje w trakcie pracy **bez klucza w prompcie**:
 
 ```bash
 sf-kit sprawa ADVERTPR-927 [--wszystkie]     # karta sprawy tym samym formatem + id załączników
+                                             # + „Do Ciebie”: otwarte bloki konsoli do Ciebie (SF-182, 0.15.7)
 sf-kit zalacznik <id> --do inbox/plik.pdf     # jeden załącznik
 ```
 

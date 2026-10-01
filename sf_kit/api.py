@@ -97,6 +97,33 @@ class WynikSzukania:
         return bool(self.zadania)
 
 
+#: Ile ciała odpowiedzi błędu trzymamy. 422 niesie STRUKTURALNĄ listę błędów (raport SF-184), którą
+#: Kit parsuje — obcięta w połowie JSON-a przestaje być czytelna; pozostałe kody są tylko pokazywane.
+LIMIT_TRESCI_BLEDU = 500
+LIMIT_TRESCI_BLEDU_422 = 8000
+
+
+def _limit_tresci_bledu(kod: int | None) -> int:
+    return LIMIT_TRESCI_BLEDU_422 if kod == 422 else LIMIT_TRESCI_BLEDU
+
+
+def _trasa_nieznana(szczegoly: str | None) -> bool:
+    try:
+        return json.loads(szczegoly or "{}") == {"detail": "Not Found"}
+    except (ValueError, TypeError):
+        return False
+
+
+def bledy_raportu(blad) -> list[dict]:
+    """Lista błędów bloków z odmowy 422 raportu (SF-184) albo pusta, gdy to inna odmowa."""
+    try:
+        dane = json.loads(getattr(blad, "szczegoly", "") or "{}")
+    except (ValueError, TypeError):
+        return []
+    bledy = dane.get("bledy") if isinstance(dane, dict) else None
+    return [b for b in bledy if isinstance(b, dict)] if isinstance(bledy, list) else []
+
+
 class BladAPI(RuntimeError):
     """Błąd rozmowy z SF, z komunikatem pisanym do człowieka."""
 
@@ -171,7 +198,7 @@ class Klient:
         except urllib.error.HTTPError as blad:
             tresc = ""
             try:
-                tresc = blad.read().decode("utf-8", errors="replace")[:500]
+                tresc = blad.read().decode("utf-8", errors="replace")[:_limit_tresci_bledu(blad.code)]
             except Exception:                      # noqa: BLE001 — treść błędu jest dodatkiem
                 pass
             _odswiez_wersje_z_naglowkow_jesli_sa(getattr(blad, "headers", None))
@@ -467,7 +494,7 @@ class Klient:
         except urllib.error.HTTPError as blad:
             tresc = ""
             try:
-                tresc = blad.read().decode("utf-8", errors="replace")[:500]
+                tresc = blad.read().decode("utf-8", errors="replace")[:_limit_tresci_bledu(blad.code)]
             except Exception:                      # noqa: BLE001
                 pass
             raise self._na_wyjatek(blad.code, metoda, sciezka, tresc, self.organizacja) from None
@@ -477,6 +504,37 @@ class Klient:
                 f"Sprawdź adres i sieć — to nie jest problem z kluczem.") from None
 
     # ── sprawy ───────────────────────────────────────────────────────────────
+
+    def raport(self, ticket_id: str, tresc: str, *, styl: str = "sitrep",
+               widocznosc: str = "internal") -> dict:
+        """Wpis-raport (SF-184): Markdown z blokami ```energia/kpi/status/tabela — SF waliduje bloki.
+
+        Kit NIE sprawdza bloków sam: reguła żyje w SF (`tickets/raport.py`), a druga kopia w Kicie
+        rozjechałaby się przy pierwszej poprawce składni. Odmowa wraca jako `BladAPI` z kodem 422
+        i ciałem `{"detail", "bledy": [...]}` — `bledy_raportu(blad)` wyciąga z niego listę.
+        """
+        return self._wywolaj(
+            "POST", f"tickets/{ticket_id}/entries",
+            cialo={"entry_type": "report", "styl": styl, "content": tresc, "visibility": widocznosc})
+
+    def bloki_konsoli(self, ticket_id: str, *, tylko_otwarte: bool = True,
+                      do_mnie: bool = False) -> dict | None:
+        """Bloki konsoli przy sprawie, także z Konsoli A innej Organizacji (SF-182).
+
+        `None` = SF bez tej trasy (wersja sprzed SF-182 → 404) — wołający pomija sekcję, a nie
+        pokazuje „nic do Ciebie”, bo to byłaby nieprawda o stanie, którego nie znamy.
+        """
+        parametry = [f"status={'open' if tylko_otwarte else 'wszystkie'}"]
+        if do_mnie:
+            parametry.append("do_mnie=true")
+        try:
+            return self._wywolaj("GET", f"tickets/{ticket_id}/bloki-konsoli?{'&'.join(parametry)}")
+        except BladAPI as blad:
+            # Trasa nieznana serwerowi = dokładnie `{"detail":"Not Found"}` (FastAPI); brak sprawy
+            # ma własne zdanie — i ten 404 ma lecieć dalej, bo to inna wiadomość dla człowieka.
+            if getattr(blad, "kod", None) == 404 and _trasa_nieznana(blad.szczegoly):
+                return None
+            raise
 
     def wpis(self, ticket_id: str, tresc: str, *, widocznosc: str = "internal") -> dict:
         """Wpis na sprawie — tak zdajesz sprawozdanie.
