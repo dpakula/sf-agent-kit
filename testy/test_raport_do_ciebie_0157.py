@@ -62,8 +62,11 @@ class SekcjaDoCiebie(unittest.TestCase):
         tekst = do_ciebie.sekcja({"pozycje": [_blok(tresc="a\n" * 400)], "razem": 1}, None,
                                  baza=BAZA, org=None)
         linia = [l for l in tekst.splitlines() if "[decyzja]" in l][0]
-        self.assertLessEqual(len(linia), do_ciebie.DLUGOSC_TRESCI + 40)
-        self.assertTrue(linia.endswith("…"))
+        # Skracana jest TREŚĆ (≤ DLUGOSC_TRESCI), nie cała linia: prefiks i dopisek źródła dochodzą.
+        tresc = linia.split("#1094 ", 1)[1].split(" · z Konsoli A", 1)[0]
+        self.assertLessEqual(len(tresc), do_ciebie.DLUGOSC_TRESCI)
+        self.assertTrue(tresc.endswith("…"))
+        self.assertNotIn("\n", tresc)
 
 
 class BlokiKonsoliApi(unittest.TestCase):

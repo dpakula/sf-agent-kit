@@ -2055,10 +2055,13 @@ def _pokaz_do_ciebie(klient, konf, sprawa_id: str, org: str | None) -> None:
     tej sekcji to jedna linia, nie wywrócenie polecenia, które swoje zrobiło."""
     from . import do_ciebie
 
+    pobierz = getattr(klient, "bloki_konsoli", None)
+    if pobierz is None:                 # klient bez tej metody (atrapa, stary dostawca) — bez sekcji
+        return
     try:
-        moje = klient.bloki_konsoli(sprawa_id, do_mnie=True)
-        wszystkie = klient.bloki_konsoli(sprawa_id) if moje is not None else None
-    except BladAPI as blad:
+        moje = pobierz(sprawa_id, do_mnie=True)
+        wszystkie = pobierz(sprawa_id) if moje is not None else None
+    except Exception as blad:  # noqa: BLE001 — fail-soft: karta już wypisana, sekcja jest dodatkiem
         print(f"\nDo Ciebie: nie udało się pobrać bloków konsoli ({blad}).")
         return
     tekst = do_ciebie.sekcja(moje, wszystkie, baza=konf.adres, org=org)
