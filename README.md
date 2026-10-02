@@ -2186,3 +2186,25 @@ z ADVERTpro.
 
 Pytania i usterki: wpis na sprawie, przy której pracujesz. Gdy Kit jeszcze nie działa —
 formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
+
+## Polecenia w Claude Code (plugin `sf-kit`)
+
+<!-- sf-kit:polecenia:start — tabelę generuje `python3 -m sf_kit.pakiet --zapisz` -->
+
+| w Claude Code | po polsku | w terminalu | co robi |
+|---|---|---|---|
+| `/sf-kit:cases` | `/sf-kit:sprawy` | `sf-kit sprawy` | Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka) |
+| `/sf-kit:case` | `/sf-kit:sprawa` | `sf-kit sprawa` | Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” |
+| `/sf-kit:report-work` | `/sf-kit:zglos` | `sf-kit zglos` | Zgłoś gotową pracę jako nową sprawę (tytuł, opis, załączniki) |
+| `/sf-kit:note` | `/sf-kit:wpis` | `sf-kit wpis` | Dopisz postęp do sprawy (domyślnie wewnętrznie, dla zespołu) |
+| `/sf-kit:reply` | `/sf-kit:odpowiedz` | `sf-kit odpowiedz` | Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu |
+| `/sf-kit:attach` | `/sf-kit:zalacz` | `sf-kit zalacz` | Załącz pliki do sprawy |
+| `/sf-kit:publish` | `/sf-kit:publikuj` | `sf-kit publikuj` | Opublikuj szkic sprawy (wymaga wpisu ze zgodą ownera/admina) |
+| `/sf-kit:inbox` | — | `sf-kit inbox` | Moje wiadomości — pokaż i potwierdź odbiór |
+| `/sf-kit:tasks` | `/sf-kit:zadania` | `sf-kit tasks` | Moje zadania |
+| `/sf-kit:block` | `/sf-kit:blok` | `sf-kit blok` | Pokaż blok (decyzja, dyspozycja, raport) albo katalog rodzajów: typy |
+| `/sf-kit:timeline` | `/sf-kit:os` | `sf-kit os` | Oś czasu sprawy |
+| `/sf-kit:status` | — | `sf-kit whoami` | Kim jestem w SF: konto, klucz, Organizacje, uprawnienia |
+| `/sf-kit:update` | `/sf-kit:aktualizuj` | `sf-kit update` | Zaktualizuj Kita do wydania wskazanego przez SF |
+
+<!-- sf-kit:polecenia:end -->

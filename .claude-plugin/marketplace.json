@@ -1,0 +1,15 @@
+{
+  "name": "sf-plugins",
+  "owner": {
+    "name": "APro Agents / dpakula.pl"
+  },
+  "description": "Pluginy SalesForge dla asystentów (APro Agents)",
+  "plugins": [
+    {
+      "name": "sf-kit",
+      "source": "./plugin",
+      "description": "SalesForge z poziomu asystenta: sprawy, wpisy, zgłoszenia, załączniki, bloki — przez SF Kit",
+      "version": "0.16.0"
+    }
+  ]
+}

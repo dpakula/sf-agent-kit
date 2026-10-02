@@ -2530,6 +2530,13 @@ def _utf8_na_windows() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     _utf8_na_windows()
+    parser = zbuduj_parser()
+    return _wykonaj(parser, argv)
+
+
+def zbuduj_parser() -> argparse.ArgumentParser:
+    """Cały parser `sf-kit` — osobno od `main`, żeby strażnik manifestu (0.16.0) mógł sprawdzić,
+    że każda komenda pakietu wskazuje istniejącą podkomendę, bez uruchamiania czegokolwiek."""
     parser = argparse.ArgumentParser(
         prog="sf-kit",
         description="SF Agent Kit — odbieraj zadania z SalesForge, wykonuj je, raportuj.")
@@ -2906,6 +2913,10 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--once", action="store_true", help="jeden przebieg zamiast pętli")
     w.set_defaults(funkcja=polecenie_worker)
 
+    return parser
+
+
+def _wykonaj(parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
     args = parser.parse_args(argv)
     magazyn_klucza.ustaw_agenta(getattr(args, "agent", None))
     # ADVERTPR-960: codzienne sprawdzenie wersji PRZED poleceniem. Odmowa (breaking + wersja

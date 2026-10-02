@@ -1,0 +1,248 @@
+{
+  "wersja_manifestu": 1,
+  "plugin": {
+    "name": "sf-kit",
+    "description": "SalesForge z poziomu asystenta: sprawy, wpisy, zgłoszenia, załączniki, bloki — przez SF Kit",
+    "author": {
+      "name": "APro Agents / dpakula.pl"
+    }
+  },
+  "komendy": [
+    {
+      "id": "cases",
+      "aliasy": [
+        "sprawy"
+      ],
+      "cli": "sprawy",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka)",
+        "en": "Cases in the Organization"
+      },
+      "argumenty": "[--limit N]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic"
+    },
+    {
+      "id": "case",
+      "aliasy": [
+        "sprawa"
+      ],
+      "cli": "sprawa",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Karta sprawy: opis, wpisy, załączniki, „Do Ciebie”",
+        "en": "Case card"
+      },
+      "argumenty": "<numer|link> [--wszystkie]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic"
+    },
+    {
+      "id": "report-work",
+      "aliasy": [
+        "zglos"
+      ],
+      "cli": "zglos",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Zgłoś gotową pracę jako nową sprawę (tytuł, opis, załączniki)",
+        "en": "Report finished work as a new case"
+      },
+      "argumenty": "--tytul \"…\" [--opis PLIK] [--zalacz PLIK…] [--obserwujacy ADRES…] [--priorytet P] [--termin DATA]",
+      "skille": [
+        "oddawanie-pracy",
+        "wpis-czytelny"
+      ],
+      "konczy_sie": "wpis"
+    },
+    {
+      "id": "note",
+      "aliasy": [
+        "wpis"
+      ],
+      "cli": "wpis",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Dopisz postęp do sprawy (domyślnie wewnętrznie, dla zespołu)",
+        "en": "Add a progress note to a case"
+      },
+      "argumenty": "<sprawa> --opis PLIK|- [--zalacz PLIK…] [--widocznosc internal|external]",
+      "skille": [
+        "wpis-czytelny"
+      ],
+      "konczy_sie": "wpis"
+    },
+    {
+      "id": "reply",
+      "aliasy": [
+        "odpowiedz"
+      ],
+      "cli": "odpowiedz",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu",
+        "en": "Reply in a case"
+      },
+      "argumenty": "<sprawa> --opis PLIK|- [--wewn] [--blok #NUMER]",
+      "skille": [
+        "wpis-czytelny"
+      ],
+      "konczy_sie": "wpis"
+    },
+    {
+      "id": "attach",
+      "aliasy": [
+        "zalacz"
+      ],
+      "cli": "zalacz",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Załącz pliki do sprawy",
+        "en": "Attach files to a case"
+      },
+      "argumenty": "<sprawa> PLIK… [--notka \"…\"]",
+      "skille": [
+        "oddawanie-pracy"
+      ],
+      "konczy_sie": "wpis"
+    },
+    {
+      "id": "publish",
+      "aliasy": [
+        "publikuj"
+      ],
+      "cli": "publikuj",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Opublikuj szkic sprawy (wymaga wpisu ze zgodą ownera/admina)",
+        "en": "Publish a draft case (needs owner/admin consent entry)"
+      },
+      "argumenty": "<sprawa> --zgoda WPIS",
+      "skille": [
+        "oddawanie-pracy"
+      ],
+      "konczy_sie": "wpis"
+    },
+    {
+      "id": "inbox",
+      "aliasy": [],
+      "cli": "inbox",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Moje wiadomości — pokaż i potwierdź odbiór",
+        "en": "My inbox"
+      },
+      "argumenty": "[--limit N] [--dni N] [--podejrzyj]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic"
+    },
+    {
+      "id": "tasks",
+      "aliasy": [
+        "zadania"
+      ],
+      "cli": "tasks",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Moje zadania",
+        "en": "My tasks"
+      },
+      "argumenty": "[--pelne]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic"
+    },
+    {
+      "id": "block",
+      "aliasy": [
+        "blok"
+      ],
+      "cli": "blok",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Pokaż blok (decyzja, dyspozycja, raport) albo katalog rodzajów: typy",
+        "en": "Show a block or block types"
+      },
+      "argumenty": "<id bloku>|typy [--json]",
+      "skille": [
+        "wpis-czytelny"
+      ],
+      "konczy_sie": "nic"
+    },
+    {
+      "id": "timeline",
+      "aliasy": [
+        "os"
+      ],
+      "cli": "os",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Oś czasu sprawy",
+        "en": "Case timeline"
+      },
+      "argumenty": "<sprawa> [--pelna|--zwinieta] [--limit N]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic"
+    },
+    {
+      "id": "status",
+      "aliasy": [],
+      "cli": "whoami",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Kim jestem w SF: konto, klucz, Organizacje, uprawnienia",
+        "en": "Who am I in SF"
+      },
+      "argumenty": "",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic"
+    },
+    {
+      "id": "update",
+      "aliasy": [
+        "aktualizuj"
+      ],
+      "cli": "update",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Zaktualizuj Kita do wydania wskazanego przez SF",
+        "en": "Update the Kit"
+      },
+      "argumenty": "[--check]",
+      "skille": [],
+      "konczy_sie": "nic"
+    }
+  ],
+  "skille": [
+    {
+      "id": "praca-w-sf",
+      "zrodlo": "pakiet/wiedza/praca-w-sf.md",
+      "rola": "wszyscy",
+      "opis": "Jak pracować w SalesForge przez SF Kit: Organizacja, sprawa vs zadanie, poziomy widoczności, Kit zamiast curl. Użyj, gdy praca dotyczy spraw, zadań albo wpisów w SalesForge."
+    },
+    {
+      "id": "wpis-czytelny",
+      "zrodlo": "pakiet/wiedza/wpis-czytelny.md",
+      "rola": "wszyscy",
+      "opis": "Jak napisać wpis na sprawie SalesForge: Sedno / Co to znaczy / Szczegóły techniczne, wzmianki pełnym adresem, bez emoji. Użyj przed każdym wpisem, odpowiedzią albo zgłoszeniem."
+    },
+    {
+      "id": "oddawanie-pracy",
+      "zrodlo": "pakiet/wiedza/oddawanie-pracy.md",
+      "rola": "wszyscy",
+      "opis": "Jak oddać gotową pracę do SalesForge: zglos, zalacz, publikuj, sprawdzenie, że doszło. Użyj, gdy praca jest gotowa do przekazania."
+    }
+  ]
+}
