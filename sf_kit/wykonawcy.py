@@ -165,7 +165,8 @@ def _w_repozytorium_git(katalog: str) -> bool:
     """Czy katalog leży w repozytorium git. Po drzewie w górę, bez wołania `git`."""
     sciezka = os.path.abspath(katalog or ".")
     while True:
-        if os.path.isdir(os.path.join(sciezka, ".git")):
+        # `.git` bywa PLIKIEM (worktree, submoduł) — wtedy to też repozytorium.
+        if os.path.exists(os.path.join(sciezka, ".git")):
             return True
         rodzic = os.path.dirname(sciezka)
         if rodzic == sciezka:
