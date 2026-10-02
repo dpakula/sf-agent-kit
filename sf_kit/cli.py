@@ -102,8 +102,37 @@ def polecenie_init(args) -> int:
     """
     from . import onboarding
 
-    return onboarding.polecenie(args, ochrona=_wlacz_ochrone_repozytorium,
-                                jak_wolac=_jak_wolac)
+    if getattr(args, "claude", False) and magazyn_klucza.wczytaj():
+        # SF-201: Kit już skonfigurowany — `--claude` dokłada tylko plugin, bez ekranu agentów.
+        return _plugin_zainstaluj()
+    kod = onboarding.polecenie(args, ochrona=_wlacz_ochrone_repozytorium, jak_wolac=_jak_wolac)
+    if kod == 0 and getattr(args, "claude", False):
+        return _plugin_zainstaluj()
+    return kod
+
+
+def _plugin_zainstaluj() -> int:
+    from . import claude_plugin
+    ok, raport = claude_plugin.zainstaluj()
+    print("\nPlugin Claude Code (sf-kit):\n  " + "\n  ".join(raport))
+    return 0 if ok else 1
+
+
+def polecenie_plugin(args) -> int:
+    """`sf-kit plugin` — plugin `sf-kit` w Claude Code: stan, instalacja, odświeżenie (SF-201)."""
+    from . import claude_plugin
+    if getattr(args, "zainstaluj", False):
+        return _plugin_zainstaluj()
+    if getattr(args, "odswiez", False):
+        raport = claude_plugin.odswiez()
+        print("\n".join(raport) if raport else "Plugin sf-kit nie jest zainstalowany — nic do odświeżenia "
+              "(instalacja: `sf-kit init --claude`).")
+        return 0
+    stan = claude_plugin.zainstalowany()
+    print({True: f"plugin {claude_plugin.ID}: zainstalowany",
+           False: f"plugin {claude_plugin.ID}: NIE zainstalowany — `sf-kit init --claude`",
+           None: "nie umiem sprawdzić (brak polecenia `claude` w PATH)"}[stan])
+    return 0
 
 
 def _jak_wolac() -> str:
@@ -267,6 +296,13 @@ def polecenie_update(args) -> int:
     else:
         print(f"\nUWAGA: `whoami` na nowej wersji nie przeszło — sprawdź ręcznie:\n"
               f"{(kto.stdout + kto.stderr).strip()[:600]}", file=sys.stderr)
+
+    # SF-201: plugin Claude Code nadąża za Kitem — odświeżamy go NOWYM kodem (stary proces
+    # mógł nie znać `sf-kit plugin`). Niezainstalowany plugin = cisza.
+    plug = subprocess.run([sys.executable, str(skrypt), "plugin", "--odswiez"],
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if plug.returncode == 0 and "nie jest zainstalowany" not in plug.stdout:
+        print(f"\n{plug.stdout.strip()}")
 
     print(f"\n{aktualizacje.restart_hint(konf)}")
     return 0
@@ -2556,7 +2592,15 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                              "(domyślna jest wygodą, nie regułą)")
     pod = parser.add_subparsers(dest="polecenie", required=True)
 
-    pod.add_parser("init", help="zapisz klucz i ustawienia").set_defaults(funkcja=polecenie_init)
+    ini = pod.add_parser("init", help="zapisz klucz i ustawienia; --claude = także plugin Claude Code")
+    ini.add_argument("--claude", action="store_true",
+                     help="zainstaluj plugin `sf-kit` w Claude Code (zakres użytkownika: każdy katalog)")
+    ini.set_defaults(funkcja=polecenie_init)
+    pl = pod.add_parser("plugin", help="plugin Claude Code `sf-kit`: stan, --zainstaluj, --odswiez")
+    plg = pl.add_mutually_exclusive_group()
+    plg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --claude`")
+    plg.add_argument("--odswiez", action="store_true", help="odśwież zainstalowany plugin (robi to też `update`)")
+    pl.set_defaults(funkcja=polecenie_plugin)
     pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
     up = pod.add_parser("update", help="zaktualizuj Kita do wydania wskazanego przez SF "
                                         "(raz na dobę sam powie, że jest nowa wersja)")
@@ -2924,7 +2968,7 @@ def _wykonaj(parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
     # wyniku na stdout. `init` nie ma jeszcze klucza, `update` mówi o wersjach sam —
     # dla reszty każdy błąd po drodze (brak sieci, brak configu) kończy się ciszą:
     # informacja o nowym wydaniu nie ma prawa zatrzymać pracy.
-    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme"):
+    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin"):
         try:
             konf = konfiguracja.wczytaj_jesli_jest()
             kl = magazyn_klucza.wczytaj()

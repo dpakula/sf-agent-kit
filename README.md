@@ -2189,6 +2189,8 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 
 ## Polecenia w Claude Code (plugin `sf-kit`)
 
+**Instalacja pluginu (raz na komputer):** `sf-kit init --claude`. Kit dodaje marketplace `sf-plugins` (to repozytorium) i instaluje plugin `sf-kit@sf-plugins` w zakresie użytkownika — działa w każdym katalogu, po ponownym uruchomieniu Claude Code. Bez polecenia `claude` w PATH Kit wpisze plugin do `~/.claude/settings.json` i powie, co wpisać w Claude Code (`/plugin marketplace add dpakula/sf-agent-kit`, `/plugin install sf-kit@sf-plugins`). `sf-kit update` odświeża plugin razem z Kitem; stan: `sf-kit plugin`. Komendy uruchamiasz Ty (model sam ich nie wywołuje); skille z wiedzą o pracy w SF asystent dobiera sam.
+
 <!-- sf-kit:polecenia:start — tabelę generuje `python3 -m sf_kit.pakiet --zapisz` -->
 
 | w Claude Code | po polsku | w terminalu | co robi |
