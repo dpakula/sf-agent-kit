@@ -684,6 +684,26 @@ class Klient:
         from urllib.parse import quote
         self._wywolaj("DELETE", f"tickets/{ticket_id}/watchers/{quote(wskazanie, safe='')}")
 
+    # ── ustawienia powiadomień osoby (SF-173) ────────────────────────────────
+
+    def ustawienia_skuteczne(self, user_id: str) -> dict:
+        """`GET /users/{id}/notification-preferences/skuteczne` — co osoba dostaje i SKĄD ta wartość."""
+        odp = self._wywolaj("GET", f"users/{user_id}/notification-preferences/skuteczne")
+        return odp if isinstance(odp, dict) else {}
+
+    def ustaw_poziom_powiadomien(self, user_id: str, poziom: str,
+                                 kanaly: list[str] | None = None) -> dict:
+        """`PUT …/poziom` — `cisza|wazne|wszystko`; mapowanie na zdarzenia robi SF, nie Kit."""
+        cialo: dict = {"poziom": poziom}
+        if kanaly:
+            cialo["kanaly"] = kanaly
+        odp = self._wywolaj("PUT", f"users/{user_id}/notification-preferences/poziom", cialo=cialo)
+        return odp if isinstance(odp, dict) else {}
+
+    def historia_ustawien(self, user_id: str, *, limit: int = 20) -> list[dict]:
+        odp = self._wywolaj("GET", f"users/{user_id}/notification-preferences/historia?limit={int(limit)}")
+        return odp if isinstance(odp, list) else []
+
     # ── kontekst sprawy dla wykonawcy (SF-38) ────────────────────────────────
 
     def sprawa(self, ticket_id: str) -> dict:

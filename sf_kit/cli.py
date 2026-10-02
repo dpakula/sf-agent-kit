@@ -1456,6 +1456,70 @@ def _dodaj_obserwujacych(klient: Klient, sprawa_id: str, adresy: list[str]) -> l
     return nieudane
 
 
+def polecenie_ustawienia(args) -> int:
+    """`sf-kit ustawienia [klucz wartość]` — lokalne i w SF, ze źródłem wartości (SF-173)."""
+    from . import ustawienia as ust
+
+    konf = konfiguracja.wczytaj()
+    klucz, wartosc = getattr(args, "klucz", None), getattr(args, "wartosc", None)
+    if klucz and klucz in ust.LOKALNE:
+        if wartosc is None:
+            print(f"{klucz} = {getattr(konf, klucz, None) or '(nie ustawione)'}")
+            return 0
+        try:
+            opis = ust.zmien_lokalne(konf, klucz, wartosc)
+        except ValueError as blad:
+            print(str(blad), file=sys.stderr)
+            return 2
+        konfiguracja.zapisz(konf)
+        print(f"✓ lokalnie: {opis}")
+        return 0
+    if klucz and klucz != ust.KLUCZ_POZIOMU:
+        print(f"Nieznane ustawienie: {klucz}. Lokalne: {', '.join(ust.LOKALNE)}; w SF: {ust.KLUCZ_POZIOMU}.",
+              file=sys.stderr)
+        return 2
+
+    klient, org, toz = _klient_organizacja_tozsamosc(konf, args)
+    osoba = getattr(args, "osoba", None)
+    if getattr(args, "czlowiek", False):
+        osoba = konf.pracuje_dla
+        if not osoba:
+            print("Nie wiem, dla kogo pracujesz: ustaw `sf-kit ustawienia pracuje_dla <id konta>` "
+                  "(SF-170 zrobi to sam) albo podaj `--osoba <id konta>`.", file=sys.stderr)
+            return 2
+    cel = osoba or toz.konto_id
+    if not cel:
+        print("SF nie podał identyfikatora konta (starsze SF) — podaj `--osoba <id konta>`.", file=sys.stderr)
+        return 2
+    kogo = (f"osoba {cel}" if osoba else f"Twoje konto {toz.konto_email or toz.konto_nazwa or ''}") \
+        + f" (Organizacja {org.slug})"
+
+    try:
+        if klucz == ust.KLUCZ_POZIOMU:
+            if wartosc not in ust.POZIOMY:
+                print(f"{ust.KLUCZ_POZIOMU}: jeden z {', '.join(ust.POZIOMY)}", file=sys.stderr)
+                return 2
+            try:
+                kanaly = ust.kanaly_z_argumentu(getattr(args, "kanaly", None))
+            except ValueError as blad:
+                print(str(blad), file=sys.stderr)
+                return 2
+            stan = klient.ustaw_poziom_powiadomien(cel, wartosc, kanaly)
+            print(f"✓ w SF: {ust.KLUCZ_POZIOMU} = {wartosc}"
+                  f"{' (osoba dostanie od SF zawiadomienie o tej zmianie)' if osoba else ''}\n")
+        else:
+            stan = klient.ustawienia_skuteczne(cel)
+            if not osoba:
+                print("\n".join(ust.pokaz_lokalne(konf, konfiguracja.sciezka())) + "\n")
+        print("\n".join(ust.pokaz_sf(stan, kogo=kogo)))
+        if getattr(args, "historia", False):
+            print("\n" + "\n".join(ust.pokaz_historie(klient.historia_ustawien(cel))))
+    except BladAPI as blad:
+        print(ust.odmowa_po_polsku(blad) if osoba else str(blad), file=sys.stderr)
+        return 1
+    return 0
+
+
 def polecenie_obserwujacy(args) -> int:
     """`sf-kit obserwujacy <sprawa>` — lista; `--dodaj adres…` / `--usun adres…` (0.15.4)."""
     konf = konfiguracja.wczytaj()
@@ -2911,6 +2975,16 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                          "sprawy tej Organizacji, ≤ 7 dni) albo jego początek ≥ 6 znaków "
                          "z publikowanej sprawy")
     pu.set_defaults(funkcja=polecenie_publikuj)
+
+    us = pod.add_parser("ustawienia", help="[wszyscy] ustawienia: lokalne i w SF (poziom powiadomień, SF-173)")
+    us.add_argument("klucz", nargs="?", help="np. powiadomienia.poziom, auto_update, organizacja, pracuje_dla")
+    us.add_argument("wartosc", nargs="?", help="nowa wartość; bez niej — odczyt")
+    us.add_argument("--kanaly", help="dla powiadomienia.poziom: email,in_app,push (domyślnie email,in_app)")
+    kto = us.add_mutually_exclusive_group()
+    kto.add_argument("--czlowiek", action="store_true", help="ustawienia człowieka z `pracuje_dla`")
+    kto.add_argument("--osoba", metavar="ID_KONTA", help="ustawienia wskazanej osoby (wymaga jej zgody)")
+    us.add_argument("--historia", action="store_true", help="pokaż też historię zmian")
+    us.set_defaults(funkcja=polecenie_ustawienia)
 
     ob = pod.add_parser("obserwujacy", help="[asystent] obserwujący sprawy: lista, --dodaj, --usun")
     ob.add_argument("sprawa", help="numer (FM-12), identyfikator albo link do sprawy z ?org=…")

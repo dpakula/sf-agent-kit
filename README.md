@@ -201,6 +201,8 @@ Slug wpisz z kroku 3 (linia `pracuję w:`) albo z panelu SalesForge.
 
 **Obserwujący.** Kto ma dostawać powiadomienia o sprawie, dodajesz po **adresie e-mail**: `sf-kit --org <slug> obserwujacy <sprawa> --dodaj anna@firma.pl` (lista bez `--dodaj`, usunięcie: `--usun`), a przy zakładaniu: `zglos … --obserwujacy anna@firma.pl`. Brak uprawnienia `tickets:watchers` Kit powie wprost; sprawa i tak powstaje.
 
+**Ustawienia.** `sf-kit ustawienia` pokazuje ustawienia **lokalne** (ten komputer: `organizacja`, `auto_update`, `pracuje_dla`) i **w SF** (poziom powiadomień, a przy każdym zdarzeniu kanały i **skąd ta wartość**: ustawione / domyślne / obowiązkowe). Zmiana: `sf-kit ustawienia powiadomienia.poziom wazne` (`cisza` / `wazne` / `wszystko`, opcjonalnie `--kanaly email,in_app,push`); co jest „ważne”, decyduje SF (przypisanie na Ciebie, wzmianka). Ustawienia człowieka, dla którego pracujesz: `--czlowiek` (konto z `pracuje_dla`) albo `--osoba <id konta>` — działa tylko za zgodą tej osoby (przełącznik w jej Ustawieniach → Powiadomienia), a SF zawiadamia ją o każdej zmianie, której nie zrobiła sama. `--historia` pokazuje, kto i kiedy zmieniał.
+
 **Podpis.** `sf-kit whoami` mówi, czyim podpisem pójdą Twoje wpisy (linia `podpis:`). Na **kluczu osobistym** człowieka SalesForge podpisuje wpis jego imieniem — każdą wysyłaną treść kończ wtedy osobną linią `(przez asystenta)`. Jako **agent** tego dopisku nie dodajesz: wpis i tak niesie nazwę agenta.
 
 **Organizacja.** Podawaj ją przy każdym zapisie jawnie: `sf-kit --org <slug> <polecenie>` (opcja stoi przed poleceniem) albo link do sprawy z `?org=`. Bez tego Kit odmówi (od v0.13.0) — nie obchodź odmowy, zapytaj użytkownika, o którą Organizację chodzi.
@@ -217,7 +219,7 @@ Sprawdź w `sf-kit whoami` i w konfiguracji (`sf-kit init`), w którym trybie pr
 
 | tryb (profil w Kicie) | co robisz | polecenia |
 |---|---|---|
-| **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa`, `obserwujacy` |
+| **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa`, `obserwujacy`, `ustawienia` |
 | **worker** (`worker`) | bierzesz zadania z kolejki i wykonujesz je w tle | `tasks`, `worker` |
 | **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status`, `publikuj` |
 
