@@ -2193,6 +2193,8 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 
 **Codex CLI:** `sf-kit init --codex` dopisuje sekcję SF Kita do globalnego `~/.codex/AGENTS.md` (albo `AGENTS.override.md`, jeśli go używasz; reszta pliku zostaje) i kładzie skille do `~/.agents/skills/` (`$sf-zglos`, `$sf-wpis`, …; komendy wywołujesz Ty, skille wiedzy Codex dobiera sam). Stan: `sf-kit codex`; `sf-kit update` odświeża pakiet.
 
+**Kimi Code:** `sf-kit init --kimi` dopisuje sekcję SF Kita do `~/.kimi-code/AGENTS.md` (albo `$KIMI_CODE_HOME/AGENTS.md`; reszta pliku zostaje) i kładzie skille do `~/.kimi-code/skills/` (`/skill:sf-zglos`, `/skill:sf-wpis`, …; komendy wywołujesz Ty, skille wiedzy Kimi dobiera sam). Stan: `sf-kit kimi`; `sf-kit update` odświeża pakiet. Katalog `~/.kimi` należy do starego `kimi-cli` — Kit go nie rusza.
+
 <!-- sf-kit:polecenia:start — tabelę generuje `python3 -m sf_kit.pakiet --zapisz` -->
 
 | w Claude Code | po polsku | w terminalu | co robi |

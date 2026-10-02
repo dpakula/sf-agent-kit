@@ -1,5 +1,6 @@
 """Pakiet SF Kita dla asystentów — generator z JEDNEGO manifestu (SF-201, Kit 0.16.0).
 
+v1.2.0 (02.10.2026) - APro Agents / borys-sf · pakiet KIMI CODE z tego samego manifestu (SF-203, Agata 14:12)
 v1.1.0 (02.10.2026) - APro Agents / borys-sf · pakiet CODEX z tego samego manifestu (SF-203, Agata 14:00)
 v1.0.0 (02.10.2026) - APro Agents / borys-sf · projekt: wpis 33cda66a na SF-201; GO Damiana 02.10 (SF-203)
 
@@ -34,6 +35,14 @@ custom-prompts)
 - `codex/AGENTS.md` — sekcja Kita do globalnego `AGENTS.md` (CODEX_HOME): tabela komend z aliasami.
   Codex łączy pliki AGENTS.md do 32 KiB — strażnik pilnuje, żeby nasza sekcja była mała.
 
+KIMI CODE (`@moonshot-ai/kimi-code`; dokumentacja moonshotai.github.io/kimi-code, czytane 02.10)
+══════════════════════════════════════════════════════════════════════════════════════
+- Instrukcje: globalny `AGENTS.md` w `KIMI_CODE_HOME` (domyślnie `~/.kimi-code`).
+- Skille: `KIMI_CODE_HOME/skills/<nazwa>/SKILL.md` (wymagane `name` i `description`); wywołanie
+  `/skill:<nazwa>`; w treści DZIAŁA `$ARGUMENTS`; `disable-model-invocation: true` = model sam nie wywoła.
+- Osobnych komend poza pluginami Kimi nie ma — komendy idą jako skille, jak w Codexie.
+- Binarki Kimi NIE uruchamiamy do sprawdzania formatu (decyzja Agaty 02.10: presja pamięci na b5c3).
+
 Uruchomienie: `python3 -m sf_kit.pakiet --sprawdz` (CI/test) albo `--zapisz` (po zmianie manifestu).
 """
 from __future__ import annotations
@@ -65,6 +74,9 @@ CODEX_KONIEC = "<!-- sf-kit:codex:end -->"
 #: Nasza część globalnego AGENTS.md. Codex łączy WSZYSTKIE pliki AGENTS.md do 32 KiB (domyślnie);
 #: sekcja Kita nie może zjeść tego budżetu cudzym instrukcjom.
 CODEX_MAKS_BAJTOW = 8 * 1024
+KATALOG_KIMI = Path("kimi")
+KIMI_START = "<!-- sf-kit:kimi:start — sekcję zapisuje `sf-kit init --kimi`; zmiany w niej nadpisze -->"
+KIMI_KONIEC = "<!-- sf-kit:kimi:end -->"
 
 ZAMKNIECIE = {
     "wpis": "Zamknij pracę WPISEM w sprawie według skilla `wpis-czytelny` i podaj człowiekowi link "
@@ -126,6 +138,9 @@ def waliduj(manifest: dict, podkomendy: set[str], korzen: Path = KORZEN) -> list
         if rozmiar > CODEX_MAKS_BAJTOW:
             bledy.append(f"Codex: sekcja AGENTS.md ma {rozmiar} B > {CODEX_MAKS_BAJTOW} B "
                          "(Codex łączy wszystkie AGENTS.md do 32 KiB)")
+        rozmiar = len(agents_md_kimi(manifest, "0.0.0").encode("utf-8"))
+        if rozmiar > CODEX_MAKS_BAJTOW:
+            bledy.append(f"Kimi: sekcja AGENTS.md ma {rozmiar} B > {CODEX_MAKS_BAJTOW} B")
     return bledy
 
 
@@ -274,6 +289,47 @@ def generuj_codex(manifest: dict, wersja: str, korzen: Path = KORZEN, *, role=RO
     return pliki
 
 
+# ── Kimi Code ──────────────────────────────────────────────────────────────────────────────
+
+def _kimiuj(tekst: str, manifest: dict) -> str:
+    """Treść z pakietu Claude → Kimi Code: `/sf-kit:x` → `/skill:sf-x`, skille z prefiksem; `$ARGUMENTS` zostaje."""
+    tekst = tekst.replace("/sf-kit:", "/skill:sf-")
+    for s in manifest["skille"]:
+        tekst = tekst.replace(f"`{s['id']}`", f"`{nazwa_codex(s['id'])}`")
+    return tekst
+
+
+def agents_md_kimi(manifest: dict, wersja: str) -> str:
+    sekcja = agents_md_codex(manifest, wersja)
+    sekcja = sekcja.replace(CODEX_START, KIMI_START).replace(CODEX_KONIEC, KIMI_KONIEC)
+    sekcja = sekcja.replace("| skill (Codex) |", "| skill (Kimi Code) |")
+    return re.sub(r"`\$(sf-[a-z0-9-]+)`", r"`/skill:\1`", sekcja)
+
+
+def generuj_kimi(manifest: dict, wersja: str, korzen: Path = KORZEN, *, role=ROLE) -> dict[Path, str]:
+    """Pakiet Kimi Code: sekcja AGENTS.md + skille (komendy z `disable-model-invocation`, wiedza)."""
+    pliki: dict[Path, str] = {KATALOG_KIMI / "AGENTS.md": agents_md_kimi(manifest, wersja)}
+    for k in manifest["komendy"]:
+        if k["rola"] not in role:
+            continue
+        for nazwa in [k["id"], *k.get("aliasy", [])]:
+            n = nazwa_codex(nazwa)
+            tresc = _kimiuj(_komenda(k, nazwa, wersja), manifest)
+            naglowek, cialo = tresc.split("---\n", 2)[1], tresc.split("---\n", 2)[2]
+            pola = {"name": n}
+            for linia in naglowek.splitlines():
+                if linia.startswith("description:"):
+                    pola["description"] = json.loads(linia.split(":", 1)[1])
+            pola["disable-model-invocation"] = True
+            pliki[KATALOG_KIMI / "skills" / n / "SKILL.md"] = _frontmatter(pola) + "\n" + cialo
+    for s in manifest["skille"]:
+        if s["rola"] not in role:
+            continue
+        n = nazwa_codex(s["id"])
+        pliki[KATALOG_KIMI / "skills" / n / "SKILL.md"] = _kimiuj(_skill({**s, "id": n}, korzen, wersja), manifest)
+    return pliki
+
+
 def tabela_readme(manifest: dict) -> str:
     wiersze = [README_START, "",
                "| w Claude Code | po polsku | w terminalu | co robi |", "|---|---|---|---|"]
@@ -298,14 +354,15 @@ def roznice(korzen: Path = KORZEN) -> list[str]:
     from . import WERSJA
     manifest = wczytaj(korzen)
     wynik = []
-    oczekiwane = {**generuj(manifest, WERSJA, korzen), **generuj_codex(manifest, WERSJA, korzen)}
+    oczekiwane = {**generuj(manifest, WERSJA, korzen), **generuj_codex(manifest, WERSJA, korzen),
+                  **generuj_kimi(manifest, WERSJA, korzen)}
     for sciezka, tresc in oczekiwane.items():
         plik = korzen / sciezka
         if not plik.is_file():
             wynik.append(f"brak {sciezka}")
         elif plik.read_text(encoding="utf-8") != tresc:
             wynik.append(f"różni się {sciezka}")
-    for katalog in (KATALOG_PLUGINU, KATALOG_CODEX):
+    for katalog in (KATALOG_PLUGINU, KATALOG_CODEX, KATALOG_KIMI):
         for plik in (korzen / katalog).rglob("*") if (korzen / katalog).exists() else []:
             if plik.is_file() and plik.relative_to(korzen) not in oczekiwane:
                 wynik.append(f"nadmiarowy {plik.relative_to(korzen)} (nie ma go w manifeście)")
@@ -318,8 +375,9 @@ def roznice(korzen: Path = KORZEN) -> list[str]:
 def zapisz(korzen: Path = KORZEN) -> list[Path]:
     from . import WERSJA
     manifest = wczytaj(korzen)
-    oczekiwane = {**generuj(manifest, WERSJA, korzen), **generuj_codex(manifest, WERSJA, korzen)}
-    for kat in (KATALOG_PLUGINU, KATALOG_CODEX):
+    oczekiwane = {**generuj(manifest, WERSJA, korzen), **generuj_codex(manifest, WERSJA, korzen),
+                  **generuj_kimi(manifest, WERSJA, korzen)}
+    for kat in (KATALOG_PLUGINU, KATALOG_CODEX, KATALOG_KIMI):
         katalog = korzen / kat
         if katalog.exists():
             for plik in sorted(katalog.rglob("*"), reverse=True):

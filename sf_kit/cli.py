@@ -103,7 +103,8 @@ def polecenie_init(args) -> int:
     from . import onboarding
 
     pakiety = [f for f, wl in ((_plugin_zainstaluj, getattr(args, "claude", False)),
-                               (_codex_zainstaluj, getattr(args, "codex", False))) if wl]
+                               (_codex_zainstaluj, getattr(args, "codex", False)),
+                               (_kimi_zainstaluj, getattr(args, "kimi", False))) if wl]
     if not (pakiety and magazyn_klucza.wczytaj()):
         # Kit już skonfigurowany + `--claude`/`--codex` = tylko pakiety, bez ekranu agentów (SF-201/203).
         kod = onboarding.polecenie(args, ochrona=_wlacz_ochrone_repozytorium, jak_wolac=_jak_wolac)
@@ -117,6 +118,28 @@ def _codex_zainstaluj() -> int:
     ok, raport = codex_pakiet.zainstaluj()
     print("\nPakiet Codex (sf-kit):\n  " + "\n  ".join(raport))
     return 0 if ok else 1
+
+
+def _kimi_zainstaluj() -> int:
+    from . import kimi_pakiet
+    ok, raport = kimi_pakiet.zainstaluj()
+    print("\nPakiet Kimi Code (sf-kit):\n  " + "\n  ".join(raport))
+    return 0 if ok else 1
+
+
+def polecenie_kimi(args) -> int:
+    """`sf-kit kimi` — pakiet SF Kita dla Kimi Code: stan, instalacja, odświeżenie (SF-203)."""
+    from . import kimi_pakiet
+    if getattr(args, "zainstaluj", False):
+        return _kimi_zainstaluj()
+    if getattr(args, "odswiez", False):
+        raport = kimi_pakiet.odswiez()
+        print("\n".join(raport) if raport else "Pakiet Kimi Code nie jest zainstalowany — nic do odświeżenia "
+              "(instalacja: `sf-kit init --kimi`).")
+        return 0
+    print(f"pakiet Kimi Code: {'zainstalowany' if kimi_pakiet.zainstalowany() else 'NIE zainstalowany — `sf-kit init --kimi`'}"
+          f" ({kimi_pakiet.plik_instrukcji()}, {kimi_pakiet.katalog_skilli()})")
+    return 0
 
 
 def polecenie_codex(args) -> int:
@@ -322,7 +345,7 @@ def polecenie_update(args) -> int:
 
     # SF-201: plugin Claude Code nadąża za Kitem — odświeżamy go NOWYM kodem (stary proces
     # mógł nie znać `sf-kit plugin`). Niezainstalowany plugin = cisza.
-    for pakiet_cli in ("plugin", "codex"):
+    for pakiet_cli in ("plugin", "codex", "kimi"):
         plug = subprocess.run([sys.executable, str(skrypt), pakiet_cli, "--odswiez"],
                               capture_output=True, text=True, encoding="utf-8", errors="replace")
         if plug.returncode == 0 and "nie jest zainstalowany" not in plug.stdout:
@@ -2622,6 +2645,13 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     ini.add_argument("--codex", action="store_true",
                      help="zainstaluj pakiet dla Codex CLI (sekcja w ~/.codex/AGENTS.md + skille w ~/.agents/skills)")
     ini.set_defaults(funkcja=polecenie_init)
+    ini.add_argument("--kimi", action="store_true",
+                     help="zainstaluj pakiet dla Kimi Code (sekcja w ~/.kimi-code/AGENTS.md + skille w ~/.kimi-code/skills)")
+    km = pod.add_parser("kimi", help="pakiet Kimi Code: stan, --zainstaluj, --odswiez")
+    kmg = km.add_mutually_exclusive_group()
+    kmg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --kimi`")
+    kmg.add_argument("--odswiez", action="store_true", help="odśwież zainstalowany pakiet (robi to też `update`)")
+    km.set_defaults(funkcja=polecenie_kimi)
     cx = pod.add_parser("codex", help="pakiet Codex CLI: stan, --zainstaluj, --odswiez")
     cxg = cx.add_mutually_exclusive_group()
     cxg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --codex`")
@@ -2999,7 +3029,7 @@ def _wykonaj(parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
     # wyniku na stdout. `init` nie ma jeszcze klucza, `update` mówi o wersjach sam —
     # dla reszty każdy błąd po drodze (brak sieci, brak configu) kończy się ciszą:
     # informacja o nowym wydaniu nie ma prawa zatrzymać pracy.
-    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin", "codex"):
+    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin", "codex", "kimi"):
         try:
             konf = konfiguracja.wczytaj_jesli_jest()
             kl = magazyn_klucza.wczytaj()
