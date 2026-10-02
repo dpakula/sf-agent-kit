@@ -13,7 +13,10 @@ Uruchomienie: `python3 -m unittest discover -s testy`
 import json
 import sys
 import tempfile
-import tomllib
+try:
+    import tomllib  # Python 3.11+; Kit obsługuje 3.9 — bez tomllib test TOML jest pomijany
+except ImportError:  # pragma: no cover
+    tomllib = None
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -32,6 +35,7 @@ class TestGeneratorGemini(unittest.TestCase):
         dane = json.loads(self.pliki[Path("gemini/gemini-extension.json")])
         self.assertEqual(dane, {**dane, "name": "sf-kit", "version": WERSJA, "contextFileName": "GEMINI.md"})
 
+    @unittest.skipIf(tomllib is None, "tomllib dopiero od Pythona 3.11")
     def test_komendy_toml_poprawne_z_args(self):
         komendy = {p: t for p, t in self.pliki.items() if p.parts[:3] == ("gemini", "commands", "sf")}
         self.assertEqual(len(komendy), sum(1 + len(k["aliasy"]) for k in self.m["komendy"]))
