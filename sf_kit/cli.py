@@ -43,7 +43,11 @@ def _klient_bez_organizacji(konf: konfiguracja.Konfiguracja) -> Klient:
         raise SystemExit(
             "Konfiguracja jest niepełna — brakuje: " + ", ".join(braki) + ".\n"
             f"Popraw {konfiguracja.sciezka()} albo uruchom `sf-kit init` jeszcze raz.")
-    return Klient(baza=konf.adres, klucz=kl)
+    klient = Klient(baza=konf.adres, klucz=kl)
+    # SF-170: asystent podpisuje wpisy „na rzecz" swojego człowieka — tylko w profilu asystenta.
+    if getattr(konf, "profil", "") == "asystent" and getattr(konf, "pracuje_dla", None):
+        klient.na_rzecz = konf.pracuje_dla
+    return klient
 
 
 def _tozsamosc(klient: Klient) -> tozsamosc.Tozsamosc:
@@ -184,6 +188,10 @@ def polecenie_whoami(args) -> int:
     print(f"konto:        {toz.konto_nazwa or '(bez nazwy)'}"
           f"{' · agent' if toz.konto_kind == 'agent' else ''}")
     print(f"podpis:       {tozsamosc.kim_pisze(toz)}")
+    if getattr(konf, "pracuje_dla", None):
+        print(f"pracuję dla:  {konf.pracuje_dla}   (wpisy z dopiskiem „asystent dla …”; uprawnienia są moje)")
+    elif konf.profil == "asystent":
+        print("pracuję dla:  (nie ustawione) — `sf-kit ustawienia pracuje_dla <e-mail człowieka>`")
     if toz.klucz_prefiks:
         zaw = " · ZAWĘŻONY" if toz.klucz_zawezony else ""
         print(f"klucz w SF:   {toz.klucz_prefiks} · scope {toz.klucz_scope}{zaw}")
@@ -1354,6 +1362,19 @@ def polecenie_ustawienia(args) -> int:
         if wartosc is None:
             print(f"{klucz} = {getattr(konf, klucz, None) or '(nie ustawione)'}")
             return 0
+        if klucz == "pracuje_dla" and wartosc:
+            # SF-170: zapisujemy tylko adres CZŁONKA tej Organizacji — inny niczego nie znajdzie,
+            # a „co na mnie czeka?” wyglądałoby jak brak pracy.
+            klient, org, _ = _klient_organizacja_tozsamosc(konf, args)
+            try:
+                osoba = klient.czlonek(wartosc.strip())
+            except BladAPI as blad:
+                if getattr(blad, "kod", None) == 404:
+                    print(f"{wartosc} nie jest członkiem Organizacji {org.slug} — nie zapisuję.", file=sys.stderr)
+                    return 1
+                print(f"Nie udało się sprawdzić adresu w SF: {blad}", file=sys.stderr)
+                return 1
+            wartosc = osoba.get("email") or wartosc.strip()
         try:
             opis = ust.zmien_lokalne(konf, klucz, wartosc)
         except ValueError as blad:
@@ -1370,11 +1391,15 @@ def polecenie_ustawienia(args) -> int:
     klient, org, toz = _klient_organizacja_tozsamosc(konf, args)
     osoba = getattr(args, "osoba", None)
     if getattr(args, "czlowiek", False):
-        osoba = konf.pracuje_dla
-        if not osoba:
-            print("Nie wiem, dla kogo pracujesz: ustaw `sf-kit ustawienia pracuje_dla <id konta>` "
-                  "(SF-170 zrobi to sam) albo podaj `--osoba <id konta>`.", file=sys.stderr)
+        if not konf.pracuje_dla:
+            print("Nie wiem, dla kogo pracujesz: ustaw `sf-kit ustawienia pracuje_dla <e-mail>` "
+                  "albo podaj `--osoba <id konta>`.", file=sys.stderr)
             return 2
+        try:
+            osoba = str(klient.czlonek(konf.pracuje_dla)["user_id"])
+        except (BladAPI, KeyError) as blad:
+            print(f"Nie znalazłem w SF człowieka {konf.pracuje_dla}: {blad}", file=sys.stderr)
+            return 1
     cel = osoba or toz.konto_id
     if not cel:
         print("SF nie podał identyfikatora konta (starsze SF) — podaj `--osoba <id konta>`.", file=sys.stderr)
@@ -2054,6 +2079,9 @@ def polecenie_publikuj(args) -> int:
 def polecenie_sprawy(args) -> int:
     """Sprawy w Organizacji tego klucza — żeby wiedzieć, do czego dopisywać."""
     konf = konfiguracja.wczytaj()
+    czlowiek = getattr(konf, "pracuje_dla", None) if konf.profil == "asystent" else None
+    if (czlowiek or getattr(args, "tylko_moje", False)) and not getattr(args, "wszystkie", False):
+        return _sprawy_asystenta(konf, args, czlowiek)
     klient = _klient(konf, args)
     try:
         lista = klient.sprawy(limit=args.limit)
@@ -2070,6 +2098,54 @@ def polecenie_sprawy(args) -> int:
         zmiana = asystent.ostatnia_zmiana(s)
         print(f"  {numer:14} {(s.get('title') or '')[:58]}")
         print(f"  {'':14} {s.get('status', '?'):12} {zmiana}")
+    return 0
+
+
+def _sprawy_asystenta(konf, args, czlowiek: str | None) -> int:
+    """SF-170: „co na mnie czeka?” — sprawy człowieka + moje, ze źródłem przy każdej.
+
+    Powiązanie z człowiekiem to KOLEJKA, nie uprawnienia: widzę tyle, ile pozwala mój klucz,
+    a sprawy człowieka poza moim zasięgiem pokazuję liczbą, nie udaję, że ich nie ma.
+    """
+    klient, _, toz = _klient_organizacja_tozsamosc(konf, args)
+    zrodla: list[tuple[str, str]] = []
+    if czlowiek and not getattr(args, "tylko_moje", False):
+        zrodla.append(("człowiek", czlowiek))
+    if toz.konto_id and not getattr(args, "tylko_czlowieka", False):
+        zrodla.append(("ja", toz.konto_id))
+    if not zrodla:
+        print("Brak źródła: ustaw `sf-kit ustawienia pracuje_dla <e-mail>` albo użyj `--wszystkie`.",
+              file=sys.stderr)
+        return 2
+    sprawy: dict[str, dict] = {}
+    oznaczenia: dict[str, list[str]] = {}
+    poza = 0
+    for etykieta, kto in zrodla:
+        try:
+            lista, poza_zasiegiem, zna = klient.sprawy_osoby(kto, limit=args.limit)
+        except BladAPI as blad:
+            print(f"Nie udało się pobrać spraw ({etykieta}): {blad}", file=sys.stderr)
+            return 1
+        if not zna:
+            print("Ten SalesForge nie zna jeszcze filtra spraw osoby (SF-170) — pokazuję wszystkie "
+                  "sprawy Organizacji: `sf-kit sprawy --wszystkie`.", file=sys.stderr)
+            return 1
+        poza += poza_zasiegiem or 0
+        for s in lista:
+            sid = str(s.get("id"))
+            sprawy.setdefault(sid, s)
+            oznaczenia.setdefault(sid, []).append(etykieta)
+    if not sprawy:
+        print("Nic nie czeka: brak spraw przypisanych "
+              + (f"do {czlowiek} ani do mnie." if czlowiek else "do mnie."))
+    else:
+        print(f"Co czeka ({len(sprawy)}):\n")
+        for sid, s in sprawy.items():
+            numer = asystent.numer_sprawy(s) or sid[:8]
+            print(f"  {numer:14} {(s.get('title') or '')[:52]}   [{' + '.join(oznaczenia[sid])}]")
+            print(f"  {'':14} {s.get('status', '?'):12} {asystent.ostatnia_zmiana(s)}")
+    if poza:
+        print(f"\n{poza} spraw Twojego człowieka jest poza moimi uprawnieniami — nie widzę ich treści.")
     return 0
 
 
@@ -2842,8 +2918,13 @@ def main(argv: list[str] | None = None) -> int:
     ob.add_argument("--usun", nargs="+", default=[], metavar="EMAIL")
     ob.set_defaults(funkcja=polecenie_obserwujacy)
 
-    sp = pod.add_parser("sprawy", help="[asystent] sprawy w tej Organizacji")
+    sp = pod.add_parser("sprawy", help="[asystent] co czeka: sprawy moje i mojego człowieka (SF-170); "
+                                        "--wszystkie = cała Organizacja")
     sp.add_argument("--limit", type=int, default=50)
+    ktore = sp.add_mutually_exclusive_group()
+    ktore.add_argument("--tylko-moje", action="store_true", help="tylko sprawy przypisane do mnie")
+    ktore.add_argument("--tylko-czlowieka", action="store_true", help="tylko sprawy mojego człowieka")
+    ktore.add_argument("--wszystkie", action="store_true", help="wszystkie sprawy Organizacji (jak przed SF-170)")
     sp.set_defaults(funkcja=polecenie_sprawy)
     sa = pod.add_parser("sprawa", help="[wykonawca] karta sprawy: opis, wpisy, załączniki (SF-38)")
     sa.add_argument("sprawa", help="numer (ADVERTPR-927), identyfikator albo link do sprawy z ?org=…")

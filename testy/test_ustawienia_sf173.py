@@ -59,6 +59,9 @@ class Atrapa:
             raise BrakUprawnienia("Forbidden", kod=403)
         return {**STAN, "poziom": poziom}
 
+    def czlonek(self, email):
+        return {"user_id": CZLOWIEK, "email": email, "nazwa": "Damian"}
+
     def historia_ustawien(self, uid, limit=20):
         return [{"kiedy": "2026-10-02T10:00:00", "kto": "api:asystent", "przed": {"poziom": "domyslny"},
                  "po": {"poziom": "wazne"}, "opis": "poziom wazne"}]
@@ -107,7 +110,7 @@ class TestUstawienia(unittest.TestCase):
 
     def test_czlowiek_bez_zgody_dostaje_polskie_zdanie(self):
         konf = Konfiguracja()
-        konf.pracuje_dla = CZLOWIEK
+        konf.pracuje_dla = "damian@sf.pl"
         kod, _, err, _ = _uruchom(["ustawienia", "--czlowiek", "powiadomienia.poziom", "cisza"],
                                   Atrapa(odmowa=True), konf)
         self.assertEqual(kod, 1)

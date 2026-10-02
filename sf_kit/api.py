@@ -166,6 +166,9 @@ class Klient:
         self.baza = baza.rstrip("/")
         self._klucz = klucz                  # podkreślenie: nie jest częścią interfejsu
         self.organizacja = organizacja
+        #: SF-170: e-mail człowieka, dla którego pracuje asystent — idzie do wpisów jako PODPIS
+        #: (`na_rzecz`). Tylko tożsamość: prawa wpisu to nadal prawa tego klucza.
+        self.na_rzecz: str | None = None
 
     def _naglowki(self) -> dict[str, str]:
         naglowki = {
@@ -426,6 +429,23 @@ class Klient:
     #: Sufit strony `GET /tickets` (`per_page` ≤ 100 po stronie SF).
     SPRAW_NA_STRONE = 100
 
+    def czlonek(self, email: str) -> dict:
+        """SF-170: członek TEJ Organizacji po adresie → `{user_id, email, nazwa}`; 404 = nie członek."""
+        return self._wywolaj("GET", "tenants/biezaca/czlonek?" + urllib.parse.urlencode({"email": email}))
+
+    def sprawy_osoby(self, przypisany: str, *, limit: int = 100) -> tuple[list[dict], int | None, bool]:
+        """SF-170: sprawy, w których osoba jest DOWOLNYM przypisanym → `(lista, poza_zasiegiem, zna_filtr)`.
+
+        `zna_filtr=False` = SF sprzed SF-170: nieznany parametr FastAPI pomija po cichu i oddaje
+        WSZYSTKIE sprawy (ta sama pułapka co `limit` przed 0.11). Rozpoznajemy to po braku
+        `poza_zasiegiem` w odpowiedzi i mówimy wprost, zamiast podać całą Organizację jako „sprawy człowieka".
+        """
+        parametry = {"przypisany": przypisany, "page": 1, "per_page": min(self.SPRAW_NA_STRONE, limit)}
+        odp = self._wywolaj("GET", f"tickets?{urllib.parse.urlencode(parametry)}")
+        if not isinstance(odp, dict) or "poza_zasiegiem" not in odp:
+            return [], None, False
+        return list(odp.get("items") or [])[:limit], odp.get("poza_zasiegiem"), True
+
     def sprawy(self, *, limit: int = 50, szukaj: str | None = None) -> list[dict]:
         """Sprawy widoczne dla tego klucza w jego Organizacji — do `limit`, strona po stronie.
 
@@ -550,9 +570,20 @@ class Klient:
         `internal` domyślnie i celowo: treści, której klient nie miał zobaczyć, nie da się
         odzobaczyć. `public` zostaje świadomą decyzją wołającego.
         """
-        return self._wywolaj(
-            "POST", f"tickets/{ticket_id}/entries",
-            cialo={"entry_type": "note", "content": tresc, "visibility": widocznosc})
+        cialo = {"entry_type": "note", "content": tresc, "visibility": widocznosc}
+        if self.na_rzecz:
+            cialo["na_rzecz"] = self.na_rzecz
+        try:
+            return self._wywolaj("POST", f"tickets/{ticket_id}/entries", cialo=cialo)
+        except BladAPI as blad:
+            # SF sprzed SF-170 odrzuca nieznane pole (`extra=forbid` → 422). Wpis jest ważniejszy
+            # niż podpis: ponawiamy bez `na_rzecz` i przestajemy go wysyłać w tym procesie.
+            if "na_rzecz" in cialo and getattr(blad, "kod", None) == 422 and "na_rzecz" in (
+                    blad.szczegoly or str(blad)):
+                self.na_rzecz = None
+                cialo.pop("na_rzecz")
+                return self._wywolaj("POST", f"tickets/{ticket_id}/entries", cialo=cialo)
+            raise
 
     # ── SKRZYNKA WIADOMOŚCI (ADVERTPR-812) ───────────────────────────────────
     #
