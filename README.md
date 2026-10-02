@@ -2197,6 +2197,8 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 
 **Gemini CLI:** `sf-kit init --gemini` kopiuje rozszerzenie `sf-kit` do `~/.gemini/extensions/sf-kit/` (komendy `/sf:zglos`, `/sf:sprawy`, …, kontekst Kita i skille wiedzy). Twojego `~/.gemini/GEMINI.md` Kit nie rusza. Stan: `sf-kit gemini`; `sf-kit update` odświeża rozszerzenie.
 
+**Narzędzia MCP (`sf-kit mcp`).** Kit ma serwer MCP (stdio): te same polecenia co w terminalu, jako narzędzia asystenta (`cases`, `case`, `report_work`, `note`, `reply`, …; `update` celowo nie). Plugin Claude Code uruchamia go sam; `sf-kit init --codex` rejestruje go w Codexie (`codex mcp add`, a bez `codex` — wpis w `~/.codex/config.toml`). Klucz bierze z magazynu Kita — w konfiguracji asystenta nie ma żadnego sekretu.
+
 <!-- sf-kit:polecenia:start — tabelę generuje `python3 -m sf_kit.pakiet --zapisz` -->
 
 | w Claude Code | po polsku | w terminalu | co robi |

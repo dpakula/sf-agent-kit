@@ -89,6 +89,8 @@ KATALOG_KIMI = Path("kimi")
 KIMI_START = "<!-- sf-kit:kimi:start — sekcję zapisuje `sf-kit init --kimi`; zmiany w niej nadpisze -->"
 KIMI_KONIEC = "<!-- sf-kit:kimi:end -->"
 KATALOG_GEMINI = Path("gemini")
+#: Serwer MCP Kita — ten sam wpis dla Claude (plugin), Kimi (mcp.json) i Gemini (rozszerzenie).
+MCP_SERWER = {"mcpServers": {"sf-kit": {"command": "sf-kit", "args": ["mcp"]}}}
 
 ZAMKNIECIE = {
     "wpis": "Zamknij pracę WPISEM w sprawie według skilla `wpis-czytelny` i podaj człowiekowi link "
@@ -142,6 +144,11 @@ def waliduj(manifest: dict, podkomendy: set[str], korzen: Path = KORZEN) -> list
             bledy.append(f"komenda {kid}: konczy_sie „{k.get('konczy_sie')}” spoza {KONCE}")
         if not (k.get("opis") or {}).get("pl"):
             bledy.append(f"komenda {kid}: brak opisu po polsku")
+        for pole in ("tylko_odczyt", "mcp"):
+            if not isinstance(k.get(pole), bool):
+                bledy.append(f"komenda {kid}: pole `{pole}` musi być true/false (MCP: adnotacja i dostępność)")
+        if k.get("mcp") and k.get("cli") in ("update", "aktualizuj", "init", "instaluj"):
+            bledy.append(f"komenda {kid}: `sf-kit {k.get('cli')}` zmienia instalację Kita — nie może być narzędziem MCP")
         for sk in k.get("skille", []):
             if sk not in skille:
                 bledy.append(f"komenda {kid}: skill „{sk}” nie istnieje w manifeście")
@@ -217,7 +224,10 @@ def generuj(manifest: dict, wersja: str, korzen: Path = KORZEN, *, role=ROLE) ->
     """Wszystkie pliki pakietu: ścieżka względna od korzenia repo → treść. Deterministycznie."""
     pliki: dict[Path, str] = {
         MARKETPLACE: marketplace_json(manifest, wersja),
-        KATALOG_PLUGINU / ".claude-plugin" / "plugin.json": plugin_json(manifest, wersja)}
+        KATALOG_PLUGINU / ".claude-plugin" / "plugin.json": plugin_json(manifest, wersja),
+        # SF-203: serwer MCP Kita startuje z pluginem (dokumentacja: `.mcp.json` w korzeniu pluginu).
+        # `sf-kit` z PATH, klucz z magazynu Kita — w konfiguracji pluginu nie ma żadnego sekretu.
+        KATALOG_PLUGINU / ".mcp.json": json.dumps(MCP_SERWER, ensure_ascii=False, indent=2) + "\n"}
     for k in manifest["komendy"]:
         if k["rola"] not in role:
             continue

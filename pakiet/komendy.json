@@ -23,7 +23,9 @@
       "skille": [
         "praca-w-sf"
       ],
-      "konczy_sie": "nic"
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
     },
     {
       "id": "case",
@@ -40,7 +42,9 @@
       "skille": [
         "praca-w-sf"
       ],
-      "konczy_sie": "nic"
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
     },
     {
       "id": "report-work",
@@ -58,7 +62,9 @@
         "oddawanie-pracy",
         "wpis-czytelny"
       ],
-      "konczy_sie": "wpis"
+      "konczy_sie": "wpis",
+      "tylko_odczyt": false,
+      "mcp": true
     },
     {
       "id": "note",
@@ -75,7 +81,9 @@
       "skille": [
         "wpis-czytelny"
       ],
-      "konczy_sie": "wpis"
+      "konczy_sie": "wpis",
+      "tylko_odczyt": false,
+      "mcp": true
     },
     {
       "id": "reply",
@@ -92,7 +100,9 @@
       "skille": [
         "wpis-czytelny"
       ],
-      "konczy_sie": "wpis"
+      "konczy_sie": "wpis",
+      "tylko_odczyt": false,
+      "mcp": true
     },
     {
       "id": "attach",
@@ -109,7 +119,9 @@
       "skille": [
         "oddawanie-pracy"
       ],
-      "konczy_sie": "wpis"
+      "konczy_sie": "wpis",
+      "tylko_odczyt": false,
+      "mcp": true
     },
     {
       "id": "publish",
@@ -126,7 +138,9 @@
       "skille": [
         "oddawanie-pracy"
       ],
-      "konczy_sie": "wpis"
+      "konczy_sie": "wpis",
+      "tylko_odczyt": false,
+      "mcp": true
     },
     {
       "id": "inbox",
@@ -141,7 +155,9 @@
       "skille": [
         "praca-w-sf"
       ],
-      "konczy_sie": "nic"
+      "konczy_sie": "nic",
+      "tylko_odczyt": false,
+      "mcp": true
     },
     {
       "id": "tasks",
@@ -158,7 +174,9 @@
       "skille": [
         "praca-w-sf"
       ],
-      "konczy_sie": "nic"
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
     },
     {
       "id": "block",
@@ -175,7 +193,9 @@
       "skille": [
         "wpis-czytelny"
       ],
-      "konczy_sie": "nic"
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
     },
     {
       "id": "timeline",
@@ -192,7 +212,9 @@
       "skille": [
         "praca-w-sf"
       ],
-      "konczy_sie": "nic"
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
     },
     {
       "id": "status",
@@ -207,7 +229,9 @@
       "skille": [
         "praca-w-sf"
       ],
-      "konczy_sie": "nic"
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
     },
     {
       "id": "update",
@@ -222,7 +246,9 @@
       },
       "argumenty": "[--check]",
       "skille": [],
-      "konczy_sie": "nic"
+      "konczy_sie": "nic",
+      "tylko_odczyt": false,
+      "mcp": false
     }
   ],
   "skille": [

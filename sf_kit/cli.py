@@ -128,6 +128,12 @@ def _gemini_zainstaluj() -> int:
     return 0 if ok else 1
 
 
+def polecenie_mcp(args) -> int:
+    """`sf-kit mcp` — serwer MCP (stdio) dla asystentów; uruchamia go klient MCP, nie człowiek (SF-203)."""
+    from . import mcp_serwer
+    return mcp_serwer.petla()
+
+
 def polecenie_gemini(args) -> int:
     """`sf-kit gemini` — rozszerzenie SF Kita dla Gemini CLI: stan, instalacja, odświeżenie (SF-203)."""
     from . import gemini_pakiet
@@ -2672,6 +2678,8 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                      help="zainstaluj pakiet dla Kimi Code (sekcja w ~/.kimi-code/AGENTS.md + skille w ~/.kimi-code/skills)")
     ini.add_argument("--gemini", action="store_true",
                      help="zainstaluj rozszerzenie dla Gemini CLI (~/.gemini/extensions/sf-kit)")
+    pod.add_parser("mcp", help="serwer MCP (stdio) — uruchamia go Claude Code/Codex, nie człowiek"
+                   ).set_defaults(funkcja=polecenie_mcp)
     gm = pod.add_parser("gemini", help="rozszerzenie Gemini CLI: stan, --zainstaluj, --odswiez")
     gmg = gm.add_mutually_exclusive_group()
     gmg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --gemini`")
@@ -3059,7 +3067,7 @@ def _wykonaj(parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
     # wyniku na stdout. `init` nie ma jeszcze klucza, `update` mówi o wersjach sam —
     # dla reszty każdy błąd po drodze (brak sieci, brak configu) kończy się ciszą:
     # informacja o nowym wydaniu nie ma prawa zatrzymać pracy.
-    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin", "codex", "kimi", "gemini"):
+    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin", "codex", "kimi", "gemini", "mcp"):
         try:
             konf = konfiguracja.wczytaj_jesli_jest()
             kl = magazyn_klucza.wczytaj()

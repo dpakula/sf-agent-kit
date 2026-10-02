@@ -27,6 +27,7 @@ class Cel:
     start: str                               # znaczniki sekcji
     koniec: str
     podpowiedz: str                          # ostatnia linia raportu: jak użyć w narzędziu
+    po_instalacji: Callable[[], list[str]] | None = None   # np. rejestracja serwera MCP (SF-203)
 
 
 def _nasz(katalog: Path) -> bool:
@@ -81,6 +82,8 @@ def zainstaluj(cel: Cel) -> tuple[bool, list[str]]:
                   + (f", usunięte nieaktualne: {', '.join(usuniete)}" if usuniete else ""))
     if pominiete:
         raport.append(f"POMINIĘTE (cudze katalogi o tej samej nazwie): {', '.join(pominiete)}")
+    if cel.po_instalacji:
+        raport.extend(cel.po_instalacji())
     raport.append(cel.podpowiedz)
     return not pominiete, raport
 

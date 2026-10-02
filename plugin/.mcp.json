@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "sf-kit": {
+      "command": "sf-kit",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}
