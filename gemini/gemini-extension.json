@@ -2,5 +2,13 @@
   "name": "sf-kit",
   "version": "0.16.0",
   "description": "SalesForge z poziomu asystenta: sprawy, wpisy, zgłoszenia, załączniki, bloki — przez SF Kit",
-  "contextFileName": "GEMINI.md"
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "sf-kit": {
+      "command": "sf-kit",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
 }

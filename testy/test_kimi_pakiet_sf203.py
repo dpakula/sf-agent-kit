@@ -63,6 +63,21 @@ class TestInstalatorKimi(unittest.TestCase):
                 self.assertTrue(kimi_pakiet.zainstalowany())
                 self.assertTrue(kimi_pakiet.odswiez())
 
+    def test_mcp_json_cudze_serwery_zostaja_wpis_raz(self):
+        import json
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict("os.environ", {"KIMI_CODE_HOME": d}):
+            plik = Path(d) / "mcp.json"
+            plik.write_text(json.dumps({"mcpServers": {"inny": {"command": "x"}}}), encoding="utf-8")
+            kimi_pakiet.zarejestruj_mcp()
+            raport = kimi_pakiet.zarejestruj_mcp()
+            dane = json.loads(plik.read_text(encoding="utf-8"))
+            self.assertEqual(dane["mcpServers"]["inny"], {"command": "x"})
+            self.assertEqual(dane["mcpServers"]["sf-kit"], {"command": "sf-kit", "args": ["mcp"]})
+            self.assertIn("już ma", raport[0])
+            plik.write_text("{ zepsuty", encoding="utf-8")
+            self.assertIn("NIE zmieniam", kimi_pakiet.zarejestruj_mcp()[0])
+            self.assertEqual(plik.read_text(encoding="utf-8"), "{ zepsuty")
+
     def test_stary_katalog_kimi_cli_nietkniety(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(Path, "home", return_value=Path(d)), \
                 mock.patch.dict("os.environ", {}, clear=False):

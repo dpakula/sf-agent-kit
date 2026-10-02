@@ -34,6 +34,7 @@ class TestGeneratorGemini(unittest.TestCase):
     def test_manifest_rozszerzenia(self):
         dane = json.loads(self.pliki[Path("gemini/gemini-extension.json")])
         self.assertEqual(dane, {**dane, "name": "sf-kit", "version": WERSJA, "contextFileName": "GEMINI.md"})
+        self.assertEqual(dane["mcpServers"], {"sf-kit": {"command": "sf-kit", "args": ["mcp"]}})
 
     @unittest.skipIf(tomllib is None, "tomllib dopiero od Pythona 3.11")
     def test_komendy_toml_poprawne_z_args(self):

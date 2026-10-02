@@ -370,7 +370,9 @@ def generuj_gemini(manifest: dict, wersja: str, korzen: Path = KORZEN, *, role=R
     """Rozszerzenie Gemini CLI: manifest, GEMINI.md (kontekst), komendy TOML `/sf:…`, skille wiedzy."""
     p = manifest["plugin"]
     rozszerzenie = {"name": p["name"], "version": wersja, "description": p["description"],
-                    "contextFileName": "GEMINI.md"}
+                    "contextFileName": "GEMINI.md",
+                    # SF-203: serwer MCP Kita z rozszerzeniem (dokumentacja: `mcpServers` w manifeście).
+                    "mcpServers": MCP_SERWER["mcpServers"]}
     kontekst = agents_md_codex(manifest, wersja)
     kontekst = kontekst.replace("| skill (Codex) |", "| komenda (Gemini) |")
     # Osobny plik kontekstu rozszerzenia, nie sekcja w cudzym pliku — znaczniki sekcji tu tylko mylą.
