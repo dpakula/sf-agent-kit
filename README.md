@@ -2195,6 +2195,8 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 
 **Kimi Code:** `sf-kit init --kimi` dopisuje sekcję SF Kita do `~/.kimi-code/AGENTS.md` (albo `$KIMI_CODE_HOME/AGENTS.md`; reszta pliku zostaje) i kładzie skille do `~/.kimi-code/skills/` (`/skill:sf-zglos`, `/skill:sf-wpis`, …; komendy wywołujesz Ty, skille wiedzy Kimi dobiera sam). Stan: `sf-kit kimi`; `sf-kit update` odświeża pakiet. Katalog `~/.kimi` należy do starego `kimi-cli` — Kit go nie rusza.
 
+**Gemini CLI:** `sf-kit init --gemini` kopiuje rozszerzenie `sf-kit` do `~/.gemini/extensions/sf-kit/` (komendy `/sf:zglos`, `/sf:sprawy`, …, kontekst Kita i skille wiedzy). Twojego `~/.gemini/GEMINI.md` Kit nie rusza. Stan: `sf-kit gemini`; `sf-kit update` odświeża rozszerzenie.
+
 <!-- sf-kit:polecenia:start — tabelę generuje `python3 -m sf_kit.pakiet --zapisz` -->
 
 | w Claude Code | po polsku | w terminalu | co robi |

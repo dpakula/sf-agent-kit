@@ -1,5 +1,6 @@
 """Pakiet SF Kita dla asystentów — generator z JEDNEGO manifestu (SF-201, Kit 0.16.0).
 
+v1.3.0 (02.10.2026) - APro Agents / borys-sf · pakiet GEMINI CLI jako rozszerzenie (SF-203)
 v1.2.0 (02.10.2026) - APro Agents / borys-sf · pakiet KIMI CODE z tego samego manifestu (SF-203, Agata 14:12)
 v1.1.0 (02.10.2026) - APro Agents / borys-sf · pakiet CODEX z tego samego manifestu (SF-203, Agata 14:00)
 v1.0.0 (02.10.2026) - APro Agents / borys-sf · projekt: wpis 33cda66a na SF-201; GO Damiana 02.10 (SF-203)
@@ -43,6 +44,16 @@ KIMI CODE (`@moonshot-ai/kimi-code`; dokumentacja moonshotai.github.io/kimi-code
 - Osobnych komend poza pluginami Kimi nie ma — komendy idą jako skille, jak w Codexie.
 - Binarki Kimi NIE uruchamiamy do sprawdzania formatu (decyzja Agaty 02.10: presja pamięci na b5c3).
 
+GEMINI CLI (dokumentacja google-gemini/gemini-cli docs/: extensions/reference, cli/custom-commands,
+cli/skills — czytane 02.10)
+═══════════════════════════════════════════════════════════════════════════════════
+- Pakiet = ROZSZERZENIE `gemini/` (odpowiednik pluginu Claude): `gemini-extension.json` (name = nazwa
+  katalogu), `GEMINI.md` jako `contextFileName` — globalnego GEMINI.md użytkownika nie ruszamy.
+- Komendy: `commands/sf/<nazwa>.toml` (`prompt`, `description`) → `/sf:<nazwa>`; podkatalog daje
+  przestrzeń nazw, więc nie kolidujemy z komendami użytkownika. `{{args}}` = argumenty. Dokumentacja
+  opisuje komendy jako wywoływane przez użytkownika.
+- Skille wiedzy: `skills/<nazwa>/SKILL.md` (rozszerzenie może je nieść; Gemini aktywuje je za zgodą).
+
 Uruchomienie: `python3 -m sf_kit.pakiet --sprawdz` (CI/test) albo `--zapisz` (po zmianie manifestu).
 """
 from __future__ import annotations
@@ -77,6 +88,7 @@ CODEX_MAKS_BAJTOW = 8 * 1024
 KATALOG_KIMI = Path("kimi")
 KIMI_START = "<!-- sf-kit:kimi:start — sekcję zapisuje `sf-kit init --kimi`; zmiany w niej nadpisze -->"
 KIMI_KONIEC = "<!-- sf-kit:kimi:end -->"
+KATALOG_GEMINI = Path("gemini")
 
 ZAMKNIECIE = {
     "wpis": "Zamknij pracę WPISEM w sprawie według skilla `wpis-czytelny` i podaj człowiekowi link "
@@ -330,6 +342,57 @@ def generuj_kimi(manifest: dict, wersja: str, korzen: Path = KORZEN, *, role=ROL
     return pliki
 
 
+# ── Gemini CLI (rozszerzenie) ──────────────────────────────────────────────────────────────
+
+def _toml_napis(tekst: str) -> str:
+    """Podstawowy napis TOML: JSON-owe ucieczki są jego podzbiorem (\\n, \\", \\\\); polskie znaki wprost."""
+    return json.dumps(tekst, ensure_ascii=False)
+
+
+def _geminiuj(tekst: str, manifest: dict) -> str:
+    tekst = tekst.replace("/sf-kit:", "/sf:").replace(" $ARGUMENTS`", " {{args}}`")
+    for s in manifest["skille"]:
+        tekst = tekst.replace(f"`{s['id']}`", f"`{nazwa_codex(s['id'])}`")
+    return tekst
+
+
+def generuj_gemini(manifest: dict, wersja: str, korzen: Path = KORZEN, *, role=ROLE) -> dict[Path, str]:
+    """Rozszerzenie Gemini CLI: manifest, GEMINI.md (kontekst), komendy TOML `/sf:…`, skille wiedzy."""
+    p = manifest["plugin"]
+    rozszerzenie = {"name": p["name"], "version": wersja, "description": p["description"],
+                    "contextFileName": "GEMINI.md"}
+    kontekst = agents_md_codex(manifest, wersja)
+    kontekst = kontekst.replace("| skill (Codex) |", "| komenda (Gemini) |")
+    # Osobny plik kontekstu rozszerzenia, nie sekcja w cudzym pliku — znaczniki sekcji tu tylko mylą.
+    kontekst = kontekst.replace(CODEX_START + "\n", "").replace("\n" + CODEX_KONIEC, "")
+    kontekst = re.sub(r"`\$(sf-[a-z0-9-]+)`", lambda m: (
+        f"`{m.group(1)}`" if any(m.group(1) == nazwa_codex(s["id"]) for s in manifest["skille"])
+        else f"`/sf:{m.group(1)[3:]}`"), kontekst)
+    pliki: dict[Path, str] = {
+        KATALOG_GEMINI / "gemini-extension.json": json.dumps(rozszerzenie, ensure_ascii=False, indent=2) + "\n",
+        KATALOG_GEMINI / "GEMINI.md": kontekst,
+    }
+    for k in manifest["komendy"]:
+        if k["rola"] not in role:
+            continue
+        for nazwa in [k["id"], *k.get("aliasy", [])]:
+            tresc = _geminiuj(_komenda(k, nazwa, wersja), manifest)
+            naglowek, cialo = tresc.split("---\n", 2)[1], tresc.split("---\n", 2)[2]
+            opis = next(json.loads(l.split(":", 1)[1]) for l in naglowek.splitlines() if l.startswith("description:"))
+            if k.get("argumenty"):
+                opis += f" — {k['argumenty']}"
+            pliki[KATALOG_GEMINI / "commands" / "sf" / f"{nazwa}.toml"] = (
+                f"# {NAGLOWEK.format(wersja=wersja)[5:-4]}\n"
+                f"description = {_toml_napis(opis)}\n"
+                f"prompt = {_toml_napis(cialo.split(chr(10), 2)[2] if cialo.startswith('<!--') else cialo)}\n")
+    for s in manifest["skille"]:
+        if s["rola"] not in role:
+            continue
+        n = nazwa_codex(s["id"])
+        pliki[KATALOG_GEMINI / "skills" / n / "SKILL.md"] = _geminiuj(_skill({**s, "id": n}, korzen, wersja), manifest)
+    return pliki
+
+
 def tabela_readme(manifest: dict) -> str:
     wiersze = [README_START, "",
                "| w Claude Code | po polsku | w terminalu | co robi |", "|---|---|---|---|"]
@@ -355,14 +418,14 @@ def roznice(korzen: Path = KORZEN) -> list[str]:
     manifest = wczytaj(korzen)
     wynik = []
     oczekiwane = {**generuj(manifest, WERSJA, korzen), **generuj_codex(manifest, WERSJA, korzen),
-                  **generuj_kimi(manifest, WERSJA, korzen)}
+                  **generuj_kimi(manifest, WERSJA, korzen), **generuj_gemini(manifest, WERSJA, korzen)}
     for sciezka, tresc in oczekiwane.items():
         plik = korzen / sciezka
         if not plik.is_file():
             wynik.append(f"brak {sciezka}")
         elif plik.read_text(encoding="utf-8") != tresc:
             wynik.append(f"różni się {sciezka}")
-    for katalog in (KATALOG_PLUGINU, KATALOG_CODEX, KATALOG_KIMI):
+    for katalog in (KATALOG_PLUGINU, KATALOG_CODEX, KATALOG_KIMI, KATALOG_GEMINI):
         for plik in (korzen / katalog).rglob("*") if (korzen / katalog).exists() else []:
             if plik.is_file() and plik.relative_to(korzen) not in oczekiwane:
                 wynik.append(f"nadmiarowy {plik.relative_to(korzen)} (nie ma go w manifeście)")
@@ -376,8 +439,8 @@ def zapisz(korzen: Path = KORZEN) -> list[Path]:
     from . import WERSJA
     manifest = wczytaj(korzen)
     oczekiwane = {**generuj(manifest, WERSJA, korzen), **generuj_codex(manifest, WERSJA, korzen),
-                  **generuj_kimi(manifest, WERSJA, korzen)}
-    for kat in (KATALOG_PLUGINU, KATALOG_CODEX, KATALOG_KIMI):
+                  **generuj_kimi(manifest, WERSJA, korzen), **generuj_gemini(manifest, WERSJA, korzen)}
+    for kat in (KATALOG_PLUGINU, KATALOG_CODEX, KATALOG_KIMI, KATALOG_GEMINI):
         katalog = korzen / kat
         if katalog.exists():
             for plik in sorted(katalog.rglob("*"), reverse=True):

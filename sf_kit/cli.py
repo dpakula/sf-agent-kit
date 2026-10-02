@@ -104,7 +104,8 @@ def polecenie_init(args) -> int:
 
     pakiety = [f for f, wl in ((_plugin_zainstaluj, getattr(args, "claude", False)),
                                (_codex_zainstaluj, getattr(args, "codex", False)),
-                               (_kimi_zainstaluj, getattr(args, "kimi", False))) if wl]
+                               (_kimi_zainstaluj, getattr(args, "kimi", False)),
+                               (_gemini_zainstaluj, getattr(args, "gemini", False))) if wl]
     if not (pakiety and magazyn_klucza.wczytaj()):
         # Kit już skonfigurowany + `--claude`/`--codex` = tylko pakiety, bez ekranu agentów (SF-201/203).
         kod = onboarding.polecenie(args, ochrona=_wlacz_ochrone_repozytorium, jak_wolac=_jak_wolac)
@@ -118,6 +119,28 @@ def _codex_zainstaluj() -> int:
     ok, raport = codex_pakiet.zainstaluj()
     print("\nPakiet Codex (sf-kit):\n  " + "\n  ".join(raport))
     return 0 if ok else 1
+
+
+def _gemini_zainstaluj() -> int:
+    from . import gemini_pakiet
+    ok, raport = gemini_pakiet.zainstaluj()
+    print("\nRozszerzenie Gemini CLI (sf-kit):\n  " + "\n  ".join(raport))
+    return 0 if ok else 1
+
+
+def polecenie_gemini(args) -> int:
+    """`sf-kit gemini` — rozszerzenie SF Kita dla Gemini CLI: stan, instalacja, odświeżenie (SF-203)."""
+    from . import gemini_pakiet
+    if getattr(args, "zainstaluj", False):
+        return _gemini_zainstaluj()
+    if getattr(args, "odswiez", False):
+        raport = gemini_pakiet.odswiez()
+        print("\n".join(raport) if raport else "Rozszerzenie Gemini nie jest zainstalowane — nic do odświeżenia "
+              "(instalacja: `sf-kit init --gemini`).")
+        return 0
+    print(f"rozszerzenie Gemini: {'zainstalowane' if gemini_pakiet.zainstalowany() else 'NIE zainstalowane — `sf-kit init --gemini`'}"
+          f" ({gemini_pakiet.katalog_rozszerzenia()})")
+    return 0
 
 
 def _kimi_zainstaluj() -> int:
@@ -345,7 +368,7 @@ def polecenie_update(args) -> int:
 
     # SF-201: plugin Claude Code nadąża za Kitem — odświeżamy go NOWYM kodem (stary proces
     # mógł nie znać `sf-kit plugin`). Niezainstalowany plugin = cisza.
-    for pakiet_cli in ("plugin", "codex", "kimi"):
+    for pakiet_cli in ("plugin", "codex", "kimi", "gemini"):
         plug = subprocess.run([sys.executable, str(skrypt), pakiet_cli, "--odswiez"],
                               capture_output=True, text=True, encoding="utf-8", errors="replace")
         if plug.returncode == 0 and "nie jest zainstalowany" not in plug.stdout:
@@ -2647,6 +2670,13 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     ini.set_defaults(funkcja=polecenie_init)
     ini.add_argument("--kimi", action="store_true",
                      help="zainstaluj pakiet dla Kimi Code (sekcja w ~/.kimi-code/AGENTS.md + skille w ~/.kimi-code/skills)")
+    ini.add_argument("--gemini", action="store_true",
+                     help="zainstaluj rozszerzenie dla Gemini CLI (~/.gemini/extensions/sf-kit)")
+    gm = pod.add_parser("gemini", help="rozszerzenie Gemini CLI: stan, --zainstaluj, --odswiez")
+    gmg = gm.add_mutually_exclusive_group()
+    gmg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --gemini`")
+    gmg.add_argument("--odswiez", action="store_true", help="odśwież zainstalowane rozszerzenie (robi to też `update`)")
+    gm.set_defaults(funkcja=polecenie_gemini)
     km = pod.add_parser("kimi", help="pakiet Kimi Code: stan, --zainstaluj, --odswiez")
     kmg = km.add_mutually_exclusive_group()
     kmg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --kimi`")
@@ -3029,7 +3059,7 @@ def _wykonaj(parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
     # wyniku na stdout. `init` nie ma jeszcze klucza, `update` mówi o wersjach sam —
     # dla reszty każdy błąd po drodze (brak sieci, brak configu) kończy się ciszą:
     # informacja o nowym wydaniu nie ma prawa zatrzymać pracy.
-    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin", "codex", "kimi"):
+    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin", "codex", "kimi", "gemini"):
         try:
             konf = konfiguracja.wczytaj_jesli_jest()
             kl = magazyn_klucza.wczytaj()
