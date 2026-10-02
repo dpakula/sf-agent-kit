@@ -1,5 +1,6 @@
 """`sf-kit ustawienia` — ustawienia lokalne Kita i ustawienia konta w SF w jednym poleceniu (SF-173).
 
+v1.1.0 (02.10.2026) - APro Agents / borys-sf · SF-170: `pracuje_dla` = e-mail sprawdzany w SF
 v1.0.0 (02.10.2026) - APro Agents / borys-sf · projekt: wpis 7fde1fad na SF-173
 
 PO CO
@@ -19,7 +20,7 @@ Przy każdym zdarzeniu Kit pokazuje, SKĄD wzięła się wartość (`preferencja
 
 CUDZE USTAWIENIA
 ════════════════
-`--czlowiek` (konto z `pracuje_dla`) albo `--osoba <id konta>`. SF wpuszcza tylko za ZGODĄ tej
+`--czlowiek` (człowiek z `pracuje_dla`) albo `--osoba <id konta>`. SF wpuszcza tylko za ZGODĄ tej
 osoby (przełącznik w jej profilu) albo admina Organizacji; odmowę tłumaczymy po polsku, a osoba
 dostaje od SF zawiadomienie o każdej zmianie, której nie zrobiła sama.
 """
@@ -37,7 +38,7 @@ KLUCZ_POZIOMU = "powiadomienia.poziom"
 LOKALNE = {
     "organizacja": "domyślna Organizacja (slug)",
     "auto_update": "off | patch — samoczynne poprawki u workera",
-    "pracuje_dla": "id konta człowieka, dla którego pracuje asystent (SF-170)",
+    "pracuje_dla": "e-mail człowieka, dla którego pracuje asystent (SF-170; sprawdzany w SF)",
 }
 AUTO_UPDATE = ("off", "patch")
 
