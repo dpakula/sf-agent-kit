@@ -86,6 +86,10 @@ class Konfiguracja:
     #: i zostawia worker martwym do ręcznego wstawienia (krytyka z ADVERTPR-960).
     auto_update: str = "off"
 
+    #: Konto człowieka, dla którego pracuje ten asystent (SF-170). Dziś wpisywane ręcznie
+    #: (`sf-kit ustawienia pracuje_dla <id konta>`); `sf-kit ustawienia --czlowiek` czyta stąd.
+    pracuje_dla: str | None = None
+
     def braki(self) -> list[str]:
         """Czego brakuje, żeby worker mógł ruszyć. Pusta lista = wszystko jest.
 
