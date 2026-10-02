@@ -102,13 +102,36 @@ def polecenie_init(args) -> int:
     """
     from . import onboarding
 
-    if getattr(args, "claude", False) and magazyn_klucza.wczytaj():
-        # SF-201: Kit już skonfigurowany — `--claude` dokłada tylko plugin, bez ekranu agentów.
-        return _plugin_zainstaluj()
-    kod = onboarding.polecenie(args, ochrona=_wlacz_ochrone_repozytorium, jak_wolac=_jak_wolac)
-    if kod == 0 and getattr(args, "claude", False):
-        return _plugin_zainstaluj()
-    return kod
+    pakiety = [f for f, wl in ((_plugin_zainstaluj, getattr(args, "claude", False)),
+                               (_codex_zainstaluj, getattr(args, "codex", False))) if wl]
+    if not (pakiety and magazyn_klucza.wczytaj()):
+        # Kit już skonfigurowany + `--claude`/`--codex` = tylko pakiety, bez ekranu agentów (SF-201/203).
+        kod = onboarding.polecenie(args, ochrona=_wlacz_ochrone_repozytorium, jak_wolac=_jak_wolac)
+        if kod != 0:
+            return kod
+    return max([f() for f in pakiety], default=0)
+
+
+def _codex_zainstaluj() -> int:
+    from . import codex_pakiet
+    ok, raport = codex_pakiet.zainstaluj()
+    print("\nPakiet Codex (sf-kit):\n  " + "\n  ".join(raport))
+    return 0 if ok else 1
+
+
+def polecenie_codex(args) -> int:
+    """`sf-kit codex` — pakiet SF Kita dla Codex CLI: stan, instalacja, odświeżenie (SF-203)."""
+    from . import codex_pakiet
+    if getattr(args, "zainstaluj", False):
+        return _codex_zainstaluj()
+    if getattr(args, "odswiez", False):
+        raport = codex_pakiet.odswiez()
+        print("\n".join(raport) if raport else "Pakiet Codex nie jest zainstalowany — nic do odświeżenia "
+              "(instalacja: `sf-kit init --codex`).")
+        return 0
+    print(f"pakiet Codex: {'zainstalowany' if codex_pakiet.zainstalowany() else 'NIE zainstalowany — `sf-kit init --codex`'}"
+          f" ({codex_pakiet.plik_instrukcji()}, {codex_pakiet.katalog_skilli()})")
+    return 0
 
 
 def _plugin_zainstaluj() -> int:
@@ -299,10 +322,11 @@ def polecenie_update(args) -> int:
 
     # SF-201: plugin Claude Code nadąża za Kitem — odświeżamy go NOWYM kodem (stary proces
     # mógł nie znać `sf-kit plugin`). Niezainstalowany plugin = cisza.
-    plug = subprocess.run([sys.executable, str(skrypt), "plugin", "--odswiez"],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if plug.returncode == 0 and "nie jest zainstalowany" not in plug.stdout:
-        print(f"\n{plug.stdout.strip()}")
+    for pakiet_cli in ("plugin", "codex"):
+        plug = subprocess.run([sys.executable, str(skrypt), pakiet_cli, "--odswiez"],
+                              capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if plug.returncode == 0 and "nie jest zainstalowany" not in plug.stdout:
+            print(f"\n{plug.stdout.strip()}")
 
     print(f"\n{aktualizacje.restart_hint(konf)}")
     return 0
@@ -2595,7 +2619,14 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     ini = pod.add_parser("init", help="zapisz klucz i ustawienia; --claude = także plugin Claude Code")
     ini.add_argument("--claude", action="store_true",
                      help="zainstaluj plugin `sf-kit` w Claude Code (zakres użytkownika: każdy katalog)")
+    ini.add_argument("--codex", action="store_true",
+                     help="zainstaluj pakiet dla Codex CLI (sekcja w ~/.codex/AGENTS.md + skille w ~/.agents/skills)")
     ini.set_defaults(funkcja=polecenie_init)
+    cx = pod.add_parser("codex", help="pakiet Codex CLI: stan, --zainstaluj, --odswiez")
+    cxg = cx.add_mutually_exclusive_group()
+    cxg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --codex`")
+    cxg.add_argument("--odswiez", action="store_true", help="odśwież zainstalowany pakiet (robi to też `update`)")
+    cx.set_defaults(funkcja=polecenie_codex)
     pl = pod.add_parser("plugin", help="plugin Claude Code `sf-kit`: stan, --zainstaluj, --odswiez")
     plg = pl.add_mutually_exclusive_group()
     plg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --claude`")
@@ -2968,7 +2999,7 @@ def _wykonaj(parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
     # wyniku na stdout. `init` nie ma jeszcze klucza, `update` mówi o wersjach sam —
     # dla reszty każdy błąd po drodze (brak sieci, brak configu) kończy się ciszą:
     # informacja o nowym wydaniu nie ma prawa zatrzymać pracy.
-    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin"):
+    if getattr(args, "polecenie", "") not in ("init", "update", "aktualizuj", "instaluj", "readme", "plugin", "codex"):
         try:
             konf = konfiguracja.wczytaj_jesli_jest()
             kl = magazyn_klucza.wczytaj()

@@ -1,5 +1,6 @@
 """Pakiet SF Kita dla asystentów — generator z JEDNEGO manifestu (SF-201, Kit 0.16.0).
 
+v1.1.0 (02.10.2026) - APro Agents / borys-sf · pakiet CODEX z tego samego manifestu (SF-203, Agata 14:00)
 v1.0.0 (02.10.2026) - APro Agents / borys-sf · projekt: wpis 33cda66a na SF-201; GO Damiana 02.10 (SF-203)
 
 PO CO
@@ -22,6 +23,16 @@ FORMAT (dokumentacja Claude Code „Plugins”, sprawdzone 02.10)
   pluginu, więc nazwy nie mogą się pokrywać (strażnik), a prefiks `sf-` byłby podwójny.
 - `plugin/skills/<nazwa>/SKILL.md` z `description` we frontmatter (po nim Claude dobiera skill).
 - Alias = osobny plik z TĄ SAMĄ wygenerowaną treścią (Claude Code nie ma aliasów komend).
+
+CODEX (dokumentacja Codex CLI, sprawdzone 02.10 — learn.chatgpt.com/docs: agents-md, build-skills,
+custom-prompts)
+══════════════════════════════════════════════════════════════════════════════════════
+- Własne prompty (`~/.codex/prompts`) są PRZESTARZAŁE — Codex każe używać skilli. Komendy idą więc
+  jako skille `sf-<nazwa>` (wywołanie `$sf-zglos`) z `agents/openai.yaml`
+  `policy.allow_implicit_invocation: false` — odpowiednik „model sam nie wywołuje” z Claude Code.
+- Skille wiedzy: `sf-<id>` (Codex nie ma przestrzeni nazw pluginu, prefiks jest konieczny).
+- `codex/AGENTS.md` — sekcja Kita do globalnego `AGENTS.md` (CODEX_HOME): tabela komend z aliasami.
+  Codex łączy pliki AGENTS.md do 32 KiB — strażnik pilnuje, żeby nasza sekcja była mała.
 
 Uruchomienie: `python3 -m sf_kit.pakiet --sprawdz` (CI/test) albo `--zapisz` (po zmianie manifestu).
 """
@@ -48,6 +59,12 @@ README_START = "<!-- sf-kit:polecenia:start — tabelę generuje `python3 -m sf_
 README_KONIEC = "<!-- sf-kit:polecenia:end -->"
 NAGLOWEK = "<!-- wygenerowano z pakiet/komendy.json przez sf-kit {wersja}; nie edytuj ręcznie -->"
 NARZEDZIA = "Bash(sf-kit:*), PowerShell(sf-kit *)"
+KATALOG_CODEX = Path("codex")
+CODEX_START = "<!-- sf-kit:codex:start — sekcję zapisuje `sf-kit init --codex`; zmiany w niej nadpisze -->"
+CODEX_KONIEC = "<!-- sf-kit:codex:end -->"
+#: Nasza część globalnego AGENTS.md. Codex łączy WSZYSTKIE pliki AGENTS.md do 32 KiB (domyślnie);
+#: sekcja Kita nie może zjeść tego budżetu cudzym instrukcjom.
+CODEX_MAKS_BAJTOW = 8 * 1024
 
 ZAMKNIECIE = {
     "wpis": "Zamknij pracę WPISEM w sprawie według skilla `wpis-czytelny` i podaj człowiekowi link "
@@ -104,6 +121,11 @@ def waliduj(manifest: dict, podkomendy: set[str], korzen: Path = KORZEN) -> list
         for sk in k.get("skille", []):
             if sk not in skille:
                 bledy.append(f"komenda {kid}: skill „{sk}” nie istnieje w manifeście")
+    if not bledy:
+        rozmiar = len(agents_md_codex(manifest, "0.0.0").encode("utf-8"))
+        if rozmiar > CODEX_MAKS_BAJTOW:
+            bledy.append(f"Codex: sekcja AGENTS.md ma {rozmiar} B > {CODEX_MAKS_BAJTOW} B "
+                         "(Codex łączy wszystkie AGENTS.md do 32 KiB)")
     return bledy
 
 
@@ -181,6 +203,77 @@ def generuj(manifest: dict, wersja: str, korzen: Path = KORZEN, *, role=ROLE) ->
     return pliki
 
 
+# ── Codex ──────────────────────────────────────────────────────────────────────────────────
+
+def nazwa_codex(nazwa: str) -> str:
+    return f"sf-{nazwa}"
+
+
+def _codexuj(tekst: str, manifest: dict) -> str:
+    """Treść z pakietu Claude → Codex: nazwy skilli z prefiksem, odwołania `/sf-kit:x` → `$sf-x`,
+    bez `$ARGUMENTS` (to podstawienie promptów; skill dostaje prośbę człowieka, nie argumenty)."""
+    tekst = tekst.replace("/sf-kit:", "$sf-").replace(" $ARGUMENTS`", " …` (argumenty z prośby człowieka)")
+    for s in manifest["skille"]:
+        tekst = tekst.replace(f"`{s['id']}`", f"`{nazwa_codex(s['id'])}`")
+    return tekst
+
+
+def _openai_yaml_komendy() -> str:
+    return ("# wygenerowano z pakiet/komendy.json — komendę uruchamia człowiek ($nazwa), model sam jej nie wywołuje\n"
+            "policy:\n  allow_implicit_invocation: false\n")
+
+
+def agents_md_codex(manifest: dict, wersja: str) -> str:
+    """Sekcja Kita do globalnego AGENTS.md Codexa — mała, bo Codex ma wspólny limit 32 KiB."""
+    wiersze = [CODEX_START, NAGLOWEK.format(wersja=wersja), "",
+               "## SalesForge przez SF Kit",
+               "Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nigdy surowym `curl` "
+               "z kluczem. Uprawnienia ma klucz; odmowę (403) przekaż człowiekowi, nie obchodź jej.",
+               "",
+               "- `sf-kit odpowiedz` domyślnie pisze DO KLIENTA; notatka zespołu: `--wewn`. `sf-kit wpis` domyślnie wewnętrzny.",
+               "- Wzmianka działa tylko pełnym adresem: `@anna@firma.pl`.",
+               "- Praca jest oddana, gdy jest w SF (wpis/sprawa) — nie zgłaszaj sukcesu, którego nie widać w SF.",
+               f"- Zasady pracy: skille {', '.join(f'`${nazwa_codex(s['id'])}`' for s in manifest['skille'])}.",
+               "",
+               "| skill (Codex) | po polsku | w terminalu | co robi |", "|---|---|---|---|"]
+    for k in manifest["komendy"]:
+        if k["rola"] != "wszyscy":
+            continue
+        pl = ", ".join(f"`${nazwa_codex(a)}`" for a in k.get("aliasy", [])) or "—"
+        wiersze.append(f"| `${nazwa_codex(k['id'])}` | {pl} | `sf-kit {k['cli']}` | {k['opis']['pl']} |")
+    wiersze += ["", CODEX_KONIEC]
+    return "\n".join(wiersze) + "\n"
+
+
+def generuj_codex(manifest: dict, wersja: str, korzen: Path = KORZEN, *, role=ROLE) -> dict[Path, str]:
+    """Pakiet Codex: sekcja AGENTS.md + skille (komendy z wyłączonym wywołaniem przez model, wiedza)."""
+    pliki: dict[Path, str] = {KATALOG_CODEX / "AGENTS.md": agents_md_codex(manifest, wersja)}
+    for k in manifest["komendy"]:
+        if k["rola"] not in role:
+            continue
+        for nazwa in [k["id"], *k.get("aliasy", [])]:
+            n = nazwa_codex(nazwa)
+            tresc = _codexuj(_komenda(k, nazwa, wersja), manifest)
+            naglowek, cialo = tresc.split("---\n", 2)[1], tresc.split("---\n", 2)[2]
+            pola = {"name": n}
+            for linia in naglowek.splitlines():
+                klucz = linia.split(":", 1)[0]
+                if klucz == "description":
+                    pola["description"] = json.loads(linia.split(":", 1)[1])
+            if k.get("argumenty"):
+                cialo = cialo.replace("(argumenty z prośby człowieka)",
+                                      f"(argumenty z prośby człowieka; składnia: `{k['argumenty']}`)")
+            pliki[KATALOG_CODEX / "skills" / n / "SKILL.md"] = _frontmatter(pola) + "\n" + cialo
+            pliki[KATALOG_CODEX / "skills" / n / "agents" / "openai.yaml"] = _openai_yaml_komendy()
+    for s in manifest["skille"]:
+        if s["rola"] not in role:
+            continue
+        n = nazwa_codex(s["id"])
+        tresc = _codexuj(_skill({**s, "id": n}, korzen, wersja), manifest)
+        pliki[KATALOG_CODEX / "skills" / n / "SKILL.md"] = tresc
+    return pliki
+
+
 def tabela_readme(manifest: dict) -> str:
     wiersze = [README_START, "",
                "| w Claude Code | po polsku | w terminalu | co robi |", "|---|---|---|---|"]
@@ -205,16 +298,17 @@ def roznice(korzen: Path = KORZEN) -> list[str]:
     from . import WERSJA
     manifest = wczytaj(korzen)
     wynik = []
-    oczekiwane = generuj(manifest, WERSJA, korzen)
+    oczekiwane = {**generuj(manifest, WERSJA, korzen), **generuj_codex(manifest, WERSJA, korzen)}
     for sciezka, tresc in oczekiwane.items():
         plik = korzen / sciezka
         if not plik.is_file():
             wynik.append(f"brak {sciezka}")
         elif plik.read_text(encoding="utf-8") != tresc:
             wynik.append(f"różni się {sciezka}")
-    for plik in (korzen / KATALOG_PLUGINU).rglob("*") if (korzen / KATALOG_PLUGINU).exists() else []:
-        if plik.is_file() and plik.relative_to(korzen) not in oczekiwane:
-            wynik.append(f"nadmiarowy {plik.relative_to(korzen)} (nie ma go w manifeście)")
+    for katalog in (KATALOG_PLUGINU, KATALOG_CODEX):
+        for plik in (korzen / katalog).rglob("*") if (korzen / katalog).exists() else []:
+            if plik.is_file() and plik.relative_to(korzen) not in oczekiwane:
+                wynik.append(f"nadmiarowy {plik.relative_to(korzen)} (nie ma go w manifeście)")
     readme = (korzen / "README.md").read_text(encoding="utf-8")
     if wstaw_do_readme(readme, tabela_readme(manifest)) != readme:
         wynik.append("README: tabela poleceń nie zgadza się z manifestem")
@@ -224,12 +318,13 @@ def roznice(korzen: Path = KORZEN) -> list[str]:
 def zapisz(korzen: Path = KORZEN) -> list[Path]:
     from . import WERSJA
     manifest = wczytaj(korzen)
-    oczekiwane = generuj(manifest, WERSJA, korzen)
-    katalog = korzen / KATALOG_PLUGINU
-    if katalog.exists():
-        for plik in sorted(katalog.rglob("*"), reverse=True):
-            if plik.is_file() and plik.relative_to(korzen) not in oczekiwane:
-                plik.unlink()
+    oczekiwane = {**generuj(manifest, WERSJA, korzen), **generuj_codex(manifest, WERSJA, korzen)}
+    for kat in (KATALOG_PLUGINU, KATALOG_CODEX):
+        katalog = korzen / kat
+        if katalog.exists():
+            for plik in sorted(katalog.rglob("*"), reverse=True):
+                if plik.is_file() and plik.relative_to(korzen) not in oczekiwane:
+                    plik.unlink()
     for sciezka, tresc in oczekiwane.items():
         (korzen / sciezka).parent.mkdir(parents=True, exist_ok=True)
         (korzen / sciezka).write_text(tresc, encoding="utf-8")
