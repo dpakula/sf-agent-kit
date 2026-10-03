@@ -23,6 +23,7 @@ Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nig
 | `/skill:sf-block` | `/skill:sf-blok` | `sf-kit blok` | Pokaż blok (decyzja, dyspozycja, raport) albo katalog rodzajów: typy |
 | `/skill:sf-timeline` | `/skill:sf-os` | `sf-kit os` | Oś czasu sprawy |
 | `/skill:sf-status` | — | `sf-kit whoami` | Kim jestem w SF: konto, klucz, Organizacje, uprawnienia |
+| `/skill:sf-settings` | `/skill:sf-ustawienia` | `sf-kit ustawienia` | Ustawienia: lokalne i w SF (poziom powiadomień), ze źródłem wartości; --czlowiek dla asystenta |
 | `/skill:sf-update` | `/skill:sf-aktualizuj` | `sf-kit update` | Zaktualizuj Kita do wydania wskazanego przez SF |
 
 <!-- sf-kit:kimi:end -->

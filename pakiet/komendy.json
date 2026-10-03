@@ -234,6 +234,25 @@
       "mcp": true
     },
     {
+      "id": "settings",
+      "aliasy": [
+        "ustawienia"
+      ],
+      "cli": "ustawienia",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Ustawienia: lokalne i w SF (poziom powiadomień), ze źródłem wartości; --czlowiek dla asystenta",
+        "en": "Settings: local and in SF (notification level), with value source"
+      },
+      "argumenty": "[klucz [wartość]] [--kanaly email,in_app,push] [--czlowiek | --osoba ID] [--historia]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic",
+      "tylko_odczyt": false,
+      "mcp": false
+    },
+    {
       "id": "update",
       "aliasy": [
         "aktualizuj"

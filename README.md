@@ -2217,6 +2217,7 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 | `/sf-kit:block` | `/sf-kit:blok` | `sf-kit blok` | Pokaż blok (decyzja, dyspozycja, raport) albo katalog rodzajów: typy |
 | `/sf-kit:timeline` | `/sf-kit:os` | `sf-kit os` | Oś czasu sprawy |
 | `/sf-kit:status` | — | `sf-kit whoami` | Kim jestem w SF: konto, klucz, Organizacje, uprawnienia |
+| `/sf-kit:settings` | `/sf-kit:ustawienia` | `sf-kit ustawienia` | Ustawienia: lokalne i w SF (poziom powiadomień), ze źródłem wartości; --czlowiek dla asystenta |
 | `/sf-kit:update` | `/sf-kit:aktualizuj` | `sf-kit update` | Zaktualizuj Kita do wydania wskazanego przez SF |
 
 <!-- sf-kit:polecenia:end -->
