@@ -1580,6 +1580,89 @@ def polecenie_obserwujacy(args) -> int:
     return 1 if nieudane else 0
 
 
+def _klient_i_sprawa(args, *, zapis: bool):
+    """Wspólne wejście komend relacji: Organizacja z linku, klient (zapis = jawna Organizacja), sprawa."""
+    konf = konfiguracja.wczytaj()
+    if flow.sprawa_z_linku(args.sprawa) and not getattr(args, "org", None):
+        args.org = flow.organizacja_z_linku(args.sprawa) or None
+    klient = _klient_dla_zapisu(konf, args)[0] if zapis else _klient(konf, args)
+    sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+    return klient, sprawa
+
+
+def _linia_relacji(r: dict) -> str:
+    if not r.get("widoczna"):
+        return "  (sprawa poza Twoim wglądem)"
+    s = r.get("sprawa") or {}
+    znak = "" if r.get("aktywna", True) else "  [odpięta]"
+    wz = "  ↔ wzajemna" if r.get("wzajemna") else ""
+    return f"  {s.get('numer') or s.get('id', '?')[:8]}  {s.get('tytul') or ''}  · {s.get('status') or ''}{wz}{znak}"
+
+
+def polecenie_relacje(args) -> int:
+    """`sf-kit relacje <sprawa> [--historia]` — co ta sprawa zawiera i czego jest częścią (SF-174)."""
+    try:
+        klient, sprawa = _klient_i_sprawa(args, zapis=False)
+        wynik = klient.relacje_sprawy(str(sprawa["id"]), historia=args.historia)
+    except (ValueError, BladAPI) as blad:
+        if getattr(blad, "kod", None) == 404 and "relacje" in str(getattr(blad, "szczegoly", "")).lower():
+            print("Ta wersja SalesForge nie zna relacji spraw (SF-174).", file=sys.stderr)
+        else:
+            print(str(blad), file=sys.stderr)
+        return 1
+    for klucz, tytul in (("zawiera", "Zawiera"), ("czesc", "Jest częścią")):
+        pozycje = wynik.get(klucz) or []
+        print(f"{tytul} ({(wynik.get('liczniki') or {}).get(klucz, len(pozycje))}):")
+        for r in pozycje:
+            print(_linia_relacji(r))
+        if not pozycje:
+            print("  —")
+    return 0
+
+
+def polecenie_przypnij(args) -> int:
+    """`sf-kit przypnij <sprawa> <czesc>` — <sprawa> ZAWIERA <czesc> (SF-174, cel `czesc` na dokowaniach)."""
+    try:
+        klient, nadrzedna = _klient_i_sprawa(args, zapis=True)
+        podrzedna, _ = _sprawa_dla_zapisu(klient, args.czesc)
+        r = klient.przypnij_czesc(str(nadrzedna["id"]), str(podrzedna["id"]))
+    except (ValueError, BladAPI) as blad:
+        kod = getattr(blad, "kod", None)
+        if kod == 409:
+            print("Ta para jest już przypięta.", file=sys.stderr)
+        else:
+            print(f"Nie udało się przypiąć: {_powod_serwera(blad) if isinstance(blad, BladAPI) else blad}",
+                  file=sys.stderr)
+        return 1
+    print("Przypięte — zawiera:" + _linia_relacji(r)[1:])
+    return 0
+
+
+def polecenie_odepnij(args) -> int:
+    """`sf-kit odepnij <sprawa> <druga>` — odpina relację między nimi, z której strony by nie stała."""
+    try:
+        klient, sprawa = _klient_i_sprawa(args, zapis=True)
+        druga, _ = _sprawa_dla_zapisu(klient, args.druga)
+        wynik = klient.relacje_sprawy(str(sprawa["id"]))
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    druga_id = str(druga["id"])
+    pasujace = [r for k in ("zawiera", "czesc") for r in wynik.get(k) or []
+                if r.get("aktywna") and (r.get("sprawa") or {}).get("id") == druga_id]
+    if not pasujace:
+        print("Te sprawy nie są przypięte do siebie (albo drugiej nie widzisz).", file=sys.stderr)
+        return 1
+    for r in pasujace:
+        try:
+            klient.odepnij_relacje(str(sprawa["id"]), r["relacja_id"])
+        except BladAPI as blad:
+            print(f"Nie udało się odpiąć: {_powod_serwera(blad) or blad}", file=sys.stderr)
+            return 1
+        print("Odpięte:" + _linia_relacji(r)[1:])
+    return 0
+
+
 def polecenie_nowa_sprawa(args) -> int:
     """Nowa sprawa z gotową pracą — z załącznikami, obserwującymi i numerem na wyjściu.
 
@@ -3083,6 +3166,19 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     kto.add_argument("--osoba", metavar="ID_KONTA", help="ustawienia wskazanej osoby (wymaga jej zgody)")
     us.add_argument("--historia", action="store_true", help="pokaż też historię zmian")
     us.set_defaults(funkcja=polecenie_ustawienia)
+
+    rl = pod.add_parser("relacje", help="[wszyscy] relacje spraw: co sprawa zawiera i czego jest częścią (SF-174)")
+    rl.add_argument("sprawa", help="numer (FM-12), identyfikator albo link do sprawy z ?org=…")
+    rl.add_argument("--historia", action="store_true", help="także odpięte")
+    rl.set_defaults(funkcja=polecenie_relacje)
+    pp = pod.add_parser("przypnij", help="[wszyscy] <sprawa> ZAWIERA <czesc> — sprawa w sprawie (SF-174)")
+    pp.add_argument("sprawa", help="sprawa nadrzędna (zawiera)")
+    pp.add_argument("czesc", help="sprawa podrzędna (część) — numer, identyfikator albo link")
+    pp.set_defaults(funkcja=polecenie_przypnij)
+    op = pod.add_parser("odepnij", help="[wszyscy] odepnij relację między dwiema sprawami (SF-174)")
+    op.add_argument("sprawa", help="jedna ze spraw")
+    op.add_argument("druga", help="druga sprawa relacji")
+    op.set_defaults(funkcja=polecenie_odepnij)
 
     ob = pod.add_parser("obserwujacy", help="[asystent] obserwujący sprawy: lista, --dodaj, --usun")
     ob.add_argument("sprawa", help="numer (FM-12), identyfikator albo link do sprawy z ?org=…")

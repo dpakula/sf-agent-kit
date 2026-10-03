@@ -13,6 +13,9 @@ Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nig
 |---|---|---|---|
 | `/skill:sf-cases` | `/skill:sf-sprawy` | `sf-kit sprawy` | Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka) |
 | `/skill:sf-case` | `/skill:sf-sprawa` | `sf-kit sprawa` | Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” |
+| `/skill:sf-relations` | `/skill:sf-relacje` | `sf-kit relacje` | Relacje sprawy: co zawiera i czego jest częścią (sprawa w sprawie) |
+| `/skill:sf-pin` | `/skill:sf-przypnij` | `sf-kit przypnij` | Przypnij sprawę jako część innej (<sprawa> zawiera <część>) |
+| `/skill:sf-unpin` | `/skill:sf-odepnij` | `sf-kit odepnij` | Odepnij relację między dwiema sprawami |
 | `/skill:sf-report-work` | `/skill:sf-zglos` | `sf-kit zglos` | Zgłoś gotową pracę jako nową sprawę (tytuł, opis, załączniki) |
 | `/skill:sf-note` | `/skill:sf-wpis` | `sf-kit wpis` | Dopisz postęp do sprawy (domyślnie wewnętrznie, dla zespołu) |
 | `/skill:sf-reply` | `/skill:sf-odpowiedz` | `sf-kit odpowiedz` | Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu |

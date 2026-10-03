@@ -723,6 +723,24 @@ class Klient:
         from urllib.parse import quote
         self._wywolaj("DELETE", f"tickets/{ticket_id}/watchers/{quote(wskazanie, safe='')}")
 
+    # ── relacje spraw „sprawa w sprawie” (SF-174) ────────────────────────────
+
+    def relacje_sprawy(self, ticket_id: str, *, historia: bool = False) -> dict:
+        """`GET /tickets/{id}/relacje` → `{zawiera, czesc, liczniki}` — jeden poziom, bez rekurencji."""
+        odp = self._wywolaj("GET", f"tickets/{ticket_id}/relacje" + ("?historia=true" if historia else ""))
+        return odp if isinstance(odp, dict) else {}
+
+    def przypnij_czesc(self, ticket_id: str, czesc_id: str) -> dict:
+        """`POST /tickets/{id}/relacje {sprawa_id}` — `ticket_id` ZAWIERA `czesc_id`. 409 = para już aktywna."""
+        odp = self._wywolaj("POST", f"tickets/{ticket_id}/relacje",
+                            cialo={"rodzaj": "czesc", "sprawa_id": czesc_id})
+        return odp if isinstance(odp, dict) else {}
+
+    def odepnij_relacje(self, ticket_id: str, relacja_id: str) -> dict:
+        """`DELETE /tickets/{id}/relacje/{relacja_id}` — z dowolnej strony; powtórzenie = 200 bez zmian."""
+        odp = self._wywolaj("DELETE", f"tickets/{ticket_id}/relacje/{relacja_id}")
+        return odp if isinstance(odp, dict) else {}
+
     # ── ustawienia powiadomień osoby (SF-173) ────────────────────────────────
 
     def ustawienia_skuteczne(self, user_id: str) -> dict:

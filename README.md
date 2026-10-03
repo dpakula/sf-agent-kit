@@ -2209,6 +2209,9 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 |---|---|---|---|
 | `/sf-kit:cases` | `/sf-kit:sprawy` | `sf-kit sprawy` | Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka) |
 | `/sf-kit:case` | `/sf-kit:sprawa` | `sf-kit sprawa` | Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” |
+| `/sf-kit:relations` | `/sf-kit:relacje` | `sf-kit relacje` | Relacje sprawy: co zawiera i czego jest częścią (sprawa w sprawie) |
+| `/sf-kit:pin` | `/sf-kit:przypnij` | `sf-kit przypnij` | Przypnij sprawę jako część innej (<sprawa> zawiera <część>) |
+| `/sf-kit:unpin` | `/sf-kit:odepnij` | `sf-kit odepnij` | Odepnij relację między dwiema sprawami |
 | `/sf-kit:report-work` | `/sf-kit:zglos` | `sf-kit zglos` | Zgłoś gotową pracę jako nową sprawę (tytuł, opis, załączniki) |
 | `/sf-kit:note` | `/sf-kit:wpis` | `sf-kit wpis` | Dopisz postęp do sprawy (domyślnie wewnętrznie, dla zespołu) |
 | `/sf-kit:reply` | `/sf-kit:odpowiedz` | `sf-kit odpowiedz` | Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu |

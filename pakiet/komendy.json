@@ -47,6 +47,63 @@
       "mcp": true
     },
     {
+      "id": "relations",
+      "aliasy": [
+        "relacje"
+      ],
+      "cli": "relacje",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Relacje sprawy: co zawiera i czego jest częścią (sprawa w sprawie)",
+        "en": "Case relations: contains / part of"
+      },
+      "argumenty": "<sprawa> [--historia]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
+    },
+    {
+      "id": "pin",
+      "aliasy": [
+        "przypnij"
+      ],
+      "cli": "przypnij",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Przypnij sprawę jako część innej (<sprawa> zawiera <część>)",
+        "en": "Pin a case as part of another"
+      },
+      "argumenty": "<sprawa> <czesc>",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic",
+      "tylko_odczyt": false,
+      "mcp": false
+    },
+    {
+      "id": "unpin",
+      "aliasy": [
+        "odepnij"
+      ],
+      "cli": "odepnij",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Odepnij relację między dwiema sprawami",
+        "en": "Unpin a relation between two cases"
+      },
+      "argumenty": "<sprawa> <druga>",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic",
+      "tylko_odczyt": false,
+      "mcp": false
+    },
+    {
       "id": "report-work",
       "aliasy": [
         "zglos"
