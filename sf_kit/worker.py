@@ -1,5 +1,8 @@
 """Pętla workera: weź zadanie → wykonaj → zdaj sprawozdanie → zamknij.
 
+v0.2 (28.09.2026) - APro Agents / borys-sf
+  0.2 — SF-86: dzierżawa wiadomości przed przekazaniem wykonawcy, odmowa odbiornika (wykonawca
+        bez ramki → `failed` z powodem), instancja/generacja w potwierdzeniach, alarmy Iris.
 v0.1 (14.09.2026) - APro Agents / borys-sf
 
 CZTERY ZASADY, KTÓRE RZĄDZĄ TYM PLIKIEM
@@ -24,6 +27,7 @@ a stan po stronie Kitu to pierwsza rzecz, która rozjeżdża się z SF.
 """
 from __future__ import annotations
 
+import contextlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +40,7 @@ from . import aktualizacje as mod_aktualizacje
 from . import ramka
 from . import reakcje as mod_reakcje
 from . import skrzynka as mod_skrzynka
+from .puls_sf import PulsSF
 from .telemetria import Telemetria
 from . import rotacja as mod_rotacja
 from . import tozsamosc as mod_tozsamosc
@@ -323,7 +328,9 @@ def _zajrzyj_do_komentarzy(klient: Klient, zid: str, *, po: datetime) -> "mod_re
 
 def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
                    *, stan_prob: StanProb | None = None,
-                   teraz: datetime | None = None) -> str:
+                   teraz: datetime | None = None,
+                   katalog_skrzynki: Path | None = None,
+                   puls_sf: PulsSF | None = None) -> str:
     """Jedno zadanie od początku do końca. Zwraca krótki opis wyniku (do logu)."""
     tytul = zadanie.get("title", "?")
     zid = str(zadanie.get("id"))
@@ -408,12 +415,32 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
     # Skrzynka niesie kontekst („przypisano Cię", „odpowiedź na boxa"), a mieszanie tych dwóch
     # znaczeń dałoby dwa kanały poleceń i żadnego pewnego.
     poczta = mod_skrzynka.pobierz(klient, limit=mod_skrzynka.LIMIT_TAKTU)
+    instancja, generacja = mod_skrzynka.ta_instancja(konf.slug)
+    if poczta.cos_jest and wykonawca.chce_ramke:
+        # SF-86: dzierżawa PRZED doklejeniem do polecenia — druga sesja tego samego agenta nie
+        # może dostać tej samej wiadomości do swojego zadania. Na czas zadania z zapasem.
+        poczta = mod_skrzynka.zadzierzaw(klient, poczta, instancja=instancja,
+                                         sekundy=konf.limit_zadania_s + 120)
+        if poczta.u_innej_instancji:
+            _log(f"   skrzynka: {len(poczta.u_innej_instancji)} wiadomości ma inna sesja "
+                 f"(dzierżawa) — nie doklejam")
+    elif poczta.cos_jest:
+        # SF-86: ODMOWA ODBIORNIKA — wykonawca bez ramki nie może przyjąć kontekstu (polski
+        # akapit w skrypcie powłoki to błąd składni). Do SF idzie `failed` z powodem: licznik
+        # prób rośnie i czujka widzi, DLACZEGO wiadomość stoi — zamiast cichego `delivered`.
+        mod_skrzynka.odmowa(
+            klient, poczta, instancja=instancja, generacja=generacja,
+            powod=f"wykonawca `{wykonawca.nazwa}` nie przyjmuje ramki — skrzynka nieprzekazana")
+        _log(f"   skrzynka: {len(poczta.wiadomosci)} wiadomości zgłoszonych jako odmowa "
+             f"odbiornika (wykonawca bez ramki)")
     if poczta.powod_braku:
         _log(f"   skrzynka niedostępna: {poczta.powod_braku}")
     elif poczta.cos_jest:
         _log(f"   skrzynka: {len(poczta.wiadomosci)} nowych"
              + (f", zalega {poczta.zalegle}" if poczta.zalegle else "")
              + (f", {poczta.ile_dalej} zostaje na potem" if poczta.ile_dalej else ""))
+    if poczta.wygasle:
+        _log(f"   skrzynka: {poczta.wygasle} po terminie ważności — nie wykonuję")
 
     _log(f"   wykonuję przez `{wykonawca.nazwa}` w {katalog} (limit {konf.limit_zadania_s} s)")
     # SF-38: gdzie worker SZUKA wyników — w logu przy starcie, żeby rozjazd katalogów
@@ -446,7 +473,10 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
         # zamierzony: skoro treść NIE dotarła do agenta, odbioru też nie potwierdzamy.
         polecenie += "\n\n" + mod_skrzynka.opis(poczta)
 
-    wynik = wykonawca.wykonaj(polecenie, katalog=katalog, limit_s=konf.limit_zadania_s)
+    # SF-87: na czas wykonania puls do SF idzie z wątku co minutę — wykonawca blokuje, a bez
+    # tego ekran floty pokazałby „brak sygnału” przy workerze, który właśnie pracuje.
+    with (puls_sf.w_trakcie(zadanie) if puls_sf is not None else contextlib.nullcontext()):
+        wynik = wykonawca.wykonaj(polecenie, katalog=katalog, limit_s=konf.limit_zadania_s)
 
     # POTWIERDZENIE ODBIORU DOPIERO TUTAJ — PO wywołaniu wykonawcy, nie przed nim.
     #
@@ -458,7 +488,9 @@ def obsluz_zadanie(klient: Klient, konf: Konfiguracja, zadanie: dict,
     # Potwierdzamy TAKŻE gdy wykonanie się nie udało: treść dotarła do wykonawcy, a to jest
     # fakt, o którym mówi „odebrana". Niepowodzenie zadania ma własny ślad i własną drogę.
     if poczta_poszla:
-        mod_skrzynka.potwierdz(klient, poczta)
+        mod_skrzynka.potwierdz(klient, poczta, instancja=instancja, generacja=generacja)
+        if katalog_skrzynki is not None:
+            mod_skrzynka.zdejmij_z_kolejki(katalog_skrzynki, poczta)
         if poczta.niepotwierdzone:
             _log(f"   {len(poczta.niepotwierdzone)} wiadomości bez potwierdzenia odbioru "
                  f"— wrócą w następnym takcie")
@@ -613,6 +645,48 @@ def _odloz_do_czlowieka(klient: Klient, zid: str) -> None:
              f"— UWAGA: zadanie wróci w następnym takcie")
 
 
+#: Ostatni powód braku skrzynki — logujemy ZMIANĘ, nie każdy takt. Przy 422 (klucz bez sluga)
+#: log co 60 s przez dobę to 1440 identycznych linii, w których ginie wszystko inne.
+_ostatni_powod_braku: str | None = None
+
+
+#: Jedna instancja pulsu na agenta w procesie — licznik `nr_sekw` musi rosnąć przez cały proces,
+#: a nie zaczynać się od zera w każdym takcie (SF odrzuciłby wtedy każdy meldunek po pierwszym).
+_pulsy: dict[str, PulsSF] = {}
+
+
+def _puls_dla(klient: Klient, konf: Konfiguracja) -> PulsSF:
+    puls = _pulsy.get(konf.slug)
+    if puls is None:
+        puls = _pulsy[konf.slug] = PulsSF(klient, konf.slug, loguj=_log)
+    else:
+        # Nowy obiekt klienta (np. po rotacji klucza) — ten sam proces, więc ta sama generacja
+        # i licznik idzie DALEJ. Nowy `PulsSF` zacząłby od `nr_sekw` 1 i SF odrzucałby każdy
+        # meldunek jako nieaktualny aż do restartu procesu.
+        puls._klient = klient
+    return puls
+
+
+def _przyjmij_skrzynke(klient: Klient, katalog: Path, slug: str = "") -> None:
+    """SF-86 etap 3: skrzynka w KAŻDYM takcie, nie tylko przy zadaniu. Nigdy nie przerywa taktu."""
+    global _ostatni_powod_braku
+    try:
+        przyjete = mod_skrzynka.przyjmij(klient, katalog, slug=slug)
+    except Exception as blad:       # noqa: BLE001 — dysk pełny, brak praw: takt idzie dalej
+        przyjete = mod_skrzynka.Odebrane(powod_braku=f"{type(blad).__name__}: {blad}")
+    if przyjete.powod_braku:
+        if przyjete.powod_braku != _ostatni_powod_braku:
+            _log(f"skrzynka niedostępna: {przyjete.powod_braku}")
+        _ostatni_powod_braku = przyjete.powod_braku
+        return
+    _ostatni_powod_braku = None
+    if przyjete.wiadomosci:
+        _log(f"skrzynka: przyjęto {len(przyjete.wiadomosci)} do kolejki ({katalog}) — "
+             f"odbiór przy najbliższym zadaniu")
+    if przyjete.alarmy:
+        _log(f"skrzynka: {przyjete.alarmy} alarm(ów) Iris (pilne / eskalacja)")
+
+
 def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
              teraz: datetime | None = None) -> int:
     """Jeden przebieg: weź NAJWYŻEJ JEDNO zadanie.
@@ -635,21 +709,27 @@ def przebieg(klient: Klient, konf: Konfiguracja, *, plik_stanu=None,
         _log(f"nie mogę pobrać zadań: {blad}")
         return -1
 
+    if plik_stanu is None:
+        from .config import sciezka as sciezka_konfiguracji
+        plik_stanu = sciezka_konfiguracji().with_name("state.json")
+    katalog_skrzynki = Path(plik_stanu).with_name(f"skrzynka-{konf.slug}")
+    _przyjmij_skrzynke(klient, katalog_skrzynki, konf.slug)
+    puls_sf = _puls_dla(klient, konf)
+
     if not wynik:
         if wynik.urwane:
             # Cisza z powodu bezpiecznika wygląda jak cisza z powodu braku pracy. Mówimy
             # o tym wprost, bo to jedyny moment, w którym da się to zauważyć.
             _log(f"brak moich zadań w przejrzanych {wynik.przejrzano} z {wynik.wszystkich} "
                  f"pozycji kolejki — przeglądanie urwał bezpiecznik stron")
+        puls_sf.melduj("bezczynny", przyczyna="brak zadań w kolejce")
         return 0
-    if plik_stanu is None:
-        from .config import sciezka as sciezka_konfiguracji
-        plik_stanu = sciezka_konfiguracji().with_name("state.json")
     stan = StanProb(plik_stanu)
     zadanie = next((z for z in wynik.zadania if stan.gotowe(z, teraz=teraz)), None)
     if zadanie is None:
+        puls_sf.melduj("bezczynny", przyczyna="zadania odłożone do ponowienia")
         return 0
-    _log(f"   wynik: {obsluz_zadanie(klient, konf, zadanie, stan_prob=stan, teraz=teraz)}")
+    _log(f"   wynik: {obsluz_zadanie(klient, konf, zadanie, stan_prob=stan, teraz=teraz, katalog_skrzynki=katalog_skrzynki, puls_sf=puls_sf)}")
     return 1
 
 

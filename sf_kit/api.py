@@ -1,5 +1,7 @@
 """Rozmowa z SalesForge. Wyłącznie biblioteka standardowa — zero `pip install`.
 
+v0.2 (28.09.2026) - APro Agents / borys-sf
+  0.2 — SF-86: `potwierdz_odbior(instancja, generacja)`, `dzierzawa()`; SF-87: `puls()`.
 v0.1 (14.09.2026) - APro Agents / borys-sf
 
 DLACZEGO `urllib`, A NIE `requests`
@@ -629,17 +631,49 @@ class Klient:
         return wynik if isinstance(wynik, dict) else {}
 
     def potwierdz_odbior(self, message_id: str, *, status: str = "consumed",
-                         powod: str | None = None) -> dict:
+                         powod: str | None = None, instancja: str | None = None,
+                         generacja: int | None = None) -> dict:
         """Potwierdź odbiór ZA SIEBIE. Adresata ustala serwer z tożsamości klucza.
 
         Nie ma tu parametru „za kogo" i nie będzie: trasa nazywa się `/recipients/me`, a Kit
         nie ma jak wiedzieć lepiej od serwera, kim jest właściciel jego klucza.
+
+        SF-86: `instancja`/`generacja` — kto potwierdza. Serwer odrzuca (409, `Konflikt`)
+        potwierdzenie ze starszej generacji niż ta, która już potwierdziła.
         """
         cialo: dict = {"status": status}
         if powod:
-            cialo["powod"] = powod
+            cialo["powod"] = powod[:2000]
+        if instancja:
+            cialo["instancja"] = instancja
+            if generacja is not None:
+                cialo["generacja"] = int(generacja)
         wynik = self._wywolaj(
             "PATCH", f"console/messages/{message_id}/recipients/me", cialo=cialo)
+        return wynik if isinstance(wynik, dict) else {}
+
+    def dzierzawa(self, message_id: str, *, instancja: str, sekundy: int) -> dict:
+        """Dzierżawa wykonania wiadomości dla tej instancji (SF-86). `sekundy=0` — oddaj.
+
+        Zwraca `{"przyznana": bool, "instancja", "do"}`. Cudza, ważna dzierżawa to NIE błąd
+        (409 → `przyznana: false` z tym, kto trzyma) — to normalna odpowiedź przy dwóch sesjach
+        jednego agenta. Każdy inny błąd leci jako wyjątek.
+        """
+        try:
+            wynik = self._wywolaj(
+                "POST", f"console/messages/{message_id}/recipients/me/dzierzawa",
+                cialo={"instancja": instancja, "sekundy": int(sekundy)})
+        except Konflikt as blad:
+            try:
+                wynik = json.loads(blad.szczegoly or "{}")
+            except ValueError:
+                wynik = {}
+            return {"przyznana": False, "instancja": wynik.get("instancja"), "do": wynik.get("do")}
+        return wynik if isinstance(wynik, dict) else {"przyznana": False}
+
+    def puls(self, meldunki: list[dict]) -> dict:
+        """Puls workera do SF (SF-87, `POST /flota/puls`). Klucz agenta melduje wyłącznie siebie."""
+        wynik = self._wywolaj("POST", "flota/puls", cialo={"meldunki": meldunki})
         return wynik if isinstance(wynik, dict) else {}
 
     def wiadomosc_do(self, slug: str, tresc: str, *, rodzaj: str = "inject") -> dict:
