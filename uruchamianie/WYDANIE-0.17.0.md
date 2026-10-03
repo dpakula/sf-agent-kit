@@ -1,7 +1,7 @@
 SF Agent Kit 0.17.0 — ustawienia (SF-173), asystent związany z człowiekiem (SF-170), decyzje w sesji (SF-188)
 
 STAN: PRZYGOTOWANE, NIEOPUBLIKOWANE — wydanie po słowie Damiana (Agata 04.10 01:3x).
-Gałąź: borys/kit-0170-wydanie (main 0.16.0 + borys/sf170-asystent-czlowieka + borys/sf188-kit).
+Gałąź: borys/kit-0170-wydanie (main 0.16.0 + borys/sf170-asystent-czlowieka + borys/sf188-kit + borys/sf174-kit).
 
 Nowe:
 - `sf-kit ustawienia [klucz [wartość]]` — ustawienia lokalne i w SF ze źródłem wartości;
@@ -13,6 +13,9 @@ Nowe:
 - `sf-kit odpowiedz <sprawa> --blok #N --opcja B [--opis komentarz]` — wybór opcji z bloku
   `decyzja` raportu sesji; Kit pokazuje zapisany wybór (kto, kiedy). SF-188.
 - `sf-kit raport <sprawa> plik.md --styl sesja` — sesja zamknięcia z blokami ```decyzja. SF-188.
+
+- `sf-kit relacje <sprawa>`, `sf-kit przypnij <sprawa> <czesc>`, `sf-kit odepnij <sprawa> <druga>` —
+  sprawa w sprawie (SF-174; trasy SF już na PROD). `relacje` także w MCP (odczyt).
 
 Poprawka:
 - `--blok #1094` dopasowuje po polu `numer` bloku (dotąd porównywał z `ref` = `BOX-…`, więc numer
@@ -26,7 +29,7 @@ Wymaga SF:
 Bez zmian w narzędziach: Claude sprawdzony na żywo (0.16.0), Kimi sprawdzony na żywo (0.16.0),
 Codex / Gemini: nieprzetestowane w narzędziu.
 
-Bramka (04.10, ~01:45 PL): 668 testów OK (1 pominięty: TOML Gemini bez tomllib), pakiet zgodny
+Bramka (04.10, ~02:10 PL): 675 testów OK (1 pominięty: TOML Gemini bez tomllib), pakiet zgodny
 z manifestem, `claude plugin validate` OK (marketplace + plugin).
 
 Do wykonania przy wydaniu (po słowie Damiana i po wdrożeniu paczki 16):
