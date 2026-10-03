@@ -2,7 +2,7 @@
 name: "sf-report-work"
 description: "Zgłoś gotową pracę jako nową sprawę (tytuł, opis, załączniki)"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit zglos …` (argumenty z prośby człowieka; składnia: `--tytul "…" [--opis PLIK] [--zalacz PLIK…] [--obserwujacy ADRES…] [--priorytet P] [--termin DATA]`)
 

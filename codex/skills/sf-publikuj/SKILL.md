@@ -2,7 +2,7 @@
 name: "sf-publikuj"
 description: "Opublikuj szkic sprawy (wymaga wpisu ze zgodą ownera/admina) — to samo co $sf-publish"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit publikuj …` (argumenty z prośby człowieka; składnia: `<sprawa> --zgoda WPIS`)
 

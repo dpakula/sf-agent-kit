@@ -2,7 +2,7 @@
 name: "sf-wpis-czytelny"
 description: "Jak napisać wpis na sprawie SalesForge: Sedno / Co to znaczy / Szczegóły techniczne, wzmianki pełnym adresem, bez emoji. Użyj przed każdym wpisem, odpowiedzią albo zgłoszeniem."
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 # Czytelny wpis na sprawie
 

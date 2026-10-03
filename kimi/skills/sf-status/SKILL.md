@@ -3,7 +3,7 @@ name: "sf-status"
 description: "Kim jestem w SF: konto, klucz, Organizacje, uprawnienia"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit whoami $ARGUMENTS`
 

@@ -9,7 +9,7 @@
       "name": "sf-kit",
       "source": "./plugin",
       "description": "SalesForge z poziomu asystenta: sprawy, wpisy, zgłoszenia, załączniki, bloki — przez SF Kit",
-      "version": "0.16.0"
+      "version": "0.17.0"
     }
   ]
 }

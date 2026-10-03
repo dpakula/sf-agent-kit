@@ -2,7 +2,7 @@
 name: "sf-wpis"
 description: "Dopisz postęp do sprawy (domyślnie wewnętrznie, dla zespołu) — to samo co $sf-note"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit wpis …` (argumenty z prośby człowieka; składnia: `<sprawa> --opis PLIK|- [--zalacz PLIK…] [--widocznosc internal|external]`)
 

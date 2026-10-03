@@ -2,7 +2,7 @@
 name: "sf-inbox"
 description: "Moje wiadomości — pokaż i potwierdź odbiór"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit inbox …` (argumenty z prośby człowieka; składnia: `[--limit N] [--dni N] [--podejrzyj]`)
 

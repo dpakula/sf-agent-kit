@@ -2,7 +2,7 @@
 name: "oddawanie-pracy"
 description: "Jak oddać gotową pracę do SalesForge: zglos, zalacz, publikuj, sprawdzenie, że doszło. Użyj, gdy praca jest gotowa do przekazania."
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 # Oddawanie pracy do SalesForge
 

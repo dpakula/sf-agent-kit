@@ -2,7 +2,7 @@
 name: "sf-block"
 description: "Pokaż blok (decyzja, dyspozycja, raport) albo katalog rodzajów: typy"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit blok …` (argumenty z prośby człowieka; składnia: `<id bloku>|typy [--json]`)
 

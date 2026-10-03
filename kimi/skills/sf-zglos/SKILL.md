@@ -3,7 +3,7 @@ name: "sf-zglos"
 description: "Zgłoś gotową pracę jako nową sprawę (tytuł, opis, załączniki) — to samo co /skill:sf-report-work"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit zglos $ARGUMENTS`
 

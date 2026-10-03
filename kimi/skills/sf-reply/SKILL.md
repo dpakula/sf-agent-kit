@@ -3,7 +3,7 @@ name: "sf-reply"
 description: "Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit odpowiedz $ARGUMENTS`
 

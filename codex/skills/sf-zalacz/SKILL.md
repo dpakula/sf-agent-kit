@@ -2,7 +2,7 @@
 name: "sf-zalacz"
 description: "Załącz pliki do sprawy — to samo co $sf-attach"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit zalacz …` (argumenty z prośby człowieka; składnia: `<sprawa> PLIK… [--notka "…"]`)
 
