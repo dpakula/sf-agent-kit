@@ -96,7 +96,7 @@
         "pl": "Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu",
         "en": "Reply in a case"
       },
-      "argumenty": "<sprawa> --opis PLIK|- [--wewn] [--blok #NUMER]",
+      "argumenty": "<sprawa> --opis PLIK|- [--wewn] [--blok #NUMER [--opcja KLUCZ]]",
       "skille": [
         "wpis-czytelny"
       ],

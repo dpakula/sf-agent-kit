@@ -4,7 +4,7 @@ description: "Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn 
 ---
 <!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.16.0; nie edytuj ręcznie -->
 
-Uruchom w terminalu: `sf-kit odpowiedz …` (argumenty z prośby człowieka; składnia: `<sprawa> --opis PLIK|- [--wewn] [--blok #NUMER]`)
+Uruchom w terminalu: `sf-kit odpowiedz …` (argumenty z prośby człowieka; składnia: `<sprawa> --opis PLIK|- [--wewn] [--blok #NUMER [--opcja KLUCZ]]`)
 
 - Gdy człowiek nie podał wszystkiego, czego polecenie wymaga, zapytaj go jednym zdaniem — nie zgaduj numeru sprawy ani adresu.
 - Gdy masz kilka Organizacji, dodaj `--org <slug>` (sprawdzisz w `sf-kit whoami`).

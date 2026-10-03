@@ -1962,8 +1962,13 @@ def polecenie_odpowiedz(args) -> int:
         print(str(blad), file=sys.stderr)
         return 1
 
-    tresc = _opis_z_wejscia(args)
-    if not tresc:
+    opcja = getattr(args, "opcja", None)
+    if opcja and not getattr(args, "blok", None):
+        print("`--opcja` wybiera odpowiedź z decyzji przy BLOKU — podaj też `--blok #NUMER` (SF-188).",
+              file=sys.stderr)
+        return 2
+    tresc = _opis_z_wejscia(args) if getattr(args, "opis", None) else ""
+    if not tresc and not opcja:
         print("Odpowiedź bez treści nie niesie niczego. Podaj `--opis plik.md` "
               "(albo `-` ze standardowego wejścia).", file=sys.stderr)
         return 2
@@ -2005,9 +2010,13 @@ def _odpowiedz_na_blok(klient, sprawa: dict, wskazanie: str, tresc: str, args) -
             print("Ta wersja SalesForge nie odpowiada na bloki z osi sprawy (SF-185) — odpowiedz "
                   "w Konsoli A.", file=sys.stderr)
             return 1
-        szukany = wskazanie.lstrip("#")
+        szukany = wskazanie.lstrip("#").lower()
+        # SF-188: numer boxa (`#1094`) przychodzi w polu `numer`; `ref` to skrót `BOX-3f7a1c`.
+        # Starsze SF nie mają `numer` — wtedy działa skrót albo początek identyfikatora.
         pasujace = [b for b in bloki.get("pozycje") or []
-                    if (b.get("ref") or "").lstrip("#") == szukany or b.get("box_id", "").startswith(wskazanie)]
+                    if (b.get("numer") or "").lstrip("#") == szukany
+                    or (b.get("ref") or "").lstrip("#").lower() == szukany
+                    or b.get("box_id", "").startswith(wskazanie)]
         if len(pasujace) != 1:
             print(f"Nie znajduję jednego bloku „{wskazanie}” przy tej sprawie "
                   f"({len(pasujace)} pasujących). Lista: `sf-kit sprawa <sprawa>` → „Do Ciebie”.",
@@ -2015,15 +2024,25 @@ def _odpowiedz_na_blok(klient, sprawa: dict, wskazanie: str, tresc: str, args) -
             return 1
         box_id = pasujace[0]["box_id"]
     try:
-        wynik = klient.odpowiedz_na_blok(sprawa_id, box_id, tresc)
+        opcja = getattr(args, "opcja", None)
+        wynik = (klient.odpowiedz_na_blok(sprawa_id, box_id, tresc or None, opcja=opcja) if opcja
+                 else klient.odpowiedz_na_blok(sprawa_id, box_id, tresc))
     except BladAPI as blad:
-        if getattr(blad, "kod", None) == 404:
+        if opcja and getattr(blad, "kod", None) == 422 and "opcja" in (getattr(blad, "szczegoly", "") or "") \
+                and "extra" in (getattr(blad, "szczegoly", "") or ""):
+            print("Ta wersja SalesForge nie zna wyboru opcji (SF-188) — odpowiedz tekstem: "
+                  "`--opis` bez `--opcja`.", file=sys.stderr)
+        elif getattr(blad, "kod", None) == 404:
             print("Nie ma takiego bloku przy tej sprawie (albo nie masz do niego wglądu).", file=sys.stderr)
         else:
             print(f"Nie udało się odpowiedzieć na blok: {_powod_serwera(blad) or blad}", file=sys.stderr)
         return 1
     print(f"Odpowiedź na blok zapisana — status: {wynik.get('status')}. Trafiła do bloku i na oś sprawy; "
           f"autor bloku dostanie powiadomienie.")
+    wybor = wynik.get("wybor") or {}
+    if wybor:
+        print(f"Wybór zapisany na raporcie: {wybor.get('opcja')} — {wybor.get('etykieta')} "
+              f"({wybor.get('kto')}, {wybor.get('kiedy')}).")
     return 0
 
 
@@ -2976,8 +2995,8 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                                        "energia/kpi/status/tabela, styl sitrep (SF-184)")
     rp.add_argument("sprawa", help="numer (FM-12), identyfikator albo link do sprawy z ?org=…")
     rp.add_argument("plik", help="plik z raportem Markdown (albo `-` = ze standardowego wejścia)")
-    rp.add_argument("--styl", choices=["sitrep"], default="sitrep",
-                    help="styl bloku na osi (dziś: sitrep)")
+    rp.add_argument("--styl", choices=["sitrep", "sesja"], default="sitrep",
+                    help="sitrep (stan) albo sesja (zamknięcie sesji: + bloki ```decyzja z opcjami, SF-188)")
     rp.add_argument("--widocznosc", choices=["internal", "external"], default="internal",
                     help="internal = widzi zespół (domyślnie), external = widzi też klient")
     rp.set_defaults(funkcja=polecenie_raport)
@@ -3023,6 +3042,9 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     od.add_argument("--blok", default=None, metavar="ID|#NUMER",
                     help="odpowiedz na BLOK konsoli przy tej sprawie (numer z „Do Ciebie”, np. #1094) "
                          "— SF-185")
+    od.add_argument("--opcja", default=None, metavar="KLUCZ",
+                    help="z --blok: wybór opcji z bloku `decyzja` raportu sesji (np. B); "
+                         "--opis staje się opcjonalnym komentarzem — SF-188")
     od.set_defaults(funkcja=polecenie_odpowiedz)
 
     tv = pod.add_parser("tresc-wersja", help="[asystent] kolejna wersja treści: załącznik "

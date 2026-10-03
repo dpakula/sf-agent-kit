@@ -556,13 +556,21 @@ class Klient:
                 return None
             raise
 
-    def odpowiedz_na_blok(self, ticket_id: str, box_id: str, tresc: str) -> dict:
+    def odpowiedz_na_blok(self, ticket_id: str, box_id: str, tresc: str | None,
+                          opcja: str | None = None) -> dict:
         """Odpowiedź na blok konsoli z osi sprawy (SF-185) — prawo z dostępu do sprawy, nie z konsoli.
 
         Odmowa stanu (blok zamknięty / już odpowiedziany) wraca jako 422 z `powod` (SF-134).
+        `opcja` (SF-188): klucz opcji z bloku `decyzja` raportu sesji — wtedy `tresc` jest
+        opcjonalnym komentarzem, a SF zapisuje wybór (kto, kiedy) na raporcie.
         """
+        cialo: dict = {}
+        if tresc:
+            cialo["tresc"] = tresc
+        if opcja:
+            cialo["opcja"] = opcja
         return self._wywolaj("POST", f"tickets/{ticket_id}/bloki-konsoli/{box_id}/odpowiedz",
-                             cialo={"tresc": tresc})
+                             cialo=cialo)
 
     def wpis(self, ticket_id: str, tresc: str, *, widocznosc: str = "internal") -> dict:
         """Wpis na sprawie — tak zdajesz sprawozdanie.
