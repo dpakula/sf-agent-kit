@@ -1,6 +1,6 @@
 ---
 description: "Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu"
-argument-hint: "<sprawa> --opis PLIK|- [--wewn] [--blok #NUMER]"
+argument-hint: "<sprawa> --opis PLIK|- [--wewn] [--blok #NUMER [--opcja KLUCZ]]"
 allowed-tools: "Bash(sf-kit:*), PowerShell(sf-kit *)"
 disable-model-invocation: true
 ---
