@@ -201,6 +201,10 @@ Slug wpisz z kroku 3 (linia `pracuję w:`) albo z panelu SalesForge.
 
 **Obserwujący.** Kto ma dostawać powiadomienia o sprawie, dodajesz po **adresie e-mail**: `sf-kit --org <slug> obserwujacy <sprawa> --dodaj anna@firma.pl` (lista bez `--dodaj`, usunięcie: `--usun`), a przy zakładaniu: `zglos … --obserwujacy anna@firma.pl`. Brak uprawnienia `tickets:watchers` Kit powie wprost; sprawa i tak powstaje.
 
+**Ustawienia.** `sf-kit ustawienia` pokazuje ustawienia **lokalne** (ten komputer: `organizacja`, `auto_update`, `pracuje_dla`) i **w SF** (poziom powiadomień, a przy każdym zdarzeniu kanały i **skąd ta wartość**: ustawione / domyślne / obowiązkowe). Zmiana: `sf-kit ustawienia powiadomienia.poziom wazne` (`cisza` / `wazne` / `wszystko`, opcjonalnie `--kanaly email,in_app,push`); co jest „ważne”, decyduje SF (przypisanie na Ciebie, wzmianka). Ustawienia człowieka, dla którego pracujesz: `--czlowiek` (konto z `pracuje_dla`) albo `--osoba <id konta>` — działa tylko za zgodą tej osoby (przełącznik w jej Ustawieniach → Powiadomienia), a SF zawiadamia ją o każdej zmianie, której nie zrobiła sama. `--historia` pokazuje, kto i kiedy zmieniał.
+
+**Asystent i jego człowiek.** Kit asystenta wie, dla kogo pracuje: `sf-kit ustawienia pracuje_dla anna@firma.pl` (Kit sprawdza w SF, że to członek tej Organizacji). Od tej chwili `sf-kit sprawy` odpowiada na „co na mnie czeka?”: sprawy przypisane do człowieka i do Ciebie, przy każdej oznaczenie `[człowiek]` / `[ja]` (`--tylko-moje`, `--tylko-czlowieka`, `--wszystkie` = cała Organizacja). Twoje wpisy dostają podpis „asystent dla …”. **Powiązanie nie daje uprawnień:** widzisz i robisz tyle, ile pozwala Twój klucz; sprawy człowieka poza Twoim zasięgiem Kit pokazuje liczbą, nie treścią.
+
 **Podpis.** `sf-kit whoami` mówi, czyim podpisem pójdą Twoje wpisy (linia `podpis:`). Na **kluczu osobistym** człowieka SalesForge podpisuje wpis jego imieniem — każdą wysyłaną treść kończ wtedy osobną linią `(przez asystenta)`. Jako **agent** tego dopisku nie dodajesz: wpis i tak niesie nazwę agenta.
 
 **Organizacja.** Podawaj ją przy każdym zapisie jawnie: `sf-kit --org <slug> <polecenie>` (opcja stoi przed poleceniem) albo link do sprawy z `?org=`. Bez tego Kit odmówi (od v0.13.0) — nie obchodź odmowy, zapytaj użytkownika, o którą Organizację chodzi.
@@ -217,7 +221,7 @@ Sprawdź w `sf-kit whoami` i w konfiguracji (`sf-kit init`), w którym trybie pr
 
 | tryb (profil w Kicie) | co robisz | polecenia |
 |---|---|---|
-| **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa`, `obserwujacy` |
+| **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa`, `obserwujacy`, `ustawienia` |
 | **worker** (`worker`) | bierzesz zadania z kolejki i wykonujesz je w tle | `tasks`, `worker` |
 | **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status`, `publikuj` |
 
@@ -2215,6 +2219,7 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 | `/sf-kit:block` | `/sf-kit:blok` | `sf-kit blok` | Pokaż blok (decyzja, dyspozycja, raport) albo katalog rodzajów: typy |
 | `/sf-kit:timeline` | `/sf-kit:os` | `sf-kit os` | Oś czasu sprawy |
 | `/sf-kit:status` | — | `sf-kit whoami` | Kim jestem w SF: konto, klucz, Organizacje, uprawnienia |
+| `/sf-kit:settings` | `/sf-kit:ustawienia` | `sf-kit ustawienia` | Ustawienia: lokalne i w SF (poziom powiadomień), ze źródłem wartości; --czlowiek dla asystenta |
 | `/sf-kit:update` | `/sf-kit:aktualizuj` | `sf-kit update` | Zaktualizuj Kita do wydania wskazanego przez SF |
 
 <!-- sf-kit:polecenia:end -->

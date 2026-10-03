@@ -86,6 +86,12 @@ class Konfiguracja:
     #: i zostawia worker martwym do ręcznego wstawienia (krytyka z ADVERTPR-960).
     auto_update: str = "off"
 
+    #: Adres e-mail człowieka, dla którego pracuje ten asystent (SF-170). Relacja żyje TU, w Kicie
+    #: (decyzja Damiana 01.10), a nie w SF. Ustawia `sf-kit ustawienia pracuje_dla <e-mail>` —
+    #: Kit sprawdza w SF, że to członek tej Organizacji. Służy WYŁĄCZNIE tożsamości i kolejce
+    #: (sprawy człowieka, podpis wpisów); uprawnień nie przenosi (korekta Damiana 02.10, SF-200).
+    pracuje_dla: str | None = None
+
     def braki(self) -> list[str]:
         """Czego brakuje, żeby worker mógł ruszyć. Pusta lista = wszystko jest.
 
