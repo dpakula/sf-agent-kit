@@ -1,6 +1,6 @@
 SF Agent Kit 0.17.0 — ustawienia (SF-173), asystent człowieka (SF-170), decyzje w sesji (SF-188), relacje spraw (SF-174), skrzynka i puls (SF-86/87)
 
-STAN: PRZYGOTOWANE, NIEOPUBLIKOWANE — wydanie po słowie Damiana (Agata 04.10 01:3x).
+STAN: WYDANE 05.10.2026 — GO Damiana (blok #1186, Agata 00:5x).
 Gałąź: borys/kit-0170-wydanie (main 0.16.0 + borys/sf170-asystent-czlowieka + borys/sf188-kit + borys/sf174-kit + 76906e6 SF-86/87).
 
 Nowe:
