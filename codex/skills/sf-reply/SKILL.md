@@ -2,7 +2,7 @@
 name: "sf-reply"
 description: "Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit odpowiedz …` (argumenty z prośby człowieka; składnia: `<sprawa> --opis PLIK|- [--wewn] [--blok #NUMER [--opcja KLUCZ]]`)
 

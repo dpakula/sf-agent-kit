@@ -3,7 +3,7 @@ name: "sf-pin"
 description: "Przypnij sprawę jako część innej (<sprawa> zawiera <część>)"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit przypnij $ARGUMENTS`
 

@@ -96,11 +96,11 @@ co wyśle, i zapyta o zgodę.
 >    z github.com/dpakula/sf-agent-kit i pokaż sprawy z <slug>”. Proxy chmury blokuje
 >    `codeload.github.com` (błąd 403 przy pobieraniu archiwum) — **od 0.15.6 instalator z kroku 1
 >    sam pobiera wtedy to samo wydanie gitem**. Ręcznie, gdyby trzeba było (ten sam krok, który
->    wykonuje `install.sh`; `v0.17.0` zastąp najnowszym tagiem wydania):
+>    wykonuje `install.sh`; `v0.17.1` zastąp najnowszym tagiem wydania):
 >
 >    ```
->    git clone --depth 1 --branch v0.17.0 https://github.com/dpakula/sf-agent-kit.git /tmp/sf-agent-kit
->    python3 /tmp/sf-agent-kit/sf-kit instaluj --ref v0.17.0
+>    git clone --depth 1 --branch v0.17.1 https://github.com/dpakula/sf-agent-kit.git /tmp/sf-agent-kit
+>    python3 /tmp/sf-agent-kit/sf-kit instaluj --ref v0.17.1
 >    ```
 >
 >    Wygodniej: zapisz w repozytorium mały skrypt

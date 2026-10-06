@@ -2,7 +2,7 @@
 name: "sf-case"
 description: "Karta sprawy: opis, wpisy, załączniki, „Do Ciebie”"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit sprawa …` (argumenty z prośby człowieka; składnia: `<numer|link> [--wszystkie]`)
 

@@ -3,7 +3,7 @@ name: "sf-sprawa"
 description: "Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” — to samo co /skill:sf-case"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit sprawa $ARGUMENTS`
 

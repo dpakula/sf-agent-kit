@@ -2,7 +2,7 @@
 name: "sf-sprawy"
 description: "Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka) — to samo co $sf-cases"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit sprawy …` (argumenty z prośby człowieka; składnia: `[--limit N]`)
 

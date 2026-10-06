@@ -2,7 +2,7 @@
 name: "sf-praca-w-sf"
 description: "Jak pracować w SalesForge przez SF Kit: Organizacja, sprawa vs zadanie, poziomy widoczności, Kit zamiast curl. Użyj, gdy praca dotyczy spraw, zadań albo wpisów w SalesForge."
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie -->
 
 # Praca w SalesForge przez SF Kit
 

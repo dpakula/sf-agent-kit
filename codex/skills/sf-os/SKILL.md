@@ -2,7 +2,7 @@
 name: "sf-os"
 description: "Oś czasu sprawy — to samo co $sf-timeline"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit os …` (argumenty z prośby człowieka; składnia: `<sprawa> [--pelna|--zwinieta] [--limit N]`)
 

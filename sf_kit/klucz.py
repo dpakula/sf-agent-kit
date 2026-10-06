@@ -1,5 +1,9 @@
 """Przechowywanie klucza API — jedyne miejsce, które go dotyka.
 
+v0.4 (06.10.2026) - APro Agents / borys-sf · GRA-1 (Asia, Windows PowerShell 5.1): `init` bierze klucz ze
+  `SF_KIT_KEY`, gdy jest ustawiona; na Windows własny odczyt ukrytego pola — Ctrl+V wkleja schowek (dotąd
+  docierał jako znak `\x16` i klucz „nie wyglądał na klucz”), gwiazdki pokazują, że coś doszło; po nieudanym
+  wklejeniu jedna widoczna druga próba zamiast odmowy
 v0.3 (01.10.2026) - APro Agents / borys-sf · SF-175: `z_srodowiska()` + komunikat bez terminala mówi
   o `SF_KIT_KEY` (sesje Claude Code z telefonu/chmury nie mają gdzie wpisać `init`)
 v0.2 (29.09.2026) - APro Agents / borys-sf · ADVERTPR-987: Windows natywnie — Menedżer poświadczeń
@@ -429,7 +433,10 @@ def zapytaj(czy_pusty_ok: bool = False) -> str:
     znaków byłoby zgadywaniem cudzego formatu — a klucz, którego nie rozpoznajemy, i tak
     odrzuci serwer, i zrobi to wiarygodniej niż my.
     """
-    if czy_macos():
+    ze_zmiennej = (os.environ.get(ZMIENNA_KLUCZA) or "").strip()
+    if ze_zmiennej:
+        pass                                   # nie pytamy — patrz niżej
+    elif czy_macos():
         # 0.14.1: bez „nic nie wpisuj” — monitów `security` już nie ma (`start_new_session`).
         # Zostaje uprzedzenie o OKNIE pęku kluczy: pojawia się, gdy w pęku jest wpis ze starszego
         # Kita — to okno systemu, nie zawieszenie (ADVERTPR-976, pkt 2 seweryna).
@@ -437,8 +444,16 @@ def zapytaj(czy_pusty_ok: bool = False) -> str:
               "(bywa przy Kicie instalowanym wcześniej) — kliknij „Zezwalaj zawsze”.")
     elif czy_windows():
         print("Klucz trafi do Menedżera poświadczeń Windows (szyfrowany dla Twojego konta).\n"
-              "Wklej go prawym przyciskiem myszy albo Ctrl+V — nie będzie widoczny, to normalne.")
-    klucz = getpass.getpass("Klucz API SalesForge (nie będzie widoczny): ").strip()
+              "Wklej go prawym przyciskiem myszy albo Ctrl+V — zamiast znaków zobaczysz gwiazdki.")
+    if ze_zmiennej:
+        # GRA-1: droga bez ukrytego pola — `$env:SF_KIT_KEY = Get-Clipboard; sf-kit init`. Wartość nie trafia
+        # ani do argumentów procesu, ani na ekran; zapis i tak idzie do pęku/Menedżera poświadczeń.
+        print(f"Biorę klucz ze zmiennej {ZMIENNA_KLUCZA} ({skrot(ze_zmiennej)}) — nie pytam o niego.")
+        klucz = _bez_znakow_sterujacych(ze_zmiennej)
+    elif czy_windows():
+        klucz = _zapytaj_windows()
+    else:
+        klucz = getpass.getpass("Klucz API SalesForge (nie będzie widoczny): ").strip()
     if not klucz:
         if czy_pusty_ok:
             return ""
@@ -448,6 +463,80 @@ def zapytaj(czy_pusty_ok: bool = False) -> str:
             f'to nie wygląda na klucz SalesForge — powinien zaczynać się od „{PREFIKS_KLUCZA}”. '
             f"Jeśli wkleiłeś coś innego (np. token GitHuba), zacznij od nowa.")
     return klucz
+
+
+def _bez_znakow_sterujacych(tekst: str) -> str:
+    """Bez spacji na brzegach i bez znaków sterujących (`\x16` z Ctrl+V, `\r` ze schowka, BOM)."""
+    return "".join(z for z in tekst if z.isprintable()).strip().lstrip("\ufeff")
+
+
+#: Ctrl+V w konsoli, która nie przechwytuje skrótu sama — `msvcrt.getwch` oddaje wtedy TEN znak.
+CTRL_V = "\x16"
+
+
+def _schowek_windows() -> str:
+    """Tekst ze schowka Windows (`Get-Clipboard`). Pusty napis, gdy się nie da — wołający zapyta ponownie."""
+    try:
+        wynik = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-Clipboard -Raw"],
+            capture_output=True, text=True, errors="replace", timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return wynik.stdout if wynik.returncode == 0 else ""
+
+
+def _czytaj_ukryty_windows(etykieta: str, *, getwch=None, putwch=None, schowek=None) -> str:
+    """Ukryte pole na Windows: znak po znaku, `*` za każdy znak, Ctrl+V = wklejenie schowka.
+
+    PO CO. `getpass` na Windows czyta konsolę `msvcrt.getwch` i bierze KAŻDY znak dosłownie. W Windows
+    PowerShell 5.1 Ctrl+V nie zawsze jest przechwytywane przez konsolę — wtedy do pola trafia jeden znak
+    `\x16`, a człowiek widzi „to nie wygląda na klucz” przy kluczu, który jest dobry (GRA-1, 06.10).
+    Gwiazdki są po to, żeby było widać, CZY coś doszło — pusty ekran po wklejeniu niczego nie mówi.
+    Parametry są szwem dla testów (Linux nie ma `msvcrt`).
+    """
+    if getwch is None or putwch is None:
+        import msvcrt  # noqa: PLC0415 — tylko Windows
+        getwch, putwch = getwch or msvcrt.getwch, putwch or msvcrt.putwch
+    schowek = schowek or _schowek_windows
+    for z in etykieta:
+        putwch(z)
+    wynik: list[str] = []
+    while True:
+        z = getwch()
+        if z in ("\r", "\n"):
+            break
+        if z == "\x03":
+            putwch("\r"); putwch("\n")
+            raise KeyboardInterrupt
+        if z in ("\x00", "\xe0"):           # klawisz specjalny (strzałka, F1…) — drugi znak to jego kod
+            getwch()
+            continue
+        if z == "\b":
+            if wynik:
+                wynik.pop()
+                for k in "\b \b":
+                    putwch(k)
+            continue
+        dopisane = _bez_znakow_sterujacych(schowek()) if z == CTRL_V else (z if z.isprintable() else "")
+        wynik.extend(dopisane)
+        for _ in dopisane:
+            putwch("*")
+    putwch("\r"); putwch("\n")
+    return "".join(wynik).strip()
+
+
+def _zapytaj_windows(*, czytaj=None, widoczny=None) -> str:
+    """Klucz na Windows: ukryte pole z obsługą Ctrl+V, a gdy wklejone nie wygląda na klucz — JEDNA widoczna
+    druga próba (prawy przycisk myszy). Lepiej pokazać klucz na własnym ekranie niż odprawić człowieka."""
+    czytaj = czytaj or _czytaj_ukryty_windows
+    widoczny = widoczny or input
+    klucz = czytaj("Klucz API SalesForge (zamiast znaków pojawią się gwiazdki): ")
+    if not klucz or klucz.startswith(PREFIKS_KLUCZA):
+        return klucz
+    print("To, co doszło, nie zaczyna się od „sk_live_” — wklejenie mogło się nie udać.\n"
+          "Wklej klucz jeszcze raz PRAWYM przyciskiem myszy i naciśnij Enter.\n"
+          "Tym razem klucz BĘDZIE widoczny na ekranie — to Twój ekran; po zapisaniu zamknij to okno.")
+    return _bez_znakow_sterujacych(widoczny("Klucz API SalesForge: "))
 
 
 def zapytaj_i_zapisz() -> tuple[str, str]:

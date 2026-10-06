@@ -1,3 +1,3 @@
-# wygenerowano z pakiet/komendy.json przez sf-kit 0.17.0; nie edytuj ręcznie
+# wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie
 description = "Moje zadania — [--pelne]"
 prompt = "Uruchom w terminalu: `sf-kit tasks {{args}}`\n\n- Gdy człowiek nie podał wszystkiego, czego polecenie wymaga, zapytaj go jednym zdaniem — nie zgaduj numeru sprawy ani adresu.\n- Gdy masz kilka Organizacji, dodaj `--org <slug>` (sprawdzisz w `sf-kit whoami`).\n- Odmowę (403) przekaż człowiekowi wprost: uprawnienia ma klucz, nie obchodź jej inną drogą.\n- Pokaż wynik człowiekowi zwięźle; nie dopisuj niczego do SF bez jego prośby.\n- Zasady pracy: skill `sf-praca-w-sf`.\n"
