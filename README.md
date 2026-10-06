@@ -16,7 +16,7 @@
   curl -fsSL https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.sh | sh
   ```
 
-- **Windows** (PowerShell — menu Start, wpisz „PowerShell”). **Uruchom to sam, we własnym oknie PowerShell — nie przez agenta w aplikacji Claude**: aplikacja działa w kontenerze Windows i Kit zainstalowany z jej terminala jest niewidoczny dla zwykłego okna (od 0.15.5 instalator to wykrywa i mówi, co zrobić). Bez WSL. **W testach — potwierdzimy 30.09 rano**; do tego czasu na Windows pewną drogą jest WSL (Linux wewnątrz Windowsa) i polecenie dla Linuksa wyżej:
+- **Windows** (PowerShell — menu Start, wpisz „PowerShell”). **Uruchom to sam, we własnym oknie PowerShell — nie przez agenta w aplikacji Claude**: aplikacja działa w kontenerze Windows i Kit zainstalowany z jej terminala jest niewidoczny dla zwykłego okna (od 0.15.5 instalator to wykrywa i mówi, co zrobić). Bez WSL — instalacja natywna działa od 0.15.x (używana przez uczestników z Claude Code). Python wystarczy z python.org albo `winget`; instalator powie, czego brakuje:
 
   ```
   irm https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.ps1 | iex
@@ -155,8 +155,11 @@ w SF).
 
 **Na Windows** klucz trafia do **Menedżera poświadczeń Windows** (Panel sterowania → Menedżer
 poświadczeń → Poświadczenia systemu Windows, wpis `sf-agent-kit:<nazwa agenta>`) — szyfrowany
-dla Twojego konta Windows. Klucz wklejasz prawym przyciskiem myszy albo Ctrl+V; nie będzie
-widoczny, to normalne.
+dla Twojego konta Windows. Klucz wklejasz prawym przyciskiem myszy albo Ctrl+V — zamiast znaków
+zobaczysz gwiazdki (od 0.17.1; w starszym Kicie Ctrl+V w Windows PowerShell 5.1 nie działał,
+zostawał prawy przycisk). Gdy wklejone nie zaczyna się od `sk_live_`, Kit raz poprosi o wklejenie
+prawym przyciskiem — wtedy klucz będzie widoczny na Twoim ekranie. Drogą bez pola jest zmienna:
+`$env:SF_KIT_KEY = Get-Clipboard; sf-kit init`.
 
 **Kilku agentów na jednym komputerze.** `sf-kit init` pokazuje listę agentów i pozwala
 dodać albo edytować każdego z osobna (każdy mieszka w swoim podkatalogu `~/.config/sf-kit/`).
@@ -2064,12 +2067,19 @@ Kitem nie musi jej czytać.
 
 #### Zakładanie konta agenta z panelu
 
-1. **Użytkownicy → Dodaj → Agent.** Podaj nazwę i **slug** (np. `claude-jkowalski`) —
-   slug jest tym, po czym agent rozpoznaje swoje zadania i musi być unikalny w Organizacji.
-2. Konto agenta zakładane tą drogą dostaje **zestaw domyślny**: `tickets:read`,
-   `tickets:comment`, `tasks:own`. Do pracy Kitem to wystarczy.
-3. **Klucze API → Nowy klucz**, zasięg **osobisty (`scope=user`)**, właściciel = konto
-   agenta. Klucz pokazywany jest **raz** — przekaż go kanałem innym niż poczta.
+1. **Administracja → Użytkownicy → Dodaj członka → Typ konta: Agent (AI)** (dziś tylko
+   superadmin). Podaj e-mail konta agenta i nazwę, kliknij **Utwórz agenta**. Panel od razu
+   pokaże **klucz — raz** (przycisk **Kopiuj**); przekaż go kanałem innym niż poczta.
+   Formularz nie ma pola sluga: Kit weźmie nazwę agenta z części adresu przed `@`.
+2. Klucz z panelu ma zakres `member` i **własną listę uprawnień: `tickets:read`,
+   `tickets:comment`**. Wystarczy do czytania spraw i wpisów; **zakładanie spraw
+   (`tickets:write`) i kontekst (`context:read`) trzeba dopisać na kluczu** — panel
+   **Klucze API → Edytuj** ich nie oferuje (stan 06.10.2026), więc robi to superadmin przez API
+   (`PATCH /api/v1/super-admin/api-keys/{id}` z pełną listą uprawnień) albo od razu zakłada
+   agenta Kitem: `sf-kit agent-dodaj <slug> --email … --nazwa … --uprawnienie …` (koordynator
+   z prawami superadmina; Kit pokaże klucz raz).
+3. Dla klucza `member` lista na kluczu **jest** zestawem uprawnień — dopisanie nadania na
+   członkostwie go nie rozszerzy.
 4. Przypisz agentowi zadanie (pole wykonawcy) — dopiero wtedy `sf-kit tasks` cokolwiek
    pokaże.
 5. **Załóż jedno zadanie testowe** przy sprawie, na której nie przeszkadza dodatkowy wpis
