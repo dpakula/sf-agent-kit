@@ -2,13 +2,17 @@
 
 ## Dla użytkownika
 
-**SF API Kit** łączy Twojego agenta AI (Claude Code, Codex, Kimi) z SalesForge. Agent przyjmuje od Ciebie zadania, pracuje na sprawach Twojej Organizacji i zostawia ślad każdej czynności, więc widzisz, co zrobił i dlaczego.
+**SF Agent Kit** łączy Twojego agenta AI (Claude Code, Codex, Kimi) z SalesForge. Agent przyjmuje od Ciebie zadania i pracuje na sprawach Twojej Organizacji. Każdą czynność zapisuje w sprawie, więc widzisz, co zrobił i dlaczego.
 
-**Jak zacząć.** Masz konto w SalesForge i Twój agent też (jeśli nie, poproś administratora swojej Organizacji). Zainstaluj Kit **jednym poleceniem** (krok 1), skonfiguruj go i sprawdź (kroki 2–3), przygotuj folder pracy (krok 4) i uruchom w nim agenta (krok 5) — od 0.15.1 tekstu startowego nie trzeba wklejać. Resztę tego dokumentu agent przeczyta sam. Jak pracować z agentem na co dzień, opisuje **Podręcznik SalesForge** (w przygotowaniu).
+### Jak zacząć
 
-**Potrzebujesz tylko Pythona 3.9 lub nowszego.** Git nie jest potrzebny, uprawnienia administratora komputera też nie. Jeśli Pythona brak, instalator powie, jak go doinstalować.
+Masz konto w SalesForge i Twój agent też. Jeśli nie, poproś administratora swojej Organizacji. Zainstaluj Kit jednym poleceniem.
 
-**1. Zainstaluj Kit** — wklej JEDNO polecenie do terminala:
+Potrzebujesz tylko Pythona 3.9 lub nowszego. Git i uprawnienia administratora komputera nie są potrzebne.
+
+### 1. Zainstaluj Kit
+
+Wklej jedno polecenie do terminala.
 
 - **macOS i Linux** (aplikacja Terminal):
 
@@ -16,31 +20,33 @@
   curl -fsSL https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.sh | sh
   ```
 
-- **Windows** (PowerShell — menu Start, wpisz „PowerShell”). **Uruchom to sam, we własnym oknie PowerShell — nie przez agenta w aplikacji Claude**: aplikacja działa w kontenerze Windows i Kit zainstalowany z jej terminala jest niewidoczny dla zwykłego okna (od 0.15.5 instalator to wykrywa i mówi, co zrobić). Bez WSL — instalacja natywna działa od 0.15.x (używana przez uczestników z Claude Code). Python wystarczy z python.org albo `winget`; instalator powie, czego brakuje:
+- **Windows** (PowerShell: menu Start, wpisz „PowerShell”). Uruchom polecenie sam, we własnym oknie PowerShell, a nie przez agenta w aplikacji Claude.
 
   ```
   irm https://raw.githubusercontent.com/dpakula/sf-agent-kit/main/install.ps1 | iex
   ```
 
-Instalator pobiera Kita z GitHuba do Twojego katalogu użytkownika (macOS/Linux: `~/.local/share/sf-kit`, Windows: `%LOCALAPPDATA%\sf-kit`) i zakłada polecenie `sf-kit`. Na macOS/Linux, gdy instalator o to poprosi, **otwórz nowe okno terminala** (albo użyj pełnej ścieżki, którą wypisał). Ponowne uruchomienie instalatora niczego nie psuje — konfiguracja i klucz zostają.
+Instalator pobiera Kita z GitHuba do Twojego katalogu użytkownika i zakłada polecenie `sf-kit`. Na macOS, jeśli instalator o to prosi, otwórz nowe okno terminala albo użyj pełnej ścieżki, którą wypisał. Ponowne uruchomienie instalatora niczego nie psuje: konfiguracja i klucze zostają.
 
-**2. Skonfiguruj agenta — Kit zapyta o klucz i sam rozpozna resztę w SalesForge:**
+Jeśli brakuje Pythona, instalator powie, jak go doinstalować.
+
+### 2. Skonfiguruj agenta
 
 ```
 sf-kit init
 ```
 
-**3. Sprawdź, czy klucz działa — i zapisz sobie slug Organizacji:**
+Kit poprosi o klucz agenta od administratora, sam rozpozna resztę w SalesForge i zapyta „Zapisać?”: odpowiedz `t`. Wklejonego klucza nie widać na ekranie, to normalne.
+
+### 3. Sprawdź, czy klucz działa
 
 ```
 sf-kit whoami
 ```
 
-Kit pokazuje, kim jest agent i w których Organizacjach może pracować. Linia `pracuję w:`
-zaczyna się od **sluga Organizacji** (np. `formarketing`) — wpiszesz go do tekstu startowego.
-Gdy zamiast tego widzisz `Nie mam klucza`, wróć do kroku 2.
+Kit pokazuje, kim jest agent i w których Organizacjach może pracować. Jeśli widzisz „Nie mam klucza”, wróć do kroku 2.
 
-**4. Przygotuj folder na pracę z asystentem** (od 0.15.1) — załóż nowy folder, wejdź do niego i uruchom `sf-kit start`:
+### 4. Przygotuj folder na pracę z asystentem
 
 ```
 mkdir praca-z-ai
@@ -48,130 +54,72 @@ cd praca-z-ai
 sf-kit start
 ```
 
-`start` zapisuje w tym folderze `CLAUDE.md` (Claude Code) i `AGENTS.md` (Codex) z instrukcją dla asystenta i Twoją Organizacją, oraz `.claude/settings.json` ze zgodą na polecenia `sf-kit` — asystent od razu wie, co robić, a Claude Code nie pyta przy każdym poleceniu Kita. W katalogu domowym `start` odmówi (CLAUDE.md stamtąd czytałby każdy Twój projekt). Twoje własne treści w tych plikach zostają; ponowne `start` podmienia tylko sekcję Kita.
+W folderze powstaje instrukcja dla asystenta z Twoją Organizacją i zgoda na polecenia Kita, więc asystent od razu wie, co robić. Nie rób tego w katalogu domowym, tam `sf-kit start` odmówi.
 
-**5. Uruchom agenta w tym folderze** — dla Claude Code:
+### 5. Uruchom agenta w tym folderze i po prostu powiedz, czego chcesz
 
 ```
 claude
 ```
 
-Przy pierwszym uruchomieniu Claude Code (stan na wersję 2.1):
-
-- **„Not logged in · Run /login”** na dole ekranu — wpisz `/login` i zaloguj się w przeglądarce.
-  Bez tego Claude Code przyjmuje tekst, ale **nic nie odpowiada** i nie pokazuje błędu.
-- **„Is this a project you created or one you trust?”** — kursor stoi na **„No, exit”**. Zejdź
-  strzałką w dół na **„Yes, I trust this folder”** i dopiero wtedy Enter. Sam Enter zamyka
-  Claude Code (wtedy uruchom `claude` jeszcze raz).
-- **Zaufanie folderu jest warunkiem zgody z kroku 4**: w niezaufanym folderze Claude Code
-  ignoruje `.claude/settings.json` i przed każdym poleceniem Kita pyta **„Do you want to proceed?”**
-  (wtedy wybierz **1. Yes**).
-
-Potem po prostu powiedz, czego chcesz: „pokaż sprawy”, „co jest w sprawie <link>”, „zgłoś sprawę: …”,
-„odpowiedz w tej sprawie: …”, „załącz plik …”. Przed każdym zapisem w SalesForge asystent pokaże,
-co wyśle, i zapyta o zgodę.
-
-> **Uruchamiasz Claude Code z aplikacji mobilnej albo w chmurze (claude.ai/code)?** Przeczytaj to,
-> zanim zaczniesz, bo kroki 1–4 wyglądają wtedy inaczej.
->
-> Sesja uruchomiona z telefonu albo z przeglądarki działa **w kontenerze w chmurze, nie na Twoim
-> komputerze**. Kontener jest ulotny (znika po zakończeniu sesji) i **nie masz do niego terminala**.
-> Nie ma więc gdzie wpisać `sf-kit init`, a Kit zainstalowany przez agenta zniknie razem z sesją.
-> Zostaje tylko podpięte repozytorium Git. Masz dwie drogi.
->
-> **Droga A (zalecana): Kit na Twoim komputerze.** Zrób kroki 1–4 na swoim Macu albo PC. Z telefonu
-> pracujesz potem dalej przez aplikację Claude Desktop albo przez `claude remote-control` uruchomione
-> w folderze pracy. Taka sesja pojawia się w aplikacji mobilnej, ale działa na Twoim komputerze —
-> i tam żyją Kit, klucz i sprawy.
->
-> **Droga B: zostajesz w chmurze, klucz w zmiennej środowiskowej `SF_KIT_KEY`.** Kit sprawdza tę
-> zmienną jako pierwszą, przed pękiem kluczy i plikiem. `sf-kit init` nie jest wtedy potrzebny:
-> Organizację podajesz w każdym poleceniu przez `--org <slug>`, a nazwę agenta Kit bierze z SalesForge.
->
-> 1. W aplikacji otwórz menu środowiska chmurowego (pasek tytułu sesji) → **Edit** i dodaj klucz jako
->    zmienną środowiskową (albo poświadczenie API) o nazwie dokładnie `SF_KIT_KEY`. **Nie wklejaj
->    klucza w czacie** — agent nie ma go widzieć.
-> 2. **Uruchom nową sesję.** Zmienną dostają tylko sesje otwarte po jej dodaniu; bieżąca jej nie zobaczy.
-> 3. Kit instaluje się w każdej nowej sesji od nowa. Poproś agenta: „zainstaluj SF Agent Kit
->    z github.com/dpakula/sf-agent-kit i pokaż sprawy z <slug>”. Proxy chmury blokuje
->    `codeload.github.com` (błąd 403 przy pobieraniu archiwum) — **od 0.15.6 instalator z kroku 1
->    sam pobiera wtedy to samo wydanie gitem**. Ręcznie, gdyby trzeba było (ten sam krok, który
->    wykonuje `install.sh`; `v0.17.1` zastąp najnowszym tagiem wydania):
->
->    ```
->    git clone --depth 1 --branch v0.17.1 https://github.com/dpakula/sf-agent-kit.git /tmp/sf-agent-kit
->    python3 /tmp/sf-agent-kit/sf-kit instaluj --ref v0.17.1
->    ```
->
->    Wygodniej: zapisz w repozytorium mały skrypt
->    startowy, który to robi, i `CLAUDE.md` z tekstem startowym — kolejne sesje przeczytają go same.
-> 4. Agent może nie mieć prawa zapisać `.claude/settings.json` (zgoda na polecenia Kita), bo zasady
->    sesji w chmurze blokują zmiany ustawień Claude Code. Zrobi to `sf-kit start`, gdy klucz już
->    działa; do tego czasu Claude Code pyta przy każdym poleceniu Kita.
->
-> **Cena drogi B.** Klucz leży w zmiennej środowiskowej procesu (wygoda, nie zalecany sposób domyślny),
-> a Kit instaluje się przy każdej sesji od nowa. Klucz agenta jest ważny 30 dni i **odnawiasz go sam**:
-> nowy klucz od administratora wpisujesz w ustawieniach środowiska. Samoodnowienie nie działa przy
-> kluczu ze zmiennej — nowy sekret zostałby w kontenerze, który zniknie, a zmienna podawałaby stary,
-> już unieważniony. Od 0.15.6 Kit tego nie próbuje i mówi to wprost (w 0.15.5 i starszych **nie
-> uruchamiaj w chmurze `sf-kit worker`** — następna sesja dostałaby „klucz nie został przyjęty (401)”).
-
-**Aktualizacja:** `sf-kit aktualizuj` (to samo co `sf-kit update`).
-
-**Dla programistów — instalacja gitem** (jak do wersji 0.14): `git clone https://github.com/dpakula/sf-agent-kit.git`, `cd sf-agent-kit`, `./sf-kit init`; aktualizacja `sf-kit update` (albo `git pull`). Wszystkie polecenia działają tak samo przez `./sf-kit`.
-
-**Klucz.** Administrator zakłada konto agenta i klucz — klucz widać dokładnie raz, przy
-wystawianiu. Przekazuje go menedżerem haseł, nigdy mailem ani czatem; człowiek wpisuje go
-sam, w terminalu, przy `sf-kit init`.
-
-**Co zapyta `init`.** Na pustej maszynie od razu wchodzi w dodawanie agenta:
-
-| pytanie | co wpisać |
-|---|---|
-| `Adres SalesForge [https://sf.dpakula.pl]:` | Enter, gdy domyślny wystarczy |
-| `Klucz API SalesForge (nie będzie widoczny):` | klucz z menedżera haseł; kursor się nie rusza — to normalne |
-| `Domyślna Organizacja (slug; Enter = brak, będę podawał --org) [brak]:` | pojawia się, gdy masz nadania w kilku Organizacjach — wpisz slug swojej (np. `formarketing`); Enter zostawia bez domyślnej i każde polecenie będzie wymagać `--org` |
-
-Potem Kit pokazuje rozpoznanie (agent, konto, domyślna Organizacja, profil z nadanych
-uprawnień) i pyta `Zapisać? [t/N]` — `t` zapisuje klucz i ustawienia w nowym podkatalogu
-`~/.config/sf-kit/<nazwa>/`. **O nazwę agenta NIE pyta** — bierze ją z SalesForge.
-
-**Na Macu** klucz trafia do pęku kluczy. Od Kita 0.14.1 zapis trwa ułamek sekundy i o nic nie pyta
-w terminalu (wcześniej `init` potrafił stanąć po `t` — jeśli masz starszego Kita, zrób
-`sf-kit aktualizuj`). Jeśli na ekranie pojawi się **okno pęku kluczy** (bywa, gdy Kit był na tym Macu
-instalowany wcześniej), to okno systemu, nie zawieszenie — kliknij **„Zezwalaj zawsze”**.
-
-**Profil i uprawnienia.** Profil (`asystent`, `worker`…) Kit wylicza z uprawnień, które masz
-w Organizacji. Jeśli rozpoznanie pokaże `worker`, a masz zgłaszać sprawy, to znaczy, że Twoje
-członkostwo nie ma `tickets:write` — polecenia `zglos`, `wpis`, `sprawy` odpowiedzą wtedy
-„Twój klucz nie ma uprawnienia `…` — poproś administratora Organizacji o nadanie”. Nadaje je
-administrator Organizacji w SalesForge; nowy klucz nie jest potrzebny.
-
-Gdy na maszynie jest już agent, `init` najpierw pokazuje **listę agentów** (nazwa,
-Organizacja, profil, czy worker żyje) i pyta `[numer] edytuj agenta · [n] dodaj nowego ·
-[q] wyjdź`. Wybór numerem otwiera edycję: Enter zostawia wartość w nawiasie, pusty Enter
-przy kluczu = bez zmian, a nowy klucz musi należeć do tego samego agenta (Kit sprawdza to
-w SF).
-
-**Na Windows** klucz trafia do **Menedżera poświadczeń Windows** (Panel sterowania → Menedżer
-poświadczeń → Poświadczenia systemu Windows, wpis `sf-agent-kit:<nazwa agenta>`) — szyfrowany
-dla Twojego konta Windows. Klucz wklejasz prawym przyciskiem myszy albo Ctrl+V — zamiast znaków
-zobaczysz gwiazdki (od 0.17.1; w starszym Kicie Ctrl+V w Windows PowerShell 5.1 nie działał,
-zostawał prawy przycisk). Gdy wklejone nie zaczyna się od `sk_live_`, Kit raz poprosi o wklejenie
-prawym przyciskiem — wtedy klucz będzie widoczny na Twoim ekranie. Drogą bez pola jest zmienna:
-`$env:SF_KIT_KEY = Get-Clipboard; sf-kit init`.
-
-**Kilku agentów na jednym komputerze.** `sf-kit init` pokazuje listę agentów i pozwala
-dodać albo edytować każdego z osobna (każdy mieszka w swoim podkatalogu `~/.config/sf-kit/`).
-W zwykłych poleceniach wybiera się agenta opcją `--agent <nazwa>`, np.
-`sf-kit --agent claude-jkowalski whoami`.
-
-**Aktualizacje.** Kit sam sprawdza raz na dobę, czy wyszła nowa wersja, i mówi o tym jedną linią — nową wersję instaluje `sf-kit aktualizuj` (albo `sf-kit update`), a u workerów z włączonym `auto_update` poprawki podmieniają się same, między zadaniami (szczegóły niżej, w części „Dla agenta”).
-
-**Tekst startowy — tylko bez `sf-kit start`** (np. agent inny niż Claude Code/Codex albo folder, w którym nie chcesz `CLAUDE.md`):
+To polecenie dla Claude Code; dla Codex wpisz `codex`. Rozmawiaj z agentem normalnym językiem, na przykład:
 
 ```
-Uruchom `sf-kit readme` — pokaże, gdzie leży instrukcja Kita. Przeczytaj z niej sekcję
+Hej, pokaż mi, co dzisiaj na nas czeka.
+```
+
+```
+Co jest w sprawie FM-66?
+```
+
+```
+Zgłoś sprawę: formularz kontaktowy na stronie nie wysyła wiadomości.
+```
+
+```
+Odpowiedz na sprawę FM-66, że poprawka jest już na stronie.
+```
+
+```
+Załącz do sprawy FM-66 plik raport.pdf.
+```
+
+Przed każdym zapisem w SalesForge agent pokaże, co wyśle, i zapyta o zgodę.
+
+> **Jeśli coś nie działa przy pierwszym uruchomieniu Claude Code**
+>
+> - Na dole ekranu widzisz „Not logged in · Run /login”? Wpisz `/login` i zaloguj się w przeglądarce. Bez tego Claude Code nic nie odpowiada.
+> - Pytanie „Is this a project you created or one you trust?”: zejdź strzałką na „Yes, I trust this folder” i dopiero wtedy naciśnij Enter. Sam Enter zamyka Claude Code.
+> - Claude Code przy każdym poleceniu Kita pyta „Do you want to proceed?”? Folder nie jest zaufany. Wybierz „1. Yes” albo uruchom `claude` jeszcze raz i zaufaj folderowi.
+
+### Claude w aplikacji mobilnej albo w chmurze
+
+Sesja uruchomiona z telefonu albo z claude.ai/code działa w chmurze, nie na Twoim komputerze. Nie masz tam terminala, a wszystko, co agent zainstaluje, znika razem z sesją.
+
+Najprościej zrobić kroki 1–4 na swoim komputerze. Z telefonu pracujesz potem przez aplikację Claude Desktop albo przez `claude remote-control` uruchomione w folderze pracy, a Kit i klucz zostają na Twoim komputerze.
+
+Jeśli chcesz pracować w samej chmurze, dodaj klucz w ustawieniach środowiska jako zmienną `SF_KIT_KEY`. Nigdy nie wklejaj klucza w czacie. Otwórz nową sesję i poproś agenta: „Zainstaluj SF Agent Kit z github.com/dpakula/sf-agent-kit i pokaż sprawy z mojej Organizacji”. Klucz w chmurze nie odnawia się sam: gdy wygaśnie (po 30 dniach), wpisz w ustawieniach nowy klucz od administratora.
+
+### Aktualizacja
+
+```
+sf-kit aktualizuj
+```
+
+Kit raz na dobę sprawdza, czy jest nowa wersja, i mówi o tym jedną linią.
+
+### Dobrze wiedzieć
+
+**Klucz.** Klucz agenta widać tylko raz, gdy administrator go wystawia. Administrator przekazuje go menedżerem haseł, nigdy mailem ani czatem. Wpisujesz go sam, w terminalu, przy `sf-kit init`. Kit trzyma go w pęku kluczy na Macu i w Menedżerze poświadczeń na Windows. Jeśli na Macu wyskoczy okno pęku kluczy, kliknij „Zezwalaj zawsze”.
+
+**Brak uprawnień.** Jeśli Kit odpowiada „Twój klucz nie ma uprawnienia …”, poproś administratora Organizacji o nadanie. Nowy klucz nie jest potrzebny.
+
+**Kilku agentów na jednym komputerze.** `sf-kit init` pokazuje listę agentów i pozwala dodać nowego albo poprawić istniejącego. W poleceniach wybierasz agenta przez `--agent <nazwa>`, np. `sf-kit --agent claude-jkowalski whoami`.
+
+**Agent inny niż Claude Code i Codex.** Gdy nie używasz `sf-kit start`, wklej agentowi na początku rozmowy ten tekst. Slug Organizacji znajdziesz w wyniku `sf-kit whoami`, w linii „pracuję w:”.
+
+```
+Uruchom `sf-kit readme`: pokaże, gdzie leży instrukcja Kita. Przeczytaj z niej sekcję
 „Dla agenta” i postępuj według niej.
 Moja Organizacja w SalesForge to: <slug Twojej Organizacji>   (podawaj ją zawsze jako --org)
 1. Uruchom sf-kit whoami i powiedz mi zwykłym językiem, co widzisz.
@@ -180,11 +128,7 @@ Moja Organizacja w SalesForge to: <slug Twojej Organizacji>   (podawaj ją zawsz
 Nie pytaj mnie o klucz i nie wpisuj go w rozmowie.
 ```
 
-Slug wpisz z kroku 3 (linia `pracuję w:`) albo z panelu SalesForge.
-
-**Tryb pracy agenta:** worker (sam bierze zadania z kolejki), **asystent** (pracuje z Tobą — najczęstszy) albo koordynator (rozdziela pracę innym agentom). Szczegóły opisze Podręcznik SalesForge (w przygotowaniu).
-
-**Organizację podajesz zawsze jawnie** (`--org`, np. `--org <slug>`) — Kit nie zgaduje, w której Organizacji zapisać Twoją pracę.
+**Dla programistów.** Kit można też pobrać gitem: `git clone https://github.com/dpakula/sf-agent-kit.git`, potem `cd sf-agent-kit` i `./sf-kit init`.
 
 ---
 
