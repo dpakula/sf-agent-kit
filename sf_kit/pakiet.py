@@ -1,5 +1,6 @@
 """Pakiet SF Kita dla asystentów — generator z JEDNEGO manifestu (SF-201, Kit 0.16.0).
 
+v1.4.0 (09.10.2026) - APro Agents / borys-sf · tabela poleceń w AGENT.md — README rozdzielony na ludzi i agenta (SF-282)
 v1.3.0 (02.10.2026) - APro Agents / borys-sf · pakiet GEMINI CLI jako rozszerzenie (SF-203)
 v1.2.0 (02.10.2026) - APro Agents / borys-sf · pakiet KIMI CODE z tego samego manifestu (SF-203, Agata 14:12)
 v1.1.0 (02.10.2026) - APro Agents / borys-sf · pakiet CODEX z tego samego manifestu (SF-203, Agata 14:00)
@@ -14,7 +15,7 @@ komendy (cienkie nakładki na podkomendy `sf-kit`) i skille (wiedza „jak praco
 - `pakiet/komendy.json` — manifest: komendy (id EN, aliasy PL, podkomenda CLI, rola, opis) i skille;
 - `pakiet/wiedza/*.md` — treść skilli.
 
-Z nich ten moduł GENERUJE plugin Claude Code (`plugin/`) i tabelę poleceń w README. Pliki
+Z nich ten moduł GENERUJE plugin Claude Code (`plugin/`) i tabelę poleceń w AGENT.md. Pliki
 wygenerowane są w repozytorium (plugin instaluje się z gita), a test pilnuje, że zgadzają się
 z manifestem — ręczna poprawka w `plugin/` zapali strażnika, zamiast cicho rozjechać źródła.
 
@@ -75,6 +76,8 @@ NAZWA_MARKETPLACE = "sf-plugins"
 ROLE = ("wszyscy", "asystent", "agent")
 KONCE = ("wpis", "blok", "nic")
 NAZWA = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+#: Tabela poleceń żyje w instrukcji dla agenta — od SF-282 to osobny plik, README jest dla ludzi.
+PLIK_TABELI = "AGENT.md"
 README_START = "<!-- sf-kit:polecenia:start — tabelę generuje `python3 -m sf_kit.pakiet --zapisz` -->"
 README_KONIEC = "<!-- sf-kit:polecenia:end -->"
 NAGLOWEK = "<!-- wygenerowano z pakiet/komendy.json przez sf-kit {wersja}; nie edytuj ręcznie -->"
@@ -441,9 +444,9 @@ def roznice(korzen: Path = KORZEN) -> list[str]:
         for plik in (korzen / katalog).rglob("*") if (korzen / katalog).exists() else []:
             if plik.is_file() and plik.relative_to(korzen) not in oczekiwane:
                 wynik.append(f"nadmiarowy {plik.relative_to(korzen)} (nie ma go w manifeście)")
-    readme = (korzen / "README.md").read_text(encoding="utf-8")
+    readme = (korzen / PLIK_TABELI).read_text(encoding="utf-8")
     if wstaw_do_readme(readme, tabela_readme(manifest)) != readme:
-        wynik.append("README: tabela poleceń nie zgadza się z manifestem")
+        wynik.append(f"{PLIK_TABELI}: tabela poleceń nie zgadza się z manifestem")
     return wynik
 
 
@@ -461,7 +464,7 @@ def zapisz(korzen: Path = KORZEN) -> list[Path]:
     for sciezka, tresc in oczekiwane.items():
         (korzen / sciezka).parent.mkdir(parents=True, exist_ok=True)
         (korzen / sciezka).write_text(tresc, encoding="utf-8")
-    readme = korzen / "README.md"
+    readme = korzen / PLIK_TABELI
     readme.write_text(wstaw_do_readme(readme.read_text(encoding="utf-8"), tabela_readme(manifest)),
                       encoding="utf-8")
     return sorted(oczekiwane)
@@ -478,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
                                  description="Generator pakietu SF Kita (plugin Claude Code) z manifestu")
     tryb = ap.add_mutually_exclusive_group(required=True)
     tryb.add_argument("--sprawdz", action="store_true", help="tylko porównaj; kod 1 przy rozjeździe")
-    tryb.add_argument("--zapisz", action="store_true", help="wygeneruj plugin/ i tabelę w README")
+    tryb.add_argument("--zapisz", action="store_true", help="wygeneruj plugin/ i tabelę w AGENT.md")
     args = ap.parse_args(argv)
     bledy = waliduj(wczytaj(), _podkomendy())
     if bledy:

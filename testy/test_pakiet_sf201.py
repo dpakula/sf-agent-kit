@@ -5,7 +5,7 @@ v1.0.0 (02.10.2026) - APro Agents / borys-sf · projekt: wpis 33cda66a; GO Damia
 CZEGO PILNUJĄ
 · Każda komenda manifestu wskazuje ISTNIEJĄCĄ podkomendę `sf-kit` (parser, nie lista z pamięci).
 · Komendy, aliasy i skille nie kolidują (jedna przestrzeń nazw pluginu `/sf-kit:…`).
-· `plugin/`, `.claude-plugin/marketplace.json` i tabela w README = dokładnie to, co daje manifest.
+· `plugin/`, `.claude-plugin/marketplace.json` i tabela w AGENT.md = dokładnie to, co daje manifest.
 · Alias niesie TĘ SAMĄ instrukcję co komenda kanoniczna; komend model sam nie wywołuje.
 
 Uruchomienie: `python3 -m unittest discover -s testy`
@@ -108,7 +108,7 @@ class TestGenerator(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             korzen = Path(d)
             (korzen / "pakiet" / "wiedza").mkdir(parents=True)
-            for plik in ("pakiet/komendy.json", "README.md", *[s["zrodlo"] for s in self.manifest["skille"]]):
+            for plik in ("pakiet/komendy.json", pakiet.PLIK_TABELI, *[s["zrodlo"] for s in self.manifest["skille"]]):
                 (korzen / plik).write_text((KORZEN / plik).read_text(encoding="utf-8"), encoding="utf-8")
             sierota = korzen / "plugin" / "commands" / "stara-komenda.md"
             sierota.parent.mkdir(parents=True)

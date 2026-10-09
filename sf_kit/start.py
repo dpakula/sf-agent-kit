@@ -1,5 +1,6 @@
 """`sf-kit start` — przygotuj bieżący katalog do pracy z asystentem (ADVERTPR-987, 0.15.1).
 
+v1.1.0 (09.10.2026) - APro Agents / borys-sf · instrukcja dla agenta = AGENT.md (SF-282)
 v1.0.0 (30.09.2026) - APro Agents / borys-sf
 
 PO CO
@@ -11,7 +12,7 @@ poleceniu Kita pyta „Do you want to proceed?”. `start` zapisuje w katalogu p
 które Claude Code i Codex czytają same:
 
 - `CLAUDE.md` (Claude Code) i `AGENTS.md` (Codex, Kimi): krótka instrukcja asystenta
-  z wpisaną Organizacją i ścieżką do pełnego README,
+  z wpisaną Organizacją i ścieżką do instrukcji dla agenta (AGENT.md; do SF-282 README),
 - `.claude/settings.json`: reguła `Bash(sf-kit:*)`, dzięki której polecenia Kita nie wymagają
   potwierdzenia. Reguła obejmuje WYŁĄCZNIE `sf-kit`, a to, co Kit może zrobić, i tak
   rozstrzygają uprawnienia klucza po stronie SalesForge.
@@ -52,7 +53,7 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 `sf-kit` — nie wchodzisz na stronę SF i nie wołasz API ręcznie.
 
 - **Organizacja:** {org_nazwa} — w każdym poleceniu podawaj `--org {org_slug}` (przed nazwą polecenia).
-{kto}- **Pełna instrukcja:** `sf-kit readme --tresc` (sekcja „Dla agenta”; plik: `{readme}`). Gdy nie wiesz,
+{kto}- **Pełna instrukcja:** `sf-kit readme --tresc` (instrukcja dla agenta; plik: `{readme}`). Gdy nie wiesz,
   jak coś zrobić — przeczytaj ją tym poleceniem, nie zgaduj. Czytaj ją poleceniem, nie z pliku:
   plik leży poza tym katalogiem i Claude Code pytałby człowieka o zgodę na odczyt.
 - **Na początku rozmowy** uruchom `{k} whoami` i powiedz człowiekowi zwykłym językiem, kim jesteś w SF i co możesz.

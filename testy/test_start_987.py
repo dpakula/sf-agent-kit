@@ -1,5 +1,6 @@
 """`sf-kit start` i `sf-kit sprawa <link>` (ADVERTPR-987, 0.15.1).
 
+v1.1.0 (09.10.2026) - APro Agents / borys-sf · `sf-kit readme`: README dla ludzi + AGENT.md dla agenta (SF-282)
 v1.0.0 (30.09.2026) - APro Agents / borys-sf
 
 Czego te testy pilnują — rzeczy, które psują się bez objawu:
@@ -240,6 +241,39 @@ class TestSprawaZLinku(unittest.TestCase):
         kod, _, _, _, err = self._uruchom(["sprawa", "https://example.com/cos"])
         self.assertEqual(kod, 1)
         self.assertIn("nie rozumiem", err)
+
+
+class TestReadmeDwieInstrukcje(unittest.TestCase):
+    """SF-282 (decyzja Damiana 09.10, „A — rozdzielić”): README.md dla ludzi, AGENT.md dla agenta."""
+
+    KORZEN = Path(__file__).resolve().parents[1]
+
+    def _readme(self, *argv):
+        out = io.StringIO()
+        with redirect_stdout(out), mock.patch("sf_kit.instalacja.katalog_tego_kodu", return_value=self.KORZEN):
+            kod = cli.main(["readme", *argv])
+        return kod, out.getvalue()
+
+    def test_bez_opcji_obie_sciezki(self):
+        kod, out = self._readme()
+        self.assertEqual(kod, 0)
+        self.assertIn(str(self.KORZEN / "README.md"), out)
+        self.assertIn(str(self.KORZEN / "AGENT.md"), out)
+
+    def test_tresc_to_instrukcja_dla_agenta(self):
+        kod, out = self._readme("--tresc")
+        self.assertEqual(kod, 0)
+        self.assertEqual(out.rstrip("\n"), (self.KORZEN / "AGENT.md").read_text(encoding="utf-8").rstrip("\n"))
+        self.assertIn("## Dla agenta", out)
+        self.assertNotIn("## Dla użytkownika", out)
+
+    def test_pliki_odsylaja_do_siebie(self):
+        readme = (self.KORZEN / "README.md").read_text(encoding="utf-8")
+        agent = (self.KORZEN / "AGENT.md").read_text(encoding="utf-8")
+        self.assertNotIn("## Dla agenta", readme)
+        self.assertIn("(AGENT.md)", readme.splitlines()[2], "zdanie z linkiem pod tytułem")
+        self.assertIn("(AGENT.md)", readme.rstrip().splitlines()[-1], "link na końcu README")
+        self.assertIn("(README.md)", agent)
 
 
 if __name__ == "__main__":

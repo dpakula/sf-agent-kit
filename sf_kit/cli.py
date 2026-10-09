@@ -477,16 +477,21 @@ def polecenie_heartbeat(args) -> int:
 
 
 def polecenie_readme(args) -> int:
-    """`sf-kit readme` — gdzie leży instrukcja Kita (ADVERTPR-987). Po instalacji jednym
-    poleceniem kod siedzi w katalogu, którego człowiek nie zna, a tekst startowy każe agentowi
-    przeczytać README — agent pyta Kita o ścieżkę zamiast jej szukać."""
+    """`sf-kit readme` — gdzie leżą instrukcje Kita (ADVERTPR-987). Po instalacji jednym
+    poleceniem kod siedzi w katalogu, którego człowiek nie zna — agent pyta Kita o ścieżkę
+    zamiast jej szukać.
+
+    Od SF-282 (decyzja Damiana 09.10, „A — rozdzielić”) instrukcje są dwie: README.md dla ludzi
+    i AGENT.md dla agenta. Bez opcji wypisujemy obie ścieżki, każdą z podpisem; `--tresc` oddaje
+    AGENT.md, bo treść czyta agent (tak każe mu CLAUDE.md/AGENTS.md ze `start`)."""
     from . import instalacja
 
-    sciezka = instalacja.katalog_tego_kodu() / "README.md"
+    katalog = instalacja.katalog_tego_kodu()
     if getattr(args, "tresc", False):
-        print(sciezka.read_text(encoding="utf-8"))
+        print((katalog / "AGENT.md").read_text(encoding="utf-8"))
     else:
-        print(sciezka)
+        print(f"dla ludzi:   {katalog / 'README.md'}")
+        print(f"dla agenta:  {katalog / 'AGENT.md'}")
     return 0
 
 
@@ -510,7 +515,7 @@ def polecenie_start(args) -> int:
 
     konf = konfiguracja.wczytaj()
     _, org, toz = _klient_organizacja_tozsamosc(konf, args)
-    readme = instalacja.katalog_tego_kodu() / "README.md"
+    readme = instalacja.katalog_tego_kodu() / "AGENT.md"
     try:
         raport = start.przygotuj(katalog, org_slug=org.slug, org_nazwa=org.nazwa or org.slug,
                                  readme=readme, agent=getattr(args, "agent", None),
@@ -2958,8 +2963,9 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     ak.add_argument("--force", action="store_true",
                     help="pozwól przejść na wydanie starsze od zainstalowanego")
     ak.set_defaults(funkcja=polecenie_update)
-    rd = pod.add_parser("readme", help="gdzie leży instrukcja Kita (README.md)")
-    rd.add_argument("--tresc", action="store_true", help="wypisz treść zamiast ścieżki")
+    rd = pod.add_parser("readme", help="gdzie leżą instrukcje Kita (README.md dla ludzi, "
+                                          "AGENT.md dla agenta)")
+    rd.add_argument("--tresc", action="store_true", help="wypisz treść AGENT.md zamiast ścieżek")
     rd.set_defaults(funkcja=polecenie_readme)
     ins = pod.add_parser("instaluj", help="(woła instalator) zainstaluj ten rozpakowany Kit "
                                           "w katalogu użytkownika")
