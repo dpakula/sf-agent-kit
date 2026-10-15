@@ -40,7 +40,7 @@ Sprawdź w `sf-kit whoami` i w konfiguracji (`sf-kit init`), w którym trybie pr
 |---|---|---|
 | **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa`, `obserwujacy`, `ustawienia` |
 | **worker** (`worker`) | bierzesz zadania z kolejki i wykonujesz je w tle | `tasks`, `worker` |
-| **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status`, `publikuj` |
+| **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status --kolejka`, `publikuj` |
 
 Profil nie nadaje uprawnień — te są po stronie SalesForge. Jeśli polecenie odpowie brakiem uprawnienia, zatrzymaj się i przekaż użytkownikowi, czego brakuje.
 
@@ -729,8 +729,16 @@ sf-kit flota rejestr agents.json [--pokaz]   # migawka rejestru floty do SF (v0.
 sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md
 sf-kit kolejka [--agent-slug kodeks] [--status in_progress]
 sf-kit odbierz zadanie-abc-20260915
-sf-kit status                     # kim jestem + kolejka floty
+sf-kit status --kolejka           # kim jestem + kolejka floty (do 0.17: samo `status`)
 ```
+
+**Ekran statusu (od 0.18, ADVERTPR-1075).** `sf-kit status [--kto damian|agata|<agent>]` (alias `postac`) rysuje
+cztery paski jednej szerokości — ✦ MANA, ↯ ENERGIA, 🔥 PRESJA, ♥ ZDROWIE — w procentach, z tendencją HP i zapasem
+limitów 5h/7d jako glifami, a pod spodem przy każdym parametrze: składowe (co ile zabrało), od kiedy tak jest
+i 1–3 podpowiedzi „co zrobić”. Kit niczego tu nie liczy: dane, rozbicia i teksty podpowiedzi daje
+`scripts/lib/wskazniki.py --json` z repo AProAgents (jeden manifest wskaźników). Kit szuka go w górę od bieżącego
+katalogu; inaczej `--wskazniki <ścieżka>` albo env `SF_KIT_WSKAZNIKI`. `--krotko` = same paski,
+`--kolor nigdy` = bez kodów ANSI (tak woła go /mood). Bez `wskazniki.py` Kit mówi, czego brakuje; panel w SF — SF-289.
 
 **`zlec` zawsze wymaga sprawy.** To twarda strona zasady „twardo przy zakładaniu, miękko przy
 wykonaniu": zadanie bez sprawy da się wykonać, ale jego wynik nie ma gdzie wylądować. Jeśli

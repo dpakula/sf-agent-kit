@@ -1225,6 +1225,21 @@ def polecenie_odbierz(args) -> int:
 
 
 def polecenie_status(args) -> int:
+    """ADVERTPR-1075: ekran statusu „jak w grze” (mana, energia, presja, zdrowie). Dawny `status`
+    koordynatora (whoami + kolejka floty) — `status --kolejka`, także gdy podano --agent-slug/--status:
+    te opcje znaczą tylko tamto, więc nikt, kto ich używał, nie dostaje nagle innego ekranu."""
+    if getattr(args, "kolejka_floty", False) or args.agent_slug or args.status:
+        return _status_koordynatora(args)
+    from . import postac
+    try:
+        print(postac.ekran(kto=args.kto, wskazniki=args.wskazniki, kolor=args.kolor, rozbicie=not args.krotko))
+    except (postac.BrakWskaznikow, subprocess.TimeoutExpired) as blad:
+        print(str(blad), file=sys.stderr)
+        return 2
+    return 0
+
+
+def _status_koordynatora(args) -> int:
     """`whoami` koordynatora: kim jestem, gdzie pracuję i co flota ma na głowie."""
     kod = polecenie_whoami(args)
     print()
@@ -3319,10 +3334,20 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                          "zostanie ODRZUCONE z adresem właściwej trasy")
     kw.set_defaults(funkcja=polecenie_klucz_wystaw)
 
-    st = pod.add_parser("status", help="[koordynator] kim jestem + kolejka floty")
-    st.add_argument("--agent-slug", default=None, dest="agent_slug")
+    st = pod.add_parser("status", aliases=["postac"],
+                        help="ekran statusu: mana, energia, presja, zdrowie z rozbiciem i podpowiedziami "
+                             "(--kolejka: dawny widok koordynatora)")
+    st.add_argument("--kto", default=None, metavar="damian|agata|<agent>",
+                    help="czyj ekran (domyślnie: widok status line Agaty — presja i HP Damiana)")
+    st.add_argument("--wskazniki", default=None, metavar="ŚCIEŻKA",
+                    help="scripts/lib/wskazniki.py (domyślnie: env SF_KIT_WSKAZNIKI albo w górę od katalogu)")
+    st.add_argument("--kolor", choices=["auto", "zawsze", "nigdy"], default="auto")
+    st.add_argument("--krotko", action="store_true", help="same paski, bez rozbicia i podpowiedzi")
+    st.add_argument("--kolejka", dest="kolejka_floty", action="store_true",
+                    help="[koordynator] kim jestem + kolejka floty (dawny `status`)")
+    st.add_argument("--agent-slug", default=None, dest="agent_slug", help="[koordynator] z --kolejka")
     st.add_argument("--status", default=None,
-                    choices=["queued", "in_progress", "on_hold", "completed"])
+                    choices=["queued", "in_progress", "on_hold", "completed"], help="[koordynator] z --kolejka")
     st.set_defaults(funkcja=polecenie_status)
 
     w = pod.add_parser("worker", help="[worker] pętla: bierz zadania, wykonuj, raportuj")
