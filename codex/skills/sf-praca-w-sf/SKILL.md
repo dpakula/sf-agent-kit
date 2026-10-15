@@ -2,7 +2,7 @@
 name: "sf-praca-w-sf"
 description: "Jak pracować w SalesForge przez SF Kit: Organizacja, sprawa vs zadanie, poziomy widoczności, Kit zamiast curl. Użyj, gdy praca dotyczy spraw, zadań albo wpisów w SalesForge."
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.17.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.18.0; nie edytuj ręcznie -->
 
 # Praca w SalesForge przez SF Kit
 
@@ -25,5 +25,5 @@ SalesForge (SF) to system spraw i zadań. Pracujesz w nim **wyłącznie przez po
 5. Linki do spraw i wpisów podawaj pełne (z `?org=`), żeby otwierały się we właściwej Organizacji.
 
 ## Gdy coś nie działa
-- `sf-kit status` (whoami) — czy klucz działa, w jakiej jesteś Organizacji, jakie masz uprawnienia.
+- `sf-kit whoami` — czy klucz działa, w jakiej jesteś Organizacji, jakie masz uprawnienia.
 - `sf-kit update --check` — czy Kit nie jest za stary względem SF.

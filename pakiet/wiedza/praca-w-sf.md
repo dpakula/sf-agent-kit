@@ -19,5 +19,5 @@ SalesForge (SF) to system spraw i zadań. Pracujesz w nim **wyłącznie przez po
 5. Linki do spraw i wpisów podawaj pełne (z `?org=`), żeby otwierały się we właściwej Organizacji.
 
 ## Gdy coś nie działa
-- `sf-kit status` (whoami) — czy klucz działa, w jakiej jesteś Organizacji, jakie masz uprawnienia.
+- `sf-kit whoami` — czy klucz działa, w jakiej jesteś Organizacji, jakie masz uprawnienia.
 - `sf-kit update --check` — czy Kit nie jest za stary względem SF.
