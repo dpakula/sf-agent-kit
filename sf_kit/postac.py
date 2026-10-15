@@ -14,6 +14,7 @@ v0.4 (21.10.2026) - ADVERTPR-1118 cd. (Damian 23:5x): strzałki ↗ → ↘ w ko
 v0.3 (21.10.2026) - ADVERTPR-1118: tendencja presji D/A — strzałka przy pasku, w rozbiciu delta 3 h i 24 h w pp
 v0.2 (16.10.2026) - ADVERTPR-1089: presja manifestu v4 — opis „N z M poz. po terminie (X dnia zaległości)”,
      kubełki tolerancji w pp, linia obciążenia (informacyjnie); dane manifestu ≤ 3 rysowane jak dotąd
+v0.1.1 (15.10.2026) - APro Agents / borys-sf — wydanie 0.18.0: `wskazniki.py` tylko z jawnej ścieżki, env albo nad $HOME
 v0.1 (15.10.2026) - APro Agents / klaudiusz-general (ADVERTPR-1075)
 
 SKĄD LICZBY
@@ -73,17 +74,21 @@ class BrakWskaznikow(Exception):
 # ───────────────────────── źródło danych ─────────────────────────
 
 def znajdz_wskazniki(jawna: str | None = None) -> Path | None:
-    """`--wskazniki` > env SF_KIT_WSKAZNIKI > w górę od bieżącego katalogu i od $HOME (domy agentów leżą w repo)."""
+    """`--wskazniki` > env SF_KIT_WSKAZNIKI > w górę od $HOME (domy agentów leżą w repo AProAgents).
+
+    0.18.0 (borys-sf, bramka wydania): BEZ szukania od bieżącego katalogu. `pobierz()` URUCHAMIA znaleziony plik,
+    a `sf-kit status` wpisany w sklonowanym cudzym repo wykonałby jego `scripts/lib/wskazniki.py` — ta sama klasa
+    co hooki gita. Bieżący katalog wskazuje człowiek przypadkiem, `$HOME` i jawna ścieżka — świadomie.
+    """
     for kandydat in (jawna, os.environ.get("SF_KIT_WSKAZNIKI")):
         if kandydat:
             p = Path(kandydat).expanduser()
             return p if p.is_file() else None
-    for start in (Path.cwd(), Path.home()):
-        d = start.resolve()
-        for katalog in (d, *d.parents):
-            p = katalog / "scripts" / "lib" / "wskazniki.py"
-            if p.is_file():
-                return p
+    d = Path.home().resolve()
+    for katalog in (d, *d.parents):
+        p = katalog / "scripts" / "lib" / "wskazniki.py"
+        if p.is_file():
+            return p
     return None
 
 
