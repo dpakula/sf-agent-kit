@@ -3340,7 +3340,7 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     st.add_argument("--kto", default=None, metavar="damian|agata|<agent>",
                     help="czyj ekran (domyślnie: widok status line Agaty — presja i HP Damiana)")
     st.add_argument("--wskazniki", default=None, metavar="ŚCIEŻKA",
-                    help="scripts/lib/wskazniki.py (domyślnie: env SF_KIT_WSKAZNIKI albo w górę od katalogu)")
+                    help="scripts/lib/wskazniki.py (domyślnie: env SF_KIT_WSKAZNIKI albo w górę od $HOME)")
     st.add_argument("--kolor", choices=["auto", "zawsze", "nigdy"], default="auto")
     st.add_argument("--krotko", action="store_true", help="same paski, bez rozbicia i podpowiedzi")
     st.add_argument("--kolejka", dest="kolejka_floty", action="store_true",

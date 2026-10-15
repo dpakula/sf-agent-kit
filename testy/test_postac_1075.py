@@ -201,13 +201,22 @@ class Zrodlo(unittest.TestCase):
         self.assertIn("--wskazniki", str(ctx.exception))
         self.assertIn("SF-289", str(ctx.exception))
 
-    def test_szuka_w_gore_od_katalogu(self):
+    def test_szuka_w_gore_od_domu(self):
+        with mock.patch.dict(os.environ, {}, clear=False), \
+             mock.patch.object(postac.Path, "home", return_value=self.r / "homes" / "agata"):
+            os.environ.pop("SF_KIT_WSKAZNIKI", None)
+            self.assertEqual(postac.znajdz_wskazniki().resolve(), self.lib.resolve())
+
+    def test_nie_uruchamia_wskaznikow_z_biezacego_katalogu(self):
+        """0.18.0: `pobierz()` WYKONUJE znaleziony plik — cudze repo w bieżącym katalogu nie może go podsunąć."""
         stary = os.getcwd()
+        obcy = Path(tempfile.mkdtemp())
         try:
             os.chdir(self.r / "homes" / "agata")
-            with mock.patch.dict(os.environ, {}, clear=False):
+            with mock.patch.dict(os.environ, {}, clear=False), \
+                 mock.patch.object(postac.Path, "home", return_value=obcy):
                 os.environ.pop("SF_KIT_WSKAZNIKI", None)
-                self.assertEqual(postac.znajdz_wskazniki().resolve(), self.lib.resolve())
+                self.assertIsNone(postac.znajdz_wskazniki())
         finally:
             os.chdir(stary)
 

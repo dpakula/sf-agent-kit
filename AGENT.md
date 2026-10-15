@@ -736,8 +736,8 @@ sf-kit status --kolejka           # kim jestem + kolejka floty (do 0.17: samo `s
 cztery paski jednej szerokości — ✦ MANA, ↯ ENERGIA, 🔥 PRESJA, ♥ ZDROWIE — w procentach, z tendencją HP i zapasem
 limitów 5h/7d jako glifami, a pod spodem przy każdym parametrze: składowe (co ile zabrało), od kiedy tak jest
 i 1–3 podpowiedzi „co zrobić”. Kit niczego tu nie liczy: dane, rozbicia i teksty podpowiedzi daje
-`scripts/lib/wskazniki.py --json` z repo AProAgents (jeden manifest wskaźników). Kit szuka go w górę od bieżącego
-katalogu; inaczej `--wskazniki <ścieżka>` albo env `SF_KIT_WSKAZNIKI`. `--krotko` = same paski,
+`scripts/lib/wskazniki.py --json` z repo AProAgents (jeden manifest wskaźników). Kit szuka go w górę od katalogu
+domowego (`$HOME`), **nie od bieżącego** — znaleziony plik jest uruchamiany, a cudze repo nie może go podsunąć; inaczej `--wskazniki <ścieżka>` albo env `SF_KIT_WSKAZNIKI`. `--krotko` = same paski,
 `--kolor nigdy` = bez kodów ANSI (tak woła go /mood). Bez `wskazniki.py` Kit mówi, czego brakuje; panel w SF — SF-289.
 
 **`zlec` zawsze wymaga sprawy.** To twarda strona zasady „twardo przy zakładaniu, miękko przy
@@ -1225,7 +1225,7 @@ sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md 
             [--priorytet low|medium|high|urgent] [--termin 2026-09-20T18:00:00Z]
 sf-kit kolejka [--agent-slug kodeks] [--status in_progress]
 sf-kit odbierz <id-zadania>                     # zamknij PO sprawdzeniu, że wynik jest na sprawie
-sf-kit status                                   # whoami + kolejka floty
+sf-kit status --kolejka                         # whoami + kolejka floty (do 0.17: samo `status`)
 ```
 
 Te polecenia pokazują się tylko wtedy, gdy klucz ma `plans:write` **w wybranej Organizacji** —
