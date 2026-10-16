@@ -1,5 +1,7 @@
 """Ekran statusu „jak w grze” — MANA, ENERGIA, PRESJA, ZDROWIE z rozbiciem i podpowiedziami.
 
+v0.2 (16.10.2026) - ADVERTPR-1089: presja manifestu v4 — opis „N z M poz. po terminie (X dnia zaległości)”,
+     kubełki tolerancji w pp, linia obciążenia (informacyjnie); dane manifestu ≤ 3 rysowane jak dotąd
 v0.1 (15.10.2026) - APro Agents / klaudiusz-general (ADVERTPR-1075)
 
 SKĄD LICZBY
@@ -183,8 +185,12 @@ class Ekran:
         inny = kto not in (None, "", "damian", "agata")
         klucz_p, litera = ("agent", " A") if kto == "agata" else ("damian", "" if inny else " D")
         pr = None if kto not in (None, "", "damian", "agata") else pres_all.get(klucz_p)
-        if pr:
+        if pr and "przeterminowanych" in pr:              # manifest v4: tolerancja, 100 % = dzień zaległości
+            dop_p = (f"{_nazwa(pr['kolor'])} · {pr['przeterminowanych']} z {pr['pozycji']} poz. po terminie "
+                     f"({_l(pr['dni'])} dnia zaległości)")
+        elif pr:                                          # manifest ≤ 3 (dni wolumenu)
             dop_p = f"{_l(pr['dni'])} dni · {_nazwa(pr['kolor'])} · {pr['pozycji']} poz."
+        if pr:
             if pres_all.get("co_najmniej") and klucz_p == "damian":
                 dop_p = "≥ " + dop_p
             if not pres_all.get("swieze"):
@@ -249,6 +255,8 @@ class Ekran:
         out = ["", self._k(kolor, f"{ik} {etykieta} {wart}") + self._trend(klucz, w.get("trend"))]
         for s in w.get("skladowe") or []:
             out.append("   · " + self._skladowa(klucz, s))
+        if klucz == "presja" and w.get("obciazenie"):        # v4: informacyjnie, bez koloru alarmowego (manifest § 2)
+            out.append(self._k(SZARY, "   · " + w["obciazenie"].get("opis", "")))
         if klucz == "hp":
             pod = w.get("podglad_dzis") or {}
             if pod.get("zmiana") is not None:
@@ -283,6 +291,11 @@ class Ekran:
             proc = s.get("procent")
             return f"{_dopelnij(s['nazwa'], 20)} {_dopelnij('n/d' if proc is None else f'{proc} %', 8)} {s.get('opis', '')}"
         if klucz == "presja":
+            if s.get("kubel") == "w_tolerancji":           # v4: nie liczą się do presji — sam opis
+                return s.get("opis", "")
+            if "pp" in s:                                  # v4: kubełki tolerancji, wkład w punktach procentowych
+                ile = f"{_l(s['punkty'])} pkt" if "punkty" in s else ""
+                return f"{_dopelnij(s.get('opis', ''), 52)} {_dopelnij(ile, 9)} = {_l(s['pp'])} pp"
             return f"{_dopelnij(s.get('opis', ''), 40)} {_dopelnij(_l(s['punkty']) + ' pkt', 10)} = {_l(s['dni'])} dni"
         if klucz == "hp":
             return f"{_dopelnij(s['nazwa'], 40)} {_znak(s['punkty'])}"

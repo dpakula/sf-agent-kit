@@ -141,6 +141,38 @@ class Wglad(unittest.TestCase):
         self.assertNotIn("→", ekran(rozbicie=False).split("5h")[1])
 
 
+class PresjaV4(unittest.TestCase):
+    """ADVERTPR-1089: manifest v4 — opis z przeterminowanych, kubełki w pp, obciążenie tylko w rozbiciu."""
+
+    def dane_v4(self):
+        d = dane(manifest=4)
+        d["presja"]["damian"] = {
+            "procent": 804, "procent_dokladny": 804.0, "kolor": "czerwony", "punkty": 120.0, "dni": 8.0, "pozycji": 134,
+            "przeterminowanych": 65, "kubly": {"w_tolerancji": 51, "po_tolerancji": 52, "po_2x": 13, "low_bez_terminu": 18},
+            "low_bez_terminu": 18, "skladowa_low": 4.0, "obciazenie": 1073,
+            "wglad": {"skladowe": [
+                {"kubel": "po_2x", "n": 13, "punkty": 52.0, "pp": 346.7, "opis": "13 poz. po 2× tolerancji (high 13)"},
+                {"kubel": "low_bez_terminu", "n": 18, "pp": 4.0, "opis": "18 poz. low bez terminu"},
+                {"kubel": "w_tolerancji", "n": 51, "punkty": 0, "pp": 0, "opis": "51 poz. w tolerancji — nie liczą się"}],
+                "podpowiedzi": ["13 poz. po 2× tolerancji (high 13; 52 pkt) → odpowiedzieć / zamknąć / scalić = −346,7 pp"],
+                "reakcja": None, "trend": None,
+                "obciazenie": {"procent": 1073, "pozycji": 134, "opis": "obciążenie 1073 % — wszystkie 134 otwarte"}}}
+        return d
+
+    def test_opis_przy_pasku_z_przeterminowanych(self):
+        t = ekran(self.dane_v4(), rozbicie=False)
+        self.assertIn("czerwony · 65 z 134 poz. po terminie (8 dnia zaległości)", t)
+        self.assertNotIn("obciążenie", t)                     # obciążenie tylko w rozbiciu (manifest § 2)
+
+    def test_kubly_w_pp_i_obciazenie_w_rozbiciu(self):
+        t = ekran(self.dane_v4())
+        self.assertRegex(t, r"13 poz\. po 2× tolerancji \(high 13\)\s+52 pkt\s+= 346,7 pp")
+        self.assertRegex(t, r"18 poz\. low bez terminu\s+= 4 pp")
+        self.assertIn("   · 51 poz. w tolerancji — nie liczą się\n", t + "\n")
+        self.assertIn("   · obciążenie 1073 % — wszystkie 134 otwarte", t)
+        self.assertIn("manifest v4", t.splitlines()[-1])
+
+
 class Kto(unittest.TestCase):
     def test_agata_presja_A_hp_nie_dotyczy(self):
         t = ekran(kto="agata")
