@@ -1976,6 +1976,74 @@ def polecenie_wpis_edytuj(args) -> int:
     return 0
 
 
+def _powod_usuniecia(args) -> str | None:
+    tekst = " ".join((args.powod or "").split())
+    if len(tekst) < 3:
+        print("Nie wysyłam: podaj powód usunięcia (`--powod`, co najmniej 3 znaki) — stanie w miejscu wpisu "
+              "jako „usunięte przez …, kiedy — powód”. Nie cytuj w nim usuwanej treści.", file=sys.stderr)
+        return None
+    return tekst[:500]
+
+
+def _odmowa_usuniecia(blad: BladAPI, co: str) -> None:
+    powod = _powod_serwera(blad)
+    kod = getattr(blad, "kod", None)
+    print(f"{co} NIE został usunięty: {powod or blad}", file=sys.stderr)
+    if kod == 403:
+        print("  Usuwa superadmin, administrator Organizacji z uprawnieniem „Wpisy: usuwanie z osi”\n"
+              "  (entries:delete) albo autor w ciągu kilku minut od publikacji. Poproś administratora.",
+              file=sys.stderr)
+    elif kod == 405:
+        print("  Ten serwer SalesForge nie umie jeszcze usuwać załączników (SF-404) — poczekaj na wdrożenie.",
+              file=sys.stderr)
+    elif kod == 409:
+        print("  To jest ślad audytowy usunięcia — z założenia nieusuwalny.", file=sys.stderr)
+
+
+def polecenie_wpis_usun(args) -> int:
+    """SF-404: usuń wpis ze sprawy z adnotacją. Kody: 0 usunięty (albo już był), 1 odmowa/błąd SF, 2 złe wejście."""
+    powod = _powod_usuniecia(args)
+    if powod is None:
+        return 2
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    wynik = _sprawa_i_wpis(klient, args)
+    if wynik is None:
+        return 1
+    sprawa, wpis_id = wynik
+    try:
+        odp = klient.usun_wpis(str(sprawa["id"]), wpis_id, powod)
+    except BladAPI as blad:
+        _odmowa_usuniecia(blad, f"Wpis {wpis_id[:8]}")
+        return 1
+    if odp.get("juz_wczesniej"):
+        print(f"Wpis {wpis_id[:8]} był już usunięty ({odp.get('kiedy') or '?'}, powód: {odp.get('powod') or '—'}).")
+    else:
+        print(f"Wpis {wpis_id[:8]} usunięty. Na osi stoi w jego miejscu: „usunięte przez "
+              f"{odp.get('kto') or 'Ciebie'} — {powod}”.")
+    return 0
+
+
+def polecenie_zalacznik_usun(args) -> int:
+    """SF-404: usuń załącznik (pełny identyfikator z `sf-kit sprawa`/odpowiedzi API) z adnotacją przy wpisie."""
+    powod = _powod_usuniecia(args)
+    if powod is None:
+        return 2
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        odp = klient.usun_zalacznik(args.zalacznik, powod)
+    except BladAPI as blad:
+        _odmowa_usuniecia(blad, f"Załącznik {args.zalacznik[:8]}")
+        return 1
+    if odp.get("juz_wczesniej"):
+        print(f"Załącznik {args.zalacznik[:8]} był już usunięty.")
+    else:
+        print(f"Załącznik {args.zalacznik[:8]} usunięty — przy wpisie stoi „Załącznik … usunięty przez "
+              f"{odp.get('kto') or 'Ciebie'} — {powod}”.")
+    return 0
+
+
 def polecenie_wpis_wersje(args) -> int:
     """Bieżąca treść wpisu i jego poprzednie wersje (ADVERTPR-782)."""
     from . import wpisy
@@ -3119,6 +3187,21 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     we.add_argument("--powod", default=None, metavar="TEKST",
                     help="po co ta zmiana — trafia do historii wersji (do 500 znaków)")
     we.set_defaults(funkcja=polecenie_wpis_edytuj)
+
+    # SF-404: usuwanie z adnotacją „usunięte przez X, kiedy — powód” (powód obowiązkowy).
+    wu = pod.add_parser("wpis-usun", help="[agent] usuń wpis ze sprawy — w jego miejscu zostaje „usunięte przez "
+                                          "X, kiedy — powód” (SF-404)")
+    wu.add_argument("sprawa", help="numer (FM-12) albo identyfikator sprawy")
+    wu.add_argument("wpis", help="identyfikator wpisu albo jego początek (min. 6 znaków)")
+    wu.add_argument("--powod", required=True, metavar="TEKST",
+                    help="po co usuwasz (3–500 znaków; widać go na osi — nie cytuj usuwanej treści)")
+    wu.set_defaults(funkcja=polecenie_wpis_usun)
+
+    zu = pod.add_parser("zalacznik-usun", help="[agent] usuń załącznik z wpisu — przy wpisie zostaje adnotacja "
+                                               "(SF-404)")
+    zu.add_argument("zalacznik", help="pełny identyfikator załącznika")
+    zu.add_argument("--powod", required=True, metavar="TEKST", help="po co usuwasz (3–500 znaków)")
+    zu.set_defaults(funkcja=polecenie_zalacznik_usun)
 
     ww = pod.add_parser("wpis-wersje", help="[agent] bieżąca treść wpisu i jego poprzednie "
                                             "wersje (ADVERTPR-782)")

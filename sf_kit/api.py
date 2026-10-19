@@ -1,5 +1,7 @@
 """Rozmowa z SalesForge. Wyłącznie biblioteka standardowa — zero `pip install`.
 
+v0.3 (19.10.2026) - APro Agents / borys-sf
+  0.3 — SF-404: `usun_wpis`, `usun_zalacznik` (DELETE z obowiązkowym powodem).
 v0.2 (28.09.2026) - APro Agents / borys-sf
   0.2 — SF-86: `potwierdz_odbior(instancja, generacja)`, `dzierzawa()`; SF-87: `puls()`.
 v0.1 (14.09.2026) - APro Agents / borys-sf
@@ -889,6 +891,16 @@ class Klient:
     def edytuj_wpis(self, ticket_id: str, entry_id: str, cialo: dict) -> dict:
         """`PATCH …/entries/{id}` z `content` (+ `reason`). SF zapisuje stan SPRZED zmiany."""
         odp = self._wywolaj("PATCH", f"tickets/{ticket_id}/entries/{entry_id}", cialo=cialo)
+        return odp if isinstance(odp, dict) else {}
+
+    def usun_wpis(self, ticket_id: str, entry_id: str, powod: str) -> dict:
+        """SF-404: `DELETE …/entries/{id}` z `{"powod"}` — miękko, z linią „usunięte przez X, kiedy — powód”."""
+        odp = self._wywolaj("DELETE", f"tickets/{ticket_id}/entries/{entry_id}", cialo={"powod": powod})
+        return odp if isinstance(odp, dict) else {}
+
+    def usun_zalacznik(self, attachment_id: str, powod: str) -> dict:
+        """SF-404: `DELETE /tickets/attachments/{id}` z `{"powod"}` — plik do kosza, przy wpisie zostaje adnotacja."""
+        odp = self._wywolaj("DELETE", f"tickets/attachments/{attachment_id}", cialo={"powod": powod})
         return odp if isinstance(odp, dict) else {}
 
     def wersje_wpisu(self, ticket_id: str, entry_id: str) -> list:

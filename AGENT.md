@@ -1011,6 +1011,21 @@ sf-kit wpis-wersje ADVERTPR-782 dba3ae21          # bieżąca treść + poprzedn
 - **Historię czytaj tak:** każda wersja to stan **sprzed** zmiany, a „zastąpiona … przez X”
   mówi, kto i kiedy ją podmienił. Nie mówi, kto ją napisał.
 
+#### Usuwanie wpisu i załącznika (SF-404)
+
+Pomyłkę (pusty wpis, duplikat, zły plik) da się usunąć. Treść znika z osi dla wszystkich poza
+superadminem, a w jej miejscu zostaje linia „Wpis usunięty przez X, DD.MM HH:MM — powód”.
+
+```bash
+sf-kit wpis-usun SECO-220 dba3ae21 --powod "pusty wpis po nieudanym załączniku HTML"
+sf-kit zalacznik-usun 5f0c…-pelny-identyfikator --powod "zły plik — dodany do złej sprawy"
+```
+
+- **Powód jest obowiązkowy** (3–500 znaków) i **widać go na osi**. Nie cytuj w nim usuwanej treści.
+- **Kto może:** superadmin, administrator z uprawnieniem „Wpisy: usuwanie z osi” (`entries:delete`)
+  albo autor w ciągu kilku minut od publikacji. Inaczej Kit pokaże 403 z wyjaśnieniem.
+- **Drugi raz** to nie błąd: Kit powie, że wpis był już usunięty. Śladu usunięcia nie da się usunąć (409).
+
 **Kiedy edytować, a kiedy dopisać nowy wpis.** Edytuj, gdy poprawiasz własny błąd, którego
 nikt jeszcze nie przeczytał albo który nie zmienia sensu: literówkę, złą liczbę, zły link.
 **Dopisz nowy wpis**, gdy zmienia się stan rzeczy („jednak nie działa”, „nowe ustalenie”)
@@ -1189,6 +1204,8 @@ sf-kit zalacz <sprawa> <plik…> [--notka "…"]
 sf-kit sprawy [--limit 50]
 sf-kit wpis-edytuj <sprawa> <wpis> (--plik plik.md|- | --tresc "…") [--powod "…"]   # v0.11
 sf-kit wpis-wersje <sprawa> <wpis> [--pelne] [--json]                                 # v0.11
+sf-kit wpis-usun <sprawa> <wpis> --powod "…"                                          # SF-404
+sf-kit zalacznik-usun <zalacznik> --powod "…"                                         # SF-404
 ```
 
 **Raport (`sf-kit raport`, od 0.15.7, SF-184).** Treść to Markdown, a dane idą w blokach ```typ —
