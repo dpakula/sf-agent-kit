@@ -1,5 +1,6 @@
 """Ekran statusu „jak w grze” — MANA, ENERGIA, PRESJA, ZDROWIE z rozbiciem i podpowiedziami.
 
+v0.3 (21.10.2026) - ADVERTPR-1118: tendencja presji D/A — strzałka przy pasku, w rozbiciu delta 3 h i 24 h w pp
 v0.2 (16.10.2026) - ADVERTPR-1089: presja manifestu v4 — opis „N z M poz. po terminie (X dnia zaległości)”,
      kubełki tolerancji w pp, linia obciążenia (informacyjnie); dane manifestu ≤ 3 rysowane jak dotąd
 v0.1 (15.10.2026) - APro Agents / klaudiusz-general (ADVERTPR-1075)
@@ -191,6 +192,8 @@ class Ekran:
         elif pr:                                          # manifest ≤ 3 (dni wolumenu)
             dop_p = f"{_l(pr['dni'])} dni · {_nazwa(pr['kolor'])} · {pr['pozycji']} poz."
         if pr:
+            if (pr.get("tendencja") or {}).get("strzalka"):   # wskazniki.py 3.4: ↑ → ↓ jak przy HP
+                dop_p = f"{pr['tendencja']['strzalka']} {dop_p}"
             if pres_all.get("co_najmniej") and klucz_p == "damian":
                 dop_p = "≥ " + dop_p
             if not pres_all.get("swieze"):
@@ -257,6 +260,8 @@ class Ekran:
             out.append("   · " + self._skladowa(klucz, s))
         if klucz == "presja" and w.get("obciazenie"):        # v4: informacyjnie, bez koloru alarmowego (manifest § 2)
             out.append(self._k(SZARY, "   · " + w["obciazenie"].get("opis", "")))
+        if klucz == "presja" and w.get("tendencja"):
+            out.append("   · " + self._tendencja_presji(w["tendencja"]))
         if klucz == "hp":
             pod = w.get("podglad_dzis") or {}
             if pod.get("zmiana") is not None:
@@ -280,6 +285,18 @@ class Ekran:
             return self._k(SZARY, s)
         pref = "co najmniej " if t.get("co_najmniej") else ""
         return self._k(SZARY, f"  · tak {pref}od {_data(t.get('od'))} ({_l(t.get('dni', 0))} dnia)")
+
+    @staticmethod
+    def _tendencja_presji(t: dict) -> str:
+        """„↑ rośnie: 3 h +16,7 pp (z 10 %) · 24 h n/d” — delty liczy wskazniki.py, tu tylko tekst."""
+        kier = {"rosnie": "rośnie", "maleje": "maleje", "stabilnie": "stabilnie"}.get(t.get("kierunek"), t.get("kierunek"))
+        cz = []
+        for okno, p in (t.get("porownania") or {}).items():
+            if p is None:
+                cz.append(f"{okno} n/d")
+            else:
+                cz.append(f"{okno} {_znak(p['delta_pp'])} pp (z {_l(p['wtedy'])} %)")
+        return f"{t.get('strzalka', '')} {kier}: " + " · ".join(cz)
 
     @staticmethod
     def _skladowa(klucz: str, s: dict) -> str:
