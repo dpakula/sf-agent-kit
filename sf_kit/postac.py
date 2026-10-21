@@ -1,5 +1,7 @@
 """Ekran statusu „jak w grze” — MANA, ENERGIA, PRESJA, ZDROWIE z rozbiciem i podpowiedziami.
 
+v0.4 (21.10.2026) - ADVERTPR-1118 cd. (Damian 23:5x): strzałki ↗ → ↘ w kolorze oceny (presja ↗ przygaszona czerwień,
+     ↘ zieleń; HP odwrotnie; → bez koloru); presja ponad 100 % pełną liczbą („1220 %”) zamiast „100%+”
 v0.3 (21.10.2026) - ADVERTPR-1118: tendencja presji D/A — strzałka przy pasku, w rozbiciu delta 3 h i 24 h w pp
 v0.2 (16.10.2026) - ADVERTPR-1089: presja manifestu v4 — opis „N z M poz. po terminie (X dnia zaległości)”,
      kubełki tolerancji w pp, linia obciążenia (informacyjnie); dane manifestu ≤ 3 rysowane jak dotąd
@@ -39,6 +41,8 @@ RESET, SZARY, POGRUB = "\033[0m", "\033[90m", "\033[1m"
 KOLOR = {"mana": "\033[38;5;39m", "energia": "\033[38;5;220m", "presja": "\033[38;5;208m",
          "hp": "\033[38;5;196m", "wyczerpana": "\033[38;5;196m"}
 KOLOR_ZAPASU = {"zielony": "\033[32m", "zolty": "\033[33m", "czerwony": "\033[31m"}
+#: Kolor strzałki tendencji wg `tendencja.ocena` z wskazniki.py (manifest `wyglad.kolory_strzalek`) — jak status line.
+KOLOR_OCENY = {"dobrze": "\033[38;5;108m", "zle": "\033[38;5;131m"}
 PELNE, PUSTE = "█", "░"
 
 #: Nazwy z kluczy manifestu (bez polskich znaków w JSON-ie) — tylko do wyświetlenia.
@@ -158,6 +162,12 @@ class Ekran:
     def _k(self, kod: str, s: str) -> str:
         return f"{kod}{s}{RESET}" if self.kolor and kod else s
 
+    def strzalka(self, t, po: str = "") -> str:
+        """Strzałka tendencji; ↗/↘ w przygaszonym kolorze oceny, potem kolor `po` (np. szary dopisku). → bez koloru."""
+        a = (t or {}).get("strzalka") or ""
+        kod = KOLOR_OCENY.get((t or {}).get("ocena"))
+        return f"{kod}{a}{RESET}{po}" if self.kolor and a and kod else a
+
     def pasek(self, procent, kolor: str) -> str:
         """Każda kratka manifestu rysowana podwójnie — ta sama skala co status line, tylko większa."""
         if procent is None:
@@ -192,8 +202,8 @@ class Ekran:
         elif pr:                                          # manifest ≤ 3 (dni wolumenu)
             dop_p = f"{_l(pr['dni'])} dni · {_nazwa(pr['kolor'])} · {pr['pozycji']} poz."
         if pr:
-            if (pr.get("tendencja") or {}).get("strzalka"):   # wskazniki.py 3.4: ↑ → ↓ jak przy HP
-                dop_p = f"{pr['tendencja']['strzalka']} {dop_p}"
+            if (pr.get("tendencja") or {}).get("strzalka"):   # wskazniki.py 3.5: ↗ → ↘ jak przy HP
+                dop_p = f"{self.strzalka(pr['tendencja'])} {dop_p}"
             if pres_all.get("co_najmniej") and klucz_p == "damian":
                 dop_p = "≥ " + dop_p
             if not pres_all.get("swieze"):
@@ -206,7 +216,7 @@ class Ekran:
         if kto in (None, "", "damian") and hp.get("procent") is not None:
             t = hp.get("tendencja") or {}
             hp_proc = hp["procent"]
-            dop_hp = f"{t.get('strzalka', '')} {_nazwa(hp.get('poziom'))} · doba {_data(hp.get('data'))}".strip()
+            dop_hp = f"{self.strzalka(t)} {_nazwa(hp.get('poziom'))} · doba {_data(hp.get('data'))}".strip()
             if hp.get("alarm"):
                 dop_hp += " · ALARM"
         else:
@@ -225,7 +235,7 @@ class Ekran:
         wiersze = self.wiersze_paskow(kto)
         for klucz, etykieta, procent, kolor, dopisek in wiersze:
             ik = self.ikony.get(klucz, "")
-            wart = "  n/d" if procent is None else ("100%+" if procent > 100 else f"{procent:>3} %")
+            wart = "   n/d" if procent is None else f"{procent:>4} %"   # presja ponad 100 % pełną liczbą
             lewa = _dopelnij(f"  {ik} {etykieta}", 15)
             dop = (f"  {self._k(SZARY, dopisek) if procent is None else dopisek}") if dopisek else ""
             out.append(f"{lewa}{self.pasek(procent, kolor)} {self._k(kolor if procent is not None else SZARY, wart)}{dop}")
@@ -254,7 +264,7 @@ class Ekran:
         if not w or procent is None:
             return []
         ik = self.ikony.get(klucz, "")
-        wart = "100%+" if procent > 100 else f"{procent} %"
+        wart = f"{procent} %"
         out = ["", self._k(kolor, f"{ik} {etykieta} {wart}") + self._trend(klucz, w.get("trend"))]
         for s in w.get("skladowe") or []:
             out.append("   · " + self._skladowa(klucz, s))
@@ -279,16 +289,15 @@ class Ekran:
         if not t:
             return ""
         if klucz == "hp":
-            s = f"  {t.get('strzalka', '')} od {t.get('od_dni')} dób, {_znak(t.get('roznica', 0))} pkt vs średnia 7 dób"
+            s = f" od {t.get('od_dni')} dób, {_znak(t.get('roznica', 0))} pkt vs średnia 7 dób"
             if t.get("przyczyna"):
                 s += f"; ciągnie: {t['przyczyna'].get('opis')}"
-            return self._k(SZARY, s)
+            return self._k(SZARY, "  " + self.strzalka(t, SZARY if self.kolor else "") + s)
         pref = "co najmniej " if t.get("co_najmniej") else ""
         return self._k(SZARY, f"  · tak {pref}od {_data(t.get('od'))} ({_l(t.get('dni', 0))} dnia)")
 
-    @staticmethod
-    def _tendencja_presji(t: dict) -> str:
-        """„↑ rośnie: 3 h +16,7 pp (z 10 %) · 24 h n/d” — delty liczy wskazniki.py, tu tylko tekst."""
+    def _tendencja_presji(self, t: dict) -> str:
+        """„↗ rośnie: 3 h +16,7 pp (z 10 %) · 24 h n/d” — delty liczy wskazniki.py, tu tylko tekst."""
         kier = {"rosnie": "rośnie", "maleje": "maleje", "stabilnie": "stabilnie"}.get(t.get("kierunek"), t.get("kierunek"))
         cz = []
         for okno, p in (t.get("porownania") or {}).items():
@@ -296,7 +305,7 @@ class Ekran:
                 cz.append(f"{okno} n/d")
             else:
                 cz.append(f"{okno} {_znak(p['delta_pp'])} pp (z {_l(p['wtedy'])} %)")
-        return f"{t.get('strzalka', '')} {kier}: " + " · ".join(cz)
+        return f"{self.strzalka(t)} {kier}: " + " · ".join(cz)
 
     @staticmethod
     def _skladowa(klucz: str, s: dict) -> str:

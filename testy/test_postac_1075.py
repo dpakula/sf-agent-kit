@@ -5,7 +5,7 @@ v0.1 (15.10.2026) - APro Agents / klaudiusz-general
 CZEGO TU PILNUJĘ
 ════════════════
 1. **Cztery paski jednej szerokości, w stałej kolejności** (mana, energia, presja, zdrowie), wartości w %,
-   presja ponad próg jako „100%+”, tendencja HP przy pasku.
+   presja ponad próg jako „100%”, tendencja HP przy pasku.
 2. **Podpowiedzi idą 1:1 z `wskazniki.py --json`** — Kit nie dopisuje własnych (drugi wzór = druga prawda).
 3. **`--kto`**: agata → presja A i HP „nie dotyczy”; <agent> → dom homes/<agent>, presja n/d (SF-289).
 4. **Dawny `status` koordynatora** nadal pod `--kolejka` (i przy --agent-slug/--status).
@@ -54,13 +54,13 @@ def dane(**zmiany):
                       "wglad": {"skladowe": [], "podpowiedzi": ["PODPOWIEDŹ AGENTA"], "reakcja": None, "trend": None}},
             "swieze": True, "co_najmniej": False},
         "hp": {"procent": 17, "poziom": "czerwony", "data": "2026-10-13", "alarm": True, "seria_po": 1,
-               "tendencja": {"kierunek": "maleje", "strzalka": "↓", "roznica": -28.0, "srednia": 45.0, "od_dni": 2,
+               "tendencja": {"kierunek": "maleje", "strzalka": "↘", "roznica": -28.0, "srednia": 45.0, "od_dni": 2,
                              "przyczyna": {"skladowa": "presja", "opis": "presja", "punkty": 10}},
                "wglad": {"skladowe": [{"nazwa": "presja", "punkty": -5}, {"nazwa": "kalendarz", "punkty": 5}],
                          "podglad_dzis": {"zmiana": -5, "godzin": 3},
                          "podpowiedzi": ["zamknięcie dziś przed 00:00 = +5"],
                          "alarm": "ALARM: HP < 40 przez 3 doby → blok livecare",
-                         "trend": {"kierunek": "maleje", "strzalka": "↓", "roznica": -28.0, "od_dni": 2,
+                         "trend": {"kierunek": "maleje", "strzalka": "↘", "roznica": -28.0, "od_dni": 2,
                                    "przyczyna": {"opis": "presja"}}}},
         "limity": {"5h": 85, "7d": 15},
         "wyglad": {"pola_paska": 9, "ikony": {"mana": "✦", "energia": "↯", "presja": "🔥", "hp": "♥"},
@@ -90,8 +90,9 @@ class Paski(unittest.TestCase):
     def test_procenty_presja_ponad_prog_i_tendencja_hp(self):
         t = ekran(rozbicie=False)
         self.assertIn(" 44 %", t)
-        self.assertIn("100%+", t)
-        self.assertIn("↓ czerwony · doba 13.10 · ALARM", t)
+        self.assertIn("3401 %", t)          # presja ponad 100 % pełną liczbą (1118 cd.)
+        self.assertNotIn("100%+", t)
+        self.assertIn("↘ czerwony · doba 13.10 · ALARM", t)
         self.assertIn("3/6 · zmęczona", t)
 
     def test_limity_jako_glify_zapasu(self):
@@ -133,7 +134,7 @@ class Wglad(unittest.TestCase):
         self.assertIn("−3 pola", t)
         self.assertIn("co najmniej od 15.10 00:18", t)
         self.assertIn("132 poz. high starszych niż 7 dni", t)
-        self.assertIn("↓ od 2 dób, −28 pkt vs średnia 7 dób; ciągnie: presja", t)
+        self.assertIn("↘ od 2 dób, −28 pkt vs średnia 7 dób; ciągnie: presja", t)
         self.assertIn("dziś do teraz −5", t)
         self.assertIn("! ALARM", t)
 
