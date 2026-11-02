@@ -73,6 +73,9 @@ def dane(**zmiany):
 
 def ekran(d=None, **kw):
     kw.setdefault("kolor", "nigdy")
+    kw.setdefault("pelny", True)               # v0.5: te testy pilnują PEŁNEGO ekranu (`--pelny`); zwięzły — test_postac_zwiezly
+    if not kw.get("rozbicie", True):
+        kw["pelny"] = False
     return postac.ekran(kto=kw.pop("kto", None), dane=d or dane(), **kw)
 
 

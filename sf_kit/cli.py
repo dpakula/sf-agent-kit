@@ -1232,7 +1232,8 @@ def polecenie_status(args) -> int:
         return _status_koordynatora(args)
     from . import postac
     try:
-        print(postac.ekran(kto=args.kto, wskazniki=args.wskazniki, kolor=args.kolor, rozbicie=not args.krotko))
+        print(postac.ekran(kto=args.kto, wskazniki=args.wskazniki, kolor=args.kolor, rozbicie=not args.krotko,
+                           pelny=getattr(args, "pelny", False)))
     except (postac.BrakWskaznikow, subprocess.TimeoutExpired) as blad:
         print(str(blad), file=sys.stderr)
         return 2
@@ -3343,6 +3344,8 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                     help="scripts/lib/wskazniki.py (domyślnie: env SF_KIT_WSKAZNIKI albo w górę od katalogu)")
     st.add_argument("--kolor", choices=["auto", "zawsze", "nigdy"], default="auto")
     st.add_argument("--krotko", action="store_true", help="same paski, bez rozbicia i podpowiedzi")
+    st.add_argument("--pelny", action="store_true",
+                    help="pełne rozbicie każdego parametru (domyślnie ekran zwięzły: 4 paski + „powód → co zrobić”)")
     st.add_argument("--kolejka", dest="kolejka_floty", action="store_true",
                     help="[koordynator] kim jestem + kolejka floty (dawny `status`)")
     st.add_argument("--agent-slug", default=None, dest="agent_slug", help="[koordynator] z --kolejka")

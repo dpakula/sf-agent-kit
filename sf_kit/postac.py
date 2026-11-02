@@ -1,5 +1,11 @@
 """Ekran statusu „jak w grze” — MANA, ENERGIA, PRESJA, ZDROWIE z rozbiciem i podpowiedziami.
 
+v0.5 (03.11.2026) - ADVERTPR-1075 / 1167 (Damian 02.11: „nieczytelny, cały niebieski, za dużo tekstu, cały ekran; nikt
+     przez to nie przebrnie”): DOMYŚLNIE ekran zwięzły ≤ 12 linii — nagłówek, 4 paski, pod każdym jedna linia
+     „powód → co zrobić” (najcięższa składowa + jej podpowiedź), stopka; kolor tylko na pasku (kolor POZIOMU) i strzałce,
+     tekst w kolorze terminala; presja > 999 % = „> 10× pojemności”. Dawny ekran z rozbiciem: `--pelny`.
+     Poprawki: „↘ od None dób” przy ZDROWIU (tempo v7 → „od DD.MM HH:00, N h”), „doba 01.11” przy dobie w toku →
+     „doba otwarta od 02.11 06:00” (`hp.doba_otwarta_od`, wskazniki.py 4.2)
 v0.4 (21.10.2026) - ADVERTPR-1118 cd. (Damian 23:5x): strzałki ↗ → ↘ w kolorze oceny (presja ↗ przygaszona czerwień,
      ↘ zieleń; HP odwrotnie; → bez koloru); presja ponad 100 % pełną liczbą („1220 %”) zamiast „100%+”
 v0.3 (21.10.2026) - ADVERTPR-1118: tendencja presji D/A — strzałka przy pasku, w rozbiciu delta 3 h i 24 h w pp
@@ -43,6 +49,11 @@ KOLOR = {"mana": "\033[38;5;39m", "energia": "\033[38;5;220m", "presja": "\033[3
 KOLOR_ZAPASU = {"zielony": "\033[32m", "zolty": "\033[33m", "czerwony": "\033[31m"}
 #: Kolor strzałki tendencji wg `tendencja.ocena` z wskazniki.py (manifest `wyglad.kolory_strzalek`) — jak status line.
 KOLOR_OCENY = {"dobrze": "\033[38;5;108m", "zle": "\033[38;5;131m"}
+#: v0.5: ekran zwięzły — pasek w kolorze POZIOMU (jak pasek HP w status line Agaty, manifest wyglad.kolory_poziomu_hp).
+KOLOR_POZIOMU = {"zielony": "\033[38;5;40m", "pomaranczowy": "\033[38;5;214m", "czerwony": "\033[38;5;196m"}
+NAZWY_TRYBU = {"urlop": "urlop", "urlop_polowa": "urlop (połowa)", "urlop_praca": "urlop liczony jak praca",
+               "robocza": "doba robocza", "wolna": "doba wolna"}
+SZEROKOSC = 130                                          # linie „powód → co zrobić” ucinane do tylu kolumn
 PELNE, PUSTE = "█", "░"
 
 #: Nazwy z kluczy manifestu (bez polskich znaków w JSON-ie) — tylko do wyświetlenia.
@@ -126,6 +137,11 @@ def _nazwa(klucz) -> str:
     return NAZWY.get(str(klucz or ""), str(klucz or "").replace("_", " "))
 
 
+def _l2(x) -> str:
+    """Godziny do 2 miejsc: 1.25 → „1,25”, 1.5 → „1,5”."""
+    return f"{float(x or 0):.2f}".rstrip("0").rstrip(".").replace(".", ",")
+
+
 def _znak(x) -> str:
     """+5 / −5 / 0 — typograficzny minus, jak w tekstach manifestu."""
     x = round(float(x), 1)
@@ -145,6 +161,39 @@ def _data(iso: str | None) -> str:
     except ValueError:
         return str(iso)
     return t.strftime("%d.%m %H:%M") if "T" in str(iso) else t.strftime("%d.%m")
+
+
+def _doba_hp(hp: dict) -> str:
+    """„doba otwarta od 02.11 06:00”, gdy trwa doba niezamknięta /sleep; inaczej „doba 01.11” (ostatnia zamknięta)."""
+    if hp.get("doba_otwarta_od"):
+        return f"doba otwarta od {_data(hp['doba_otwarta_od'])}"
+    return f"doba {_data(hp.get('data'))}"
+
+
+def _utnij(s: str, n: int = SZEROKOSC) -> str:
+    return s if _szer(s) <= n else s[: max(0, n - 1)].rstrip() + "…"
+
+
+def _po_strzalce(p: str) -> str:
+    """Z podpowiedzi „powód → działanie” zostawia działanie (powód stoi już w linii)."""
+    return p.rsplit(" → ", 1)[-1] if " → " in p else p
+
+
+def _dzialanie(podpowiedzi, powod_prefiks: str = "", pomin=()) -> str:
+    """Podpowiedź do najcięższej składowej (zaczyna się jej opisem), inaczej pierwsza — sama część „co zrobić”."""
+    podp = [p for p in podpowiedzi or [] if p and not p.startswith(tuple(pomin))] or list(podpowiedzi or [])
+    if not podp:
+        return "nic do zrobienia"
+    trafna = next((p for p in podp if powod_prefiks and p.startswith(powod_prefiks)), None)
+    return _po_strzalce(trafna or podp[0])
+
+
+def _poziom_many(p) -> str:
+    return "zielony" if p >= 50 else "pomaranczowy" if p >= 25 else "czerwony"
+
+
+def _poziom_energii(pola) -> str:
+    return "zielony" if pola >= 4 else "pomaranczowy" if pola >= 2 else "czerwony"
 
 
 class Ekran:
@@ -216,7 +265,7 @@ class Ekran:
         if kto in (None, "", "damian") and hp.get("procent") is not None:
             t = hp.get("tendencja") or {}
             hp_proc = hp["procent"]
-            dop_hp = f"{self.strzalka(t)} {_nazwa(hp.get('poziom'))} · doba {_data(hp.get('data'))}".strip()
+            dop_hp = f"{self.strzalka(t)} {_nazwa(hp.get('poziom'))} · {_doba_hp(hp)}".strip()
             if hp.get("alarm"):
                 dop_hp += " · ALARM"
         else:
@@ -248,6 +297,83 @@ class Ekran:
                 out += self.sekcja(klucz, etykieta, procent, kolor, kto)
         out += ["", self._k(SZARY, f"manifest v{d.get('manifest')} · wskazniki.py · {datetime.now():%d.%m %H:%M}")]
         return "\n".join(out)
+
+    # ───── ekran zwięzły (v0.5, domyślny) ─────
+
+    def rysuj_zwiezle(self, kto: str | None) -> str:
+        """≤ 12 linii: nagłówek, 4 paski i pod każdym „powód → co zrobić”, stopka. Kolor: pasek (poziom) i strzałki."""
+        d = self.d
+        kim = {None: "Damian · terminal Agaty", "": "Damian · terminal Agaty", "damian": "Damian · terminal Agaty",
+               "agata": "Agata"}.get(kto, kto)
+        out = [f"STATUS · {kim}"]
+        for klucz, etykieta, procent, _, dopisek in self.wiersze_paskow(kto):
+            ik = self.ikony.get(klucz, "")
+            lewa = _dopelnij(f"  {ik} {etykieta}", 15)
+            poz = self._poziom(klucz, kto)
+            if procent is None:
+                wart = "  n/d"
+            elif klucz == "presja" and procent > 999:            # Damian 02.11: „3218 %” nic nie mówi
+                wart = "> 10× pojemności"
+            else:
+                wart = f"{procent:>3} %"
+            pasek = self.pasek(procent, KOLOR_POZIOMU.get(poz, ""))
+            out.append(f"{lewa}{pasek} {wart}" + (f"  {dopisek}" if dopisek else ""))
+            out.append(_utnij("      " + self._powod_i_dzialanie(klucz, kto)))
+        lim = d.get("limity") or {}
+        out.append(f"  {self.zapas('5h', lim.get('5h'))} · {self.zapas('7d', lim.get('7d'))} · manifest v{d.get('manifest')}"
+                   f" · {datetime.now():%d.%m %H:%M} · rozbicie: sf-kit status --pelny")
+        return "\n".join(out)
+
+    def _poziom(self, klucz: str, kto: str | None) -> str | None:
+        d = self.d
+        if klucz == "mana":
+            p = (d.get("mana") or {}).get("procent")
+            return None if p is None else _poziom_many(p)
+        if klucz == "energia":
+            pola = (d.get("energia") or {}).get("pola")
+            return None if pola is None else _poziom_energii(pola)
+        if klucz == "presja":
+            pr = (d.get("presja") or {}).get("agent" if kto == "agata" else "damian") or {}
+            return pr.get("kolor") if kto in (None, "", "damian", "agata") else None
+        return (d.get("hp") or {}).get("poziom") if kto in (None, "", "damian") else None
+
+    def _powod_i_dzialanie(self, klucz: str, kto: str | None) -> str:
+        """Jedna linia: najcięższa składowa → pierwsza (albo jej) podpowiedź z wskazniki.py; Kit niczego nie liczy."""
+        w = self._wglad(klucz, kto)
+        if not w:
+            return "brak danych" + (" (SF-289)" if klucz in ("presja", "hp") and kto not in (None, "", "damian", "agata")
+                                    else "")
+        sk = w.get("skladowe") or []
+        podp = w.get("podpowiedzi") or []
+        if klucz == "energia":
+            u = max((s for s in sk if s.get("ubytek")), key=lambda s: s["ubytek"], default=None)
+            if not u:
+                return "pełna → nic do zrobienia"
+            n = u["ubytek"]
+            pola = "pole" if n == 1 else "pola" if 2 <= n <= 4 else "pól"
+            return f"{u['nazwa']} −{n} {pola} ({u.get('opis', '')}) → {_dzialanie(podp, u['nazwa'])}"
+        if klucz == "presja":
+            s = max((x for x in sk if x.get("kubel") != "w_tolerancji" and x.get("pp")), key=lambda x: x["pp"], default=None)
+            if not s:                                    # manifest ≤ 3 (bez kubełków pp): najcięższa po punktach
+                s = max((x for x in sk if x.get("punkty")), key=lambda x: x["punkty"], default=None)
+            if not s:
+                return "nic po terminie → nic do zrobienia" if not podp else f"→ {_dzialanie(podp)}"
+            return f"{s.get('opis', '')} → {_dzialanie(podp, s.get('opis', '').split(' (')[0])}"
+        if klucz == "hp":
+            hp = self.d.get("hp") or {}
+            sd = hp.get("slad_damiana") or {}
+            tryb = NAZWY_TRYBU.get(w.get("tryb_doby"), w.get("tryb_doby") or "")
+            if "sesje" in sd:
+                powod = f"{tryb} · {_l2(sd['sesje'])} h sesji + {_l2(sd['w_drodze'])} h w drodze"
+            else:
+                top = max(sk, key=lambda x: abs(x.get("punkty", 0)), default=None)
+                powod = f"{top['nazwa']} {_znak(top['punkty'])}" if top else tryb or "bez zmian"
+            if w.get("alarm"):
+                powod = "! ALARM · " + powod
+            return f"{powod.strip(' ·')} → {_dzialanie(podp, pomin=('tempo teraz', 'urlop dziś'))}"
+        s = sk[0] if sk else {}
+        powod = f"kontekst: {s['opis']}" if klucz == "mana" and s.get("opis") else (s.get("opis") or s.get("nazwa") or "")
+        return f"{powod} → {_dzialanie(podp)}".strip()
 
     def _wglad(self, klucz: str, kto: str | None) -> dict | None:
         d = self.d
@@ -288,6 +414,9 @@ class Ekran:
     def _trend(self, klucz: str, t) -> str:
         if not t:
             return ""
+        if klucz == "hp" and "pkt_h" in t:                # v7: tempo teraz (znak mnożnika) — nie średnia dób
+            s = f" {t.get('opis', '')} · od {_data(t.get('od'))} ({t.get('od_godzin', 0)} h)"
+            return self._k(SZARY, "  ") + self.strzalka(t) + self._k(SZARY, s.replace(t.get("strzalka") or "", "", 1))
         if klucz == "hp":
             s = f" od {t.get('od_dni')} dób, {_znak(t.get('roznica', 0))} pkt vs średnia 7 dób"
             if t.get("przyczyna"):
@@ -337,8 +466,9 @@ def czy_kolor(tryb: str) -> bool:
 
 
 def ekran(*, kto: str | None, wskazniki: str | None = None, kolor: str = "auto", rozbicie: bool = True,
-          dane: dict | None = None) -> str:
-    """Cały ekran jako tekst. `dane` = gotowy wynik `wskazniki.py --json` (testy, SF-289 w przyszłości)."""
+          pelny: bool = False, dane: dict | None = None) -> str:
+    """Cały ekran jako tekst. `dane` = gotowy wynik `wskazniki.py --json` (testy, SF-289 w przyszłości).
+    v0.5: domyślnie zwięzły (≤ 12 linii); `pelny=True` = dawny ekran z rozbiciem; `rozbicie=False` = same paski."""
     if dane is None:
         sciezka = znajdz_wskazniki(wskazniki)
         if not sciezka:
@@ -348,4 +478,7 @@ def ekran(*, kto: str | None, wskazniki: str | None = None, kolor: str = "auto",
                 "Panel w SalesForge (bez repo) — SF-289.")
         dom, manifest = dom_i_manifest(sciezka, kto)
         dane = pobierz(sciezka, dom, manifest)
-    return Ekran(dane, kolor=czy_kolor(kolor)).rysuj(kto, rozbicie=rozbicie)
+    e = Ekran(dane, kolor=czy_kolor(kolor))
+    if pelny or not rozbicie:
+        return e.rysuj(kto, rozbicie=pelny)
+    return e.rysuj_zwiezle(kto)
