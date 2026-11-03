@@ -30,6 +30,7 @@ from . import os_czasu
 from . import koordynator
 from . import kontrakt
 from . import konsola
+from . import koordynacja
 from . import rotacja as mod_rotacja
 from . import tozsamosc
 from .api import BladAPI, Klient
@@ -1135,6 +1136,21 @@ def polecenie_zlec(args) -> int:
 
     print(f"Zlecone: {zadanie.get('external_id')} → {agent.slug}")
     print(f"  sprawa: {asystent.numer_sprawy(sprawa)}")
+    if getattr(args, "rodzaj", None):
+        try:
+            for linia in koordynacja.nadaj_rodzaj(klient, str(sprawa["id"]), args.rodzaj):
+                print(f"  ✓ {linia}")
+        except (ValueError, BladAPI) as blad:
+            print(f"  UWAGA: rodzaju pracy NIE nadałem: {blad}", file=sys.stderr)
+    if getattr(args, "dostarcz", False):
+        # SF-486 luka 6: doręczenie przez skrzynkę SF (session_target = slug agenta), nie tmux kickoff.sh.
+        try:
+            pelna = klient.sprawa(str(sprawa["id"])) if not sprawa.get("ticket_number") else sprawa
+            klient.wiadomosc_do(agent.slug, koordynacja.tresc_dostarczenia(
+                zadanie, {**pelna, "id": sprawa["id"]}, baza=konf.adres, org_slug=org.slug))
+            print(f"  ✓ doręczone do sesji {agent.slug} (skrzynka SF)")
+        except BladAPI as blad:
+            print(f"  UWAGA: zadanie JEST, ale doręczenie do {agent.slug} nie poszło: {blad}", file=sys.stderr)
     print(f"  {asystent.adres_sprawy(str(sprawa['id']), baza=konf.adres)}")
     print(f"\nWynik pojawi się na tej sprawie. Sprawdź: "
           f"{_jak_wolac()} odbierz {zadanie.get('external_id')}")
@@ -1166,6 +1182,15 @@ def polecenie_kolejka(args) -> int:
     if args.agent_slug:
         zadania = [z for z in zadania
                    if (z.get("assigned_agent_slug") or "") == args.agent_slug]
+    if getattr(args, "stare", None):
+        try:
+            dni = koordynacja.wiek_w_dniach(args.stare)
+        except ValueError as blad:
+            print(str(blad), file=sys.stderr)
+            return 2
+        zadania = koordynacja.stare(zadania, dni)
+        print(f"Bez ruchu dłużej niż {args.stare}: {len(zadania)}"
+              + (" · zamknięcie hurtem: sf-kit odbierz --hurt <id…> --status cancelled --notka \"…\"" if zadania else ""))
     if not zadania:
         print(f"Nic w toku w „{org.slug}”"
               f"{f' dla {args.agent_slug}' if args.agent_slug else ''}.")
@@ -1185,10 +1210,46 @@ def polecenie_kolejka(args) -> int:
     return 0
 
 
+def _odbierz_hurt(klient, args) -> int:
+    """SF-486 luka 3: zamknięcie hurtem martwych zadań — `cancelled`/`on_hold` z notką, bez sprawdzania wyniku
+    (to nie jest odbiór pracy, tylko sprzątanie kolejki). `completed` hurtem nie istnieje: odbiór = jeden wynik."""
+    if args.status not in ("cancelled", "on_hold"):
+        print("--hurt zamyka tylko jako cancelled albo on_hold (completed = jeden odbiór z kontrolą wyniku)",
+              file=sys.stderr)
+        return 2
+    if not args.notka:
+        print("--hurt wymaga --notka (dlaczego zamykam — trafia jako komentarz zadania)", file=sys.stderr)
+        return 2
+    kod = 0
+    for wsk in args.zadanie:
+        try:
+            znalezione = koordynator.znajdz_zadanie(klient, wsk)
+            z = znalezione.zadanie
+            if z is None:
+                raise ValueError(znalezione.powod_braku(wsk))
+            if z.get("status") == args.status:
+                print(f"  {z.get('external_id')}: już {args.status} — pomijam")
+                continue
+            klient.komentarz_zadania(str(z["id"]), args.notka)
+            klient.ustaw_status(str(z["id"]), args.status)
+            print(f"  ✓ {z.get('external_id')}: {z.get('status')} → {args.status}")
+        except (ValueError, koordynator.Odmowa, BladAPI) as blad:
+            print(f"  ✗ {wsk}: {blad}", file=sys.stderr)
+            kod = 1
+    return kod
+
+
 def polecenie_odbierz(args) -> int:
     """Zamknij zadanie — ale dopiero po sprawdzeniu, że wynik naprawdę jest na sprawie."""
     konf = konfiguracja.wczytaj()
     klient, _org = _koordynator(konf, args)
+    if getattr(args, "hurt", False):
+        return _odbierz_hurt(klient, args)
+    if len(args.zadanie) != 1:
+        print("Jedno zadanie naraz (odbiór = kontrola wyniku). Hurtem sprzątanie: --hurt --status cancelled.",
+              file=sys.stderr)
+        return 2
+    args.zadanie = args.zadanie[0]
 
     try:
         znalezione = koordynator.znajdz_zadanie(klient, args.zadanie)
@@ -1224,6 +1285,14 @@ def polecenie_odbierz(args) -> int:
         print(f"Wynik jest na sprawie, ale nie mogę zamknąć zadania: {blad}", file=sys.stderr)
         return 1
     print(f"Odebrane: {external_id} — {co}.")
+    # SF-486 pkt 4: zamknięcie zadania NIE rozwiązuje sprawy — mówimy, co z nią dalej, decyzja zostaje przy koordynatorze.
+    try:
+        powody = koordynacja.przeszkody_rozwiazania(klient, str(ticket_id), poza_zadaniem=str(zadanie.get("id")))
+        print("Sprawa zostaje w toku: " + "; ".join(powody) if powody else
+              "To było ostatnie otwarte zadanie sprawy. Rozwiązać? sf-kit --org <org> sprawa "
+              f"{ticket_id} --status resolved")
+    except Exception:                                   # noqa: BLE001 — informacja, nie bramka
+        pass
     return 0
 
 
@@ -1459,6 +1528,47 @@ def _adresat_bloku(klient: Klient, konf, wskazanie: str | None) -> str | None:
     if konsola._UUID.match(wskazanie):
         return wskazanie
     return str(klient.czlonek(wskazanie)["user_id"])
+
+
+def polecenie_krok_nowy(args) -> int:
+    """SF-486 luka 5: nowy krok rozgrywki — `POST /kroki/dzis` (SF nadaje kolejny numer z dzisiejszą datą)."""
+    konf = konfiguracja.wczytaj()
+    klient, _ = _klient_dla_zapisu(konf, args)
+    try:
+        krok = klient.krok_dzis(_opis_z_wejscia(args) or None)
+    except BladAPI as blad:
+        print(f"Krok nie powstał: {blad}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(krok, ensure_ascii=False, indent=2, default=str))
+        return 0
+    sid = krok.get("ticket_id") or krok.get("id")
+    print(f"{asystent.numer_sprawy(krok) or sid}  {krok.get('title') or ''}".strip())
+    if sid:
+        print(asystent.adres_sprawy(str(sid), baza=konf.adres), file=sys.stderr)
+    return 0
+
+
+def polecenie_krok_zamknij(args) -> int:
+    """SF-486 luka 5: zamknij krok — wpis zamykający (co domknięte / co przechodzi) + status closed.
+
+    Krok to sprawa-kontener tury, więc reguła rozwiązywania (otwarte zadania, tagi) go nie dotyczy."""
+    konf = konfiguracja.wczytaj()
+    klient, _ = _klient_dla_zapisu(konf, args, flow.organizacja_z_linku(args.sprawa) or "")
+    tresc = _opis_z_wejscia(args)
+    if not tresc:
+        print("Krok zamyka się wpisem (co domknięte / co przechodzi): --opis plik.md", file=sys.stderr)
+        return 2
+    try:
+        wskazana, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+        sprawa = klient.sprawa(str(wskazana["id"]))
+        klient.wpis(str(sprawa["id"]), tresc, widocznosc=args.widocznosc)
+        print("✓ wpis zamykający")
+        print("✓ " + koordynacja.zmien_status(klient, sprawa, args.status, mimo_to=True))
+    except (ValueError, BladAPI) as blad:
+        print(f"Krok nie zamknięty: {blad}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def polecenie_konsola_blok(args) -> int:
@@ -2073,6 +2183,14 @@ def polecenie_nowa_sprawa(args) -> int:
             _pokaz_sprawe(konf, sprawa_id, numer,
                           co_dalej="Dołóż pliki: sf-kit zalacz <sprawa> <plik…>")
             return 1
+
+    if getattr(args, "rodzaj", None):
+        # SF-486 luka 4: rodzaj pracy od razu przy założeniu — sprawa JUŻ jest, porażka tagu to ostrzeżenie.
+        try:
+            for linia in koordynacja.nadaj_rodzaj(klient, sprawa_id, args.rodzaj):
+                print(f"✓ {linia}")
+        except (ValueError, BladAPI) as blad:
+            print(f"Sprawa powstała, ale rodzaju pracy NIE nadałem: {blad}", file=sys.stderr)
 
     if getattr(args, "obserwujacy", None):
         # 0.15.4: sprawa JUŻ jest — obserwujący to dodatek. Nieudany adres nie cofa sprawy; mówimy,
@@ -2738,10 +2856,15 @@ def polecenie_sprawa(args) -> int:
     # z `ValueError`. Link niesie własną Organizację; jawne `--org` ma pierwszeństwo.
     if flow.sprawa_z_linku(args.sprawa) and not getattr(args, "org", None):
         args.org = flow.organizacja_z_linku(args.sprawa) or None
+    if getattr(args, "status", None) or getattr(args, "kind", None):
+        return _sprawa_zmien(konf, args)
     klient = _klient(konf, args)
     try:
         wskazana, _ = _sprawa_dla_zapisu(klient, args.sprawa)
         karta = klient.sprawa(str(wskazana.get("id")))
+        if getattr(args, "json", False):
+            print(json.dumps(karta, ensure_ascii=False, indent=2, default=str))
+            return 0
     except ValueError as blad:
         print(str(blad), file=sys.stderr)
         return 1
@@ -2761,6 +2884,26 @@ def polecenie_sprawa(args) -> int:
         for zid, nazwa in zal:
             print(f"  {zid}  {nazwa}")
     _pokaz_do_ciebie(klient, konf, str(wskazana.get("id")), getattr(args, "org", None))
+    return 0
+
+
+def _sprawa_zmien(konf, args) -> int:
+    """SF-486 luka 4: `sprawa <s> --status X` (z regułą rozwiązywania) i `--kind X`. Zapis = Organizacja jawna."""
+    klient, _ = _klient_dla_zapisu(konf, args, flow.organizacja_z_linku(args.sprawa) or "")
+    try:
+        wskazana, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+        sprawa = klient.sprawa(str(wskazana["id"]))
+        if args.kind:
+            if sprawa.get("kind") == args.kind:
+                print(f"sprawa ma już rodzaj „{args.kind}” — nic nie zmieniam")
+            else:
+                klient.zmien_rodzaj_sprawy(str(sprawa["id"]), args.kind)
+                print(f"✓ rodzaj sprawy: {sprawa.get('kind') or '?'} → {args.kind}")
+        if args.status:
+            print("✓ " + koordynacja.zmien_status(klient, sprawa, args.status, mimo_to=args.mimo_to))
+    except (ValueError, BladAPI) as blad:
+        print(f"Sprawa bez zmian: {blad}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -3390,6 +3533,7 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         p.add_argument("--termin", default=None, metavar="DATA",
                        help="np. 2026-10-02, „2026-10-02 14:00”, „dziś”, „jutro” — trafia na górę opisu "
                             "(sprawa w SF nie ma dziś pola terminu)")
+        p.add_argument("--rodzaj", default=None, help="rodzaj pracy (tag „Rodzaj pracy”: Rdzeń, Rozwojowe…)")
         p.add_argument("--obserwujacy", nargs="+", default=[], metavar="EMAIL",
                        help="kto ma dostawać powiadomienia o tej sprawie (adresy e-mail)")
         p.add_argument("--szkic", action="store_true",
@@ -3651,6 +3795,12 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     sa = pod.add_parser("sprawa", help="[wykonawca] karta sprawy: opis, wpisy, załączniki (SF-38)")
     sa.add_argument("sprawa", help="numer (ADVERTPR-927), identyfikator albo link do sprawy z ?org=…")
     sa.add_argument("--wszystkie", action="store_true", help="wszystkie wpisy, nie ostatnie 15")
+    sa.add_argument("--json", action="store_true", help="[koordynator] karta sprawy z wpisami jako JSON")
+    sa.add_argument("--status", default=None, choices=list(koordynacja.STATUSY_SPRAWY),
+                    help="[koordynator] zmień status (resolved/closed sprawdza otwarte zadania i tagi „czeka na…”)")
+    sa.add_argument("--kind", default=None, metavar="RODZAJ", help="[koordynator] rodzaj sprawy, np. message")
+    sa.add_argument("--mimo-to", action="store_true", dest="mimo_to",
+                    help="rozwiąż mimo otwartych zadań / tagu blokującego (świadomie)")
     sa.set_defaults(funkcja=polecenie_sprawa)
     za = pod.add_parser("zalacznik", help="[wykonawca] pobierz jeden załącznik do pliku (SF-38)")
     za.add_argument("id", help="identyfikator załącznika (z `sf-kit sprawa`)")
@@ -3682,17 +3832,38 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     zl.add_argument("--termin", default=None, metavar="DATA", help="np. 2026-09-20T18:00:00Z")
     zl.add_argument("--projekt", default=None, help="kod projektu")
     zl.add_argument("--kategoria", default=None)
+    zl.add_argument("--rodzaj", default=None, help="rodzaj pracy sprawy (tag „Rodzaj pracy”: Rdzeń, Rozwojowe…)")
+    zl.add_argument("--dostarcz", action="store_true",
+                    help="doręcz zlecenie do sesji agenta przez skrzynkę SF (zamiast kickoff.sh/tmux)")
     zl.set_defaults(funkcja=polecenie_zlec)
 
     ko = pod.add_parser("kolejka", help="[koordynator] co flota ma w toku")
     ko.add_argument("--agent-slug", default=None, dest="agent_slug", help="zawęź do agenta")
     ko.add_argument("--status", default=None,
                     choices=["queued", "in_progress", "on_hold", "completed"])
+    ko.add_argument("--stare", default=None, metavar="14d|36h", help="tylko bez ruchu dłużej niż tyle")
     ko.set_defaults(funkcja=polecenie_kolejka)
 
     od = pod.add_parser("odbierz", help="[koordynator] zamknij zadanie po sprawdzeniu wyniku")
-    od.add_argument("zadanie", help="identyfikator zadania (`external_id` albo uuid)")
+    od.add_argument("zadanie", nargs="+", help="identyfikator zadania (`external_id` albo uuid); kilka tylko z --hurt")
+    od.add_argument("--hurt", action="store_true", help="[koordynator] sprzątanie kolejki: kilka zadań naraz")
+    od.add_argument("--status", default="cancelled", choices=["cancelled", "on_hold"],
+                    help="przy --hurt: docelowy status (domyślnie cancelled)")
+    od.add_argument("--notka", default=None, help="przy --hurt: dlaczego (komentarz każdego zadania)")
     od.set_defaults(funkcja=polecenie_odbierz)
+
+    kr = pod.add_parser("krok", help="[koordynator] kroki rozgrywki: nowy, zamknij (SF-486)")
+    kr_pod = kr.add_subparsers(dest="krok_polecenie", required=True)
+    krn = kr_pod.add_parser("nowy", help="nowy krok (POST /kroki/dzis — numer nadaje SF)")
+    krn.add_argument("--opis", default=None, metavar="PLIK", help="sedno kroku (`-` = stdin)")
+    krn.add_argument("--json", action="store_true")
+    krn.set_defaults(funkcja=polecenie_krok_nowy)
+    krz = kr_pod.add_parser("zamknij", help="wpis zamykający + status closed")
+    krz.add_argument("sprawa", help="sprawa kroku: numer, uuid albo link z ?org=…")
+    krz.add_argument("--opis", required=True, metavar="PLIK", help="co domknięte / co przechodzi")
+    krz.add_argument("--status", default="closed", choices=["closed", "resolved"])
+    krz.add_argument("--widocznosc", default="internal", choices=["internal", "external", "team"])
+    krz.set_defaults(funkcja=polecenie_krok_zamknij)
 
     # ── profil KOORDYNATOR: warstwa administracyjna (ADVERTPR-879) ────────────
     #

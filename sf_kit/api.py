@@ -844,6 +844,30 @@ class Klient:
             strona += 1
         return wynik[:limit], razem
 
+    # ── sprawa i krok koordynatora (SF-486 krok 3, luki 4–6) ──────────────────
+
+    def zmien_sprawe(self, ticket_id: str, cialo: dict) -> dict:
+        """`PATCH /tickets/{id}` — status, priorytet, tytuł… (TicketUpdate)."""
+        wynik = self._wywolaj("PATCH", f"tickets/{ticket_id}", cialo=cialo)
+        return wynik if isinstance(wynik, dict) else {}
+
+    def zmien_rodzaj_sprawy(self, ticket_id: str, rodzaj: str) -> dict:
+        """`PATCH /tickets/{id}/kind` — np. `message` (sprawa-wiadomość, router SF-377). POST /tickets ignoruje `kind`."""
+        wynik = self._wywolaj("PATCH", f"tickets/{ticket_id}/kind", cialo={"kind": rodzaj})
+        return wynik if isinstance(wynik, dict) else {}
+
+    def zadania_sprawy(self, ticket_id: str, *, limit: int = 200) -> list[dict]:
+        """Wszystkie zadania sprawy (`GET /tasks?ticket_id=`), bez zawężenia do agentów."""
+        wynik = self._wywolaj("GET", "tasks?" + urllib.parse.urlencode({"ticket_id": ticket_id, "limit": limit}))
+        if isinstance(wynik, dict):
+            wynik = wynik.get("items") or []
+        return [z for z in wynik if isinstance(z, dict)]
+
+    def krok_dzis(self, sedno: str | None) -> dict:
+        """`POST /kroki/dzis` — nowy krok rozgrywki: SF nadaje kolejny numer z dzisiejszą datą."""
+        wynik = self._wywolaj("POST", "kroki/dzis", cialo={"sedno": sedno} if sedno else {})
+        return wynik if isinstance(wynik, dict) else {}
+
     # ── sonda ────────────────────────────────────────────────────────────────
 
     def wersja_kita(self) -> dict:
