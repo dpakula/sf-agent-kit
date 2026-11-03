@@ -109,8 +109,12 @@ class Paski(unittest.TestCase):
     def test_kolory_tylko_na_zyczenie(self):
         self.assertIsNone(ANSI.search(ekran()))
         t = ekran(kolor="zawsze")
-        for kod in ("38;5;39", "38;5;220", "38;5;208", "38;5;196", "\033[31m"):   # 7d 15 % = czerwony
+        # v0.6 (Damian 03.11): kolor tożsamości + czerwień stanu złego; presja 3401 % i HP 17 % = czerwone
+        for kod in ("38;5;39", "38;5;220", "38;5;196", "\033[31m"):   # 7d 15 % = czerwony
             self.assertIn(kod, t)
+        d = dane()
+        d["presja"]["damian"]["kolor"] = "pomaranczowy"
+        self.assertIn("38;5;208", ekran(d, kolor="zawsze"))               # presja nie-czerwona = pomarańczowa
 
     def test_energia_zero_czerwona(self):
         d = dane()

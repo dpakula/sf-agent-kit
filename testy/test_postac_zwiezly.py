@@ -77,14 +77,17 @@ class Zwiezly(unittest.TestCase):
     def test_kolor_tylko_pasek_i_strzalka(self):
         t = zwiezly(kolor="zawsze").splitlines()
         hp = next(x for x in t if "ZDROWIE" in x)
-        self.assertIn(postac.KOLOR_POZIOMU["zielony"] + "[", hp)            # pasek HP w kolorze poziomu
+        self.assertIn("\033[38;5;40m" + "[", hp)            # pasek HP w kolorze poziomu
         self.assertIn(postac.KOLOR_OCENY["dobrze"] + "↗", hp)               # strzałka w kolorze oceny
         presja = next(x for x in t if "PRESJA" in x)
-        self.assertIn(postac.KOLOR_POZIOMU["czerwony"] + "[", presja)
+        self.assertIn("\033[38;5;196m" + "[", presja)
         for x in t:
             if "→" in x and "[" not in x:                                     # linie „powód → co zrobić”
                 self.assertEqual(ANSI.sub("", x), x, x)
-        self.assertNotIn(postac.KOLOR["mana"], "\n".join(t))                # bez dawnego niebieskiego
+        mana = next(x for x in t if "MANA" in x)
+        self.assertIn("\033[38;5;39m[", mana)                              # mana: kolor tożsamości (niebieski)
+        energia = next(x for x in t if "ENERGIA" in x)
+        self.assertIn("\033[38;5;220m[", energia)                          # 3/6 pola: żółta (zła dopiero ≤ 2)
 
     def test_pelny_hp_tempo_bez_none(self):
         t = zwiezly(pelny=True)

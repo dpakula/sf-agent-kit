@@ -1,5 +1,8 @@
 """Ekran statusu „jak w grze” — MANA, ENERGIA, PRESJA, ZDROWIE z rozbiciem i podpowiedziami.
 
+v0.6 (03.11.2026) - ADVERTPR-1167 (Damian 01:3x, wpis 31da4fe0): kolor paska = JEDEN kolor tożsamości wskaźnika
+     (mana niebieska, energia żółta, presja pomarańczowa, HP zielone) + czerwień w stanie złym, bez odcieni pośrednich;
+     kod z `wskazniki.py --json` (`.kolor_paska`), oba widoki (zwięzły i --pelny)
 v0.5 (03.11.2026) - ADVERTPR-1075 / 1167 (Damian 02.11: „nieczytelny, cały niebieski, za dużo tekstu, cały ekran; nikt
      przez to nie przebrnie”): DOMYŚLNIE ekran zwięzły ≤ 12 linii — nagłówek, 4 paski, pod każdym jedna linia
      „powód → co zrobić” (najcięższa składowa + jej podpowiedź), stopka; kolor tylko na pasku (kolor POZIOMU) i strzałce,
@@ -49,8 +52,10 @@ KOLOR = {"mana": "\033[38;5;39m", "energia": "\033[38;5;220m", "presja": "\033[3
 KOLOR_ZAPASU = {"zielony": "\033[32m", "zolty": "\033[33m", "czerwony": "\033[31m"}
 #: Kolor strzałki tendencji wg `tendencja.ocena` z wskazniki.py (manifest `wyglad.kolory_strzalek`) — jak status line.
 KOLOR_OCENY = {"dobrze": "\033[38;5;108m", "zle": "\033[38;5;131m"}
-#: v0.5: ekran zwięzły — pasek w kolorze POZIOMU (jak pasek HP w status line Agaty, manifest wyglad.kolory_poziomu_hp).
-KOLOR_POZIOMU = {"zielony": "\033[38;5;40m", "pomaranczowy": "\033[38;5;214m", "czerwony": "\033[38;5;196m"}
+#: v0.6 (03.11, Damian 01:3x): każdy wskaźnik ma JEDEN kolor tożsamości + czerwień w stanie złym (bez odcieni pośrednich).
+#: Kod przychodzi z `wskazniki.py --json` (`.kolor_paska.kod`, reguła i progi w manifeście); tu tylko zapas na brak pola.
+TOZSAMOSC = {"mana": 39, "energia": 220, "presja": 208, "hp": 40}
+CZERWIEN = 196
 NAZWY_TRYBU = {"urlop": "urlop", "urlop_polowa": "urlop (połowa)", "urlop_praca": "urlop liczony jak praca",
                "robocza": "doba robocza", "wolna": "doba wolna"}
 SZEROKOSC = 130                                          # linie „powód → co zrobić” ucinane do tylu kolumn
@@ -189,11 +194,13 @@ def _dzialanie(podpowiedzi, powod_prefiks: str = "", pomin=()) -> str:
 
 
 def _poziom_many(p) -> str:
-    return "zielony" if p >= 50 else "pomaranczowy" if p >= 25 else "czerwony"
+    """Zapas bez `kolor_paska`: zły = mana ≤ 25 % (manifest mana.prog_sygnalu)."""
+    return "czerwony" if p <= 25 else "zielony"
 
 
 def _poziom_energii(pola) -> str:
-    return "zielony" if pola >= 4 else "pomaranczowy" if pola >= 2 else "czerwony"
+    """Zapas bez `kolor_paska`: zły = ≤ 2 pola (manifest hp.ubytki.niska_energia.prog_pola)."""
+    return "czerwony" if pola <= 2 else "zielony"
 
 
 class Ekran:
@@ -238,7 +245,6 @@ class Ekran:
         d = self.d
         mana = (d.get("mana") or {}).get("procent")
         en = d.get("energia") or {}
-        kol_en = KOLOR["wyczerpana"] if en.get("procent") == 0 else KOLOR["energia"]
         dop_en = f"{en.get('pola')}/{en.get('pola_max')} · {_nazwa(en.get('poziom'))}" if en else ""
 
         pres_all = d.get("presja") or {}
@@ -271,10 +277,10 @@ class Ekran:
         else:
             hp_proc, dop_hp = None, "nie dotyczy (HP liczone dla człowieka)" if kto not in (None, "", "damian") \
                 else "brak historii HP"
-        return [("mana", "MANA", mana, KOLOR["mana"], "" if mana is not None else "brak danych okna"),
-                ("energia", "ENERGIA", en.get("procent"), kol_en, dop_en),
-                ("presja", f"PRESJA{litera}", pr["procent"] if pr else None, KOLOR["presja"], dop_p),
-                ("hp", "ZDROWIE", hp_proc, KOLOR["hp"], dop_hp)]
+        return [("mana", "MANA", mana, self.kolor_paska("mana", kto), "" if mana is not None else "brak danych okna"),
+                ("energia", "ENERGIA", en.get("procent"), self.kolor_paska("energia", kto), dop_en),
+                ("presja", f"PRESJA{litera}", pr["procent"] if pr else None, self.kolor_paska("presja", kto), dop_p),
+                ("hp", "ZDROWIE", hp_proc, self.kolor_paska("hp", kto), dop_hp)]
 
     def rysuj(self, kto: str | None, *, rozbicie: bool = True) -> str:
         d = self.d
@@ -309,14 +315,13 @@ class Ekran:
         for klucz, etykieta, procent, _, dopisek in self.wiersze_paskow(kto):
             ik = self.ikony.get(klucz, "")
             lewa = _dopelnij(f"  {ik} {etykieta}", 15)
-            poz = self._poziom(klucz, kto)
             if procent is None:
                 wart = "  n/d"
             elif klucz == "presja" and procent > 999:            # Damian 02.11: „3218 %” nic nie mówi
                 wart = "> 10× pojemności"
             else:
                 wart = f"{procent:>3} %"
-            pasek = self.pasek(procent, KOLOR_POZIOMU.get(poz, ""))
+            pasek = self.pasek(procent, self.kolor_paska(klucz, kto))
             out.append(f"{lewa}{pasek} {wart}" + (f"  {dopisek}" if dopisek else ""))
             out.append(_utnij("      " + self._powod_i_dzialanie(klucz, kto)))
         lim = d.get("limity") or {}
@@ -324,14 +329,26 @@ class Ekran:
                    f" · {datetime.now():%d.%m %H:%M} · rozbicie: sf-kit status --pelny")
         return "\n".join(out)
 
+    def kolor_paska(self, klucz: str, kto: str | None) -> str:
+        """Kod ANSI paska: `kolor_paska.kod` z wskazniki.py; bez niego ta sama reguła na poziomie (zapas)."""
+        d = self.d
+        zrodlo = {"mana": d.get("mana"), "energia": d.get("energia"), "hp": d.get("hp"),
+                  "presja": (d.get("presja") or {}).get("agent" if kto == "agata" else "damian")}.get(klucz) or {}
+        kod = (zrodlo.get("kolor_paska") or {}).get("kod")
+        if kod is None:
+            kod = CZERWIEN if self._poziom(klucz, kto) == "czerwony" else TOZSAMOSC.get(klucz)
+        return f"\033[38;5;{int(kod)}m" if kod is not None else ""
+
     def _poziom(self, klucz: str, kto: str | None) -> str | None:
         d = self.d
         if klucz == "mana":
             p = (d.get("mana") or {}).get("procent")
             return None if p is None else _poziom_many(p)
         if klucz == "energia":
-            pola = (d.get("energia") or {}).get("pola")
-            return None if pola is None else _poziom_energii(pola)
+            en = d.get("energia") or {}
+            if en.get("procent") == 0:                   # wyczerpana (np. limit 7 d) = stan zły
+                return "czerwony"
+            return None if en.get("pola") is None else _poziom_energii(en["pola"])
         if klucz == "presja":
             pr = (d.get("presja") or {}).get("agent" if kto == "agata" else "damian") or {}
             return pr.get("kolor") if kto in (None, "", "damian", "agata") else None
