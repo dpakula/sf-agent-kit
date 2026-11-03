@@ -52,5 +52,5 @@ Nic nowego. Wszystkie trasy już istnieją (OpenAPI 03.11).
 ## Bramka (03.11)
 
 - Pakiet zgodny z manifestem (`python3 -m sf_kit.pakiet --sprawdz`).
-- Testy: 782, z czego 779 OK i 1 pominięty. 2 błędy `test_onboarding_960` są znane i zależą od macOS: test oczekuje pliku klucza, a na macOS Kit pisze do pęku — i test zapisuje wtedy do PRAWDZIWEGO pęku (wpis `sf-agent-kit`/`kodeks-dpakula` = `sk_live_STARY`). Do poprawy: izolacja `MaszynaTestowa`.
+- Testy: 791, z czego 788 OK i 1 pominięty. 2 błędy `test_onboarding_960` są znane i zależą od macOS: test oczekuje pliku klucza, a na macOS Kit pisze do pęku — i test zapisuje wtedy do PRAWDZIWEGO pęku (wpis `sf-agent-kit`/`kodeks-dpakula` = `sk_live_STARY`). Do poprawy: izolacja `MaszynaTestowa`.
 - `claude plugin validate`: marketplace i plugin OK.
