@@ -92,6 +92,12 @@ class Konfiguracja:
     #: (sprawy człowieka, podpis wpisów); uprawnień nie przenosi (korekta Damiana 02.10, SF-200).
     pracuje_dla: str | None = None
 
+    #: SF-486: plik dziennika audytu zapisów (format `sf_audit.log` floty; `audyt.py`). Pusty = nie piszemy.
+    dziennik_audytu: str = ""
+
+    #: SF-486: domyślny adresat bloków konsoli (`sf-kit konsola blok`) — e-mail członka Organizacji konsoli.
+    konsola_adresat: str = ""
+
     def braki(self) -> list[str]:
         """Czego brakuje, żeby worker mógł ruszyć. Pusta lista = wszystko jest.
 

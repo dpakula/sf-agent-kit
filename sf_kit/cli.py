@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from . import WERSJA
+from . import audyt
 from . import skrzynka
 from . import aktualizacje
 from . import config as konfiguracja
@@ -28,6 +29,7 @@ from . import flow
 from . import os_czasu
 from . import koordynator
 from . import kontrakt
+from . import konsola
 from . import rotacja as mod_rotacja
 from . import tozsamosc
 from .api import BladAPI, Klient
@@ -47,6 +49,7 @@ def _klient_bez_organizacji(konf: konfiguracja.Konfiguracja) -> Klient:
     # SF-170: asystent podpisuje wpisy „na rzecz" swojego człowieka — tylko w profilu asystenta.
     if getattr(konf, "profil", "") == "asystent" and getattr(konf, "pracuje_dla", None):
         klient.na_rzecz = konf.pracuje_dla
+    klient.dziennik = audyt.z_ustawien(konf, konf.slug)
     return klient
 
 
@@ -1329,6 +1332,10 @@ def polecenie_inbox(args) -> int:
     człowieka, który chce zerknąć cudzym... to znaczy WŁASNYM kluczem, nie zabierając sobie
     wiadomości z kolejki przed właściwym taktem pętli.
     """
+    if getattr(args, "odebrane", None):
+        return _inbox_odebrane(args)
+    if getattr(args, "wszystkie_org", False):
+        return _inbox_wszedzie(args)
     konf = konfiguracja.wczytaj()
     klient = _klient(konf, args)
 
@@ -1386,6 +1393,331 @@ def polecenie_outbox(args) -> int:
         print(f"  [{znacznik}] → {', '.join(w.get('adresaci') or ['?'])}{flaga}")
         print(f"    {stan}   ({w.get('status')})")
         print(f"    {(w.get('body') or '')[:100]}")
+    return 0
+
+
+# ── SF-486 krok 2: konsola koordynatora, wiadomości ze wszystkich Organizacji, tagi ─────────────
+
+#: Poziomy, których trasa with-attachments nie zna (tylko kłódka) — ustawiamy je PATCH-em po wpisie.
+POZIOMY_PO_FAKCIE = ("konsola", "team")
+
+
+def _id_na_osi(klient: Klient, sprawa_id: str, entry_id: str, *, stron: int = 5) -> tuple[str, str]:
+    """(id wiersza osi, obecny poziom) dla wpisu sprawy — PATCH widoczności zna tylko id OSI.
+
+    Dopasowanie RÓWNOŚCIĄ `native_entry_id` (pitfall 22.10: dopasowanie po prefiksie trafiało obok).
+    """
+    kursor = ""
+    for _ in range(stron):
+        strona = klient.os_obiektu("ticket", sprawa_id, pelna=True, limit=100, kursor=kursor)
+        for e in strona.get("entries") or []:
+            if str(e.get("native_entry_id") or "") == entry_id or str(e.get("id") or "") == entry_id:
+                return str(e.get("id")), str(e.get("visibility") or "?")
+        kursor = strona.get("next_cursor") or ""
+        if not kursor:
+            break
+    raise ValueError(f"wpisu {entry_id} nie ma na osi sprawy (sprawdź id: `sf-kit os <sprawa>`)")
+
+
+def _wyrownaj_widocznosc(klient: Klient, sprawa_id: str, entry_id: str, poziom: str) -> None:
+    if not entry_id:
+        print(f"UWAGA: SF nie oddał id wpisu — poziomu „{poziom}” nie ustawiłem (wpis JEST, z kłódką).",
+              file=sys.stderr)
+        return
+    try:
+        tid, obecny = _id_na_osi(klient, sprawa_id, entry_id)
+        if obecny != poziom:
+            klient.zmien_widocznosc(tid, poziom, powod="sf-kit wpis --zalacz (with-attachments zna tylko kłódkę)")
+    except (ValueError, BladAPI) as blad:
+        print(f"UWAGA: wpis JEST, ale poziomu „{poziom}” nie ustawiłem: {blad}", file=sys.stderr)
+
+
+def polecenie_wpis_widocznosc(args) -> int:
+    """`sf-kit wpis-widocznosc <sprawa> <wpis> <poziom>` — zmiana poziomu wpisu po fakcie (SF-449)."""
+    konf = konfiguracja.wczytaj()
+    org_z_linku = flow.organizacja_z_linku(args.sprawa) or "" if flow.sprawa_z_linku(args.sprawa) else ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+        tid, obecny = _id_na_osi(klient, str(sprawa["id"]), args.wpis)
+        if obecny == args.poziom:
+            print(f"Wpis ma już poziom „{obecny}” — nic nie zmieniam.")
+            return 0
+        klient.zmien_widocznosc(tid, args.poziom, powod=args.powod)
+    except (ValueError, BladAPI) as blad:
+        print(f"Nie zmieniłem widoczności: {blad}", file=sys.stderr)
+        return 1
+    print(f"✓ widoczność wpisu: {obecny} → {args.poziom}")
+    return 0
+
+
+def _adresat_bloku(klient: Klient, konf, wskazanie: str | None) -> str | None:
+    """`--do` (e-mail albo id konta) albo `konsola_adresat` z ustawień → id konta w Org konsoli."""
+    wskazanie = (wskazanie or getattr(konf, "konsola_adresat", "") or "").strip()
+    if not wskazanie:
+        return None
+    if konsola._UUID.match(wskazanie):
+        return wskazanie
+    return str(klient.czlonek(wskazanie)["user_id"])
+
+
+def polecenie_konsola_blok(args) -> int:
+    """`sf-kit konsola blok` — blok Konsoli A dla człowieka, z dedupem kotwicy (lib 1.12.0)."""
+    konf = konfiguracja.wczytaj()
+    klient, _ = _klient_dla_zapisu(konf, args)
+    toz = _tozsamosc(klient)
+    tresc = _opis_z_wejscia(args)
+    try:
+        opcje = konsola.opcje_z_argumentow(args.opcja, args.rekomendowana) or None
+        adresat = _adresat_bloku(klient, konf, args.do)
+        if not adresat:
+            print("UWAGA: blok bez adresata (--do albo `sf-kit ustawienia konsola_adresat <e-mail>`) — "
+                  "SF wpisze jako adresata Ciebie.", file=sys.stderr)
+        blok, nowy = konsola.zaloz_blok(
+            klient, toz, rodzaj=args.rodzaj, tresc=tresc or "", sprawa=args.sprawa,
+            sprawa_org=args.sprawa_org, krok=args.krok, priorytet=args.prio, effort=args.effort,
+            adresat_id=adresat, tytul=args.tytul, zastepuje=args.zastepuje, opcje=opcje,
+            bez_dedupu=args.bez_dedupu, dedup_h=args.dedup_h)
+    except (ValueError, BladAPI) as blad:
+        print(f"Blok nie powstał: {blad}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(konsola._json(blok))
+    else:
+        print(blok.get("numer"))
+        if blok.get("url"):
+            print(f"{'nowy' if nowy else 'istniejący'} blok: {blok['url']}", file=sys.stderr)
+    return 0
+
+
+def polecenie_konsola_lista(args) -> int:
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    filtry = {"status": None if args.status == "wszystkie" else args.status, "kind": args.rodzaj,
+              "limit": args.limit, "sort": args.sort}
+    if args.odpowiedziane:
+        filtry["replied"] = True
+    if args.nieodebrane:
+        filtry.update(replied=True, seen=False)
+    if args.sprawa:
+        filtry["anchor_id"] = flow.sprawa_z_linku(args.sprawa) or args.sprawa
+    try:
+        bloki = klient.bloki(**filtry)
+    except BladAPI as blad:
+        print(f"Nie pobrałem bloków: {blad}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(konsola._json(bloki))
+        return 0
+    if not bloki:
+        print("Brak bloków dla tych filtrów.")
+        return 0
+    for b in bloki:
+        print(konsola.wiersz_bloku(b))
+    print(f"\n{len(bloki)} bloków.")
+    return 0
+
+
+def polecenie_konsola_pokaz(args) -> int:
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        blok = konsola.znajdz_blok(klient, args.blok)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    print(konsola._json(blok) if args.json else konsola.pokaz_blok(blok))
+    return 0
+
+
+def polecenie_konsola_zamknij(args) -> int:
+    """Zamknij bloki (`status=closed`) — po numerach; każdy osobno, porażka jednego nie blokuje reszty."""
+    konf = konfiguracja.wczytaj()
+    klient, _ = _klient_dla_zapisu(konf, args)
+    kod = 0
+    for wsk in args.bloki:
+        try:
+            blok = konsola.znajdz_blok(klient, wsk)
+            if blok.get("status") == args.status:
+                print(f"{blok.get('numer')}: już „{args.status}” — pomijam")
+                continue
+            klient.zmien_blok(str(blok["id"]), {"status": args.status})
+            print(f"✓ {blok.get('numer')}: {blok.get('status')} → {args.status}")
+        except (ValueError, BladAPI) as blad:
+            print(f"✗ {wsk}: {blad}", file=sys.stderr)
+            kod = 1
+    return kod
+
+
+def polecenie_konsola_odpowiedzi(args) -> int:
+    """Odpowiedzi człowieka na bloki, jeszcze nieodebrane (`replied=true&seen=false`).
+
+    Pokazuje; `--odebrane N…` oznacza odebrane (`reply_seen`) DOPIERO po wykonaniu dyspozycji —
+    ta sama zasada co skrzynka: odbiór potwierdza się po przeczytaniu, nie w trakcie.
+    """
+    konf = konfiguracja.wczytaj()
+    if args.odebrane:
+        klient, _ = _klient_dla_zapisu(konf, args)
+        kod = 0
+        for wsk in args.odebrane:
+            try:
+                blok = konsola.znajdz_blok(klient, wsk)
+                klient.zmien_blok(str(blok["id"]), {"reply_seen": True})
+                print(f"✓ {blok.get('numer')}: odpowiedź odebrana")
+            except (ValueError, BladAPI) as blad:
+                print(f"✗ {wsk}: {blad}", file=sys.stderr)
+                kod = 1
+        return kod
+    klient = _klient(konf, args)
+    try:
+        bloki = klient.bloki(replied=True, seen=False, limit=args.limit)
+    except BladAPI as blad:
+        print(f"Nie pobrałem odpowiedzi: {blad}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(konsola._json(bloki))
+        return 0
+    if not bloki:
+        print("Brak nieodebranych odpowiedzi.")
+        return 0
+    for b in bloki:
+        print(konsola.pokaz_blok(b) + "\n" + "─" * 60)
+    print(f"{len(bloki)} odpowiedzi do odebrania · po wykonaniu: "
+          f"sf-kit --org <slug> konsola odpowiedzi --odebrane {' '.join(str(b.get('numer')) for b in bloki[:3])}…")
+    return 0
+
+
+def _inbox_wszedzie(args) -> int:
+    """`inbox --wszystkie-org` — tylko POKAZUJE (dyspozycję wykonuje się przed potwierdzeniem)."""
+    konf = konfiguracja.wczytaj()
+    klient = _klient_bez_organizacji(konf)
+    toz = _tozsamosc(klient)
+    wiadomosci, problemy = konsola.wiadomosci_wszedzie(klient, toz, args.sesja or konf.slug)
+    for p in problemy:
+        print(f"UWAGA {p}", file=sys.stderr)
+    if args.json:
+        print(konsola._json(wiadomosci))
+        return 0
+    if not wiadomosci:
+        print(f"Brak nieodebranych wiadomości w {len(toz.z_nadaniami or toz.organizacje)} Organizacjach.")
+        return 0
+    for w in wiadomosci:
+        print(konsola.wiersz_wiadomosci(w))
+    print(f"\n{len(wiadomosci)} nieodebranych. Po wykonaniu: "
+          f"sf-kit inbox --odebrane <id> [<id>…] --notka \"…\" (Organizację Kit znajdzie sam)")
+    return 0
+
+
+def _inbox_odebrane(args) -> int:
+    konf = konfiguracja.wczytaj()
+    klient = _klient_bez_organizacji(konf)
+    toz = _tozsamosc(klient)
+    notka = args.notka or f"odebrane przez {konf.slug or 'agenta'} (sf-kit inbox --odebrane)"
+    kod = 0
+    slug = args.sesja or konf.slug
+    mapa = None
+    if not args.org:
+        # Jedno przejście po Organizacjach dla całej paczki id — nie po jednym na wiadomość.
+        mapa = {str(w.get("id")): w["_org_uuid"] for w in konsola.wiadomosci_wszedzie(klient, toz, slug)[0]}
+    for mid in args.odebrane:
+        try:
+            org = konsola.odbierz_wiadomosc(klient, toz, mid, notka=notka, org_wskazana=args.org,
+                                            slug=slug, mapa=mapa)
+            nazwa = next((o.slug for o in toz.organizacje if o.uuid == org), org)
+            print(f"✓ {mid}: odebrana ({nazwa})")
+        except (ValueError, BladAPI) as blad:
+            print(f"✗ {mid}: {blad}", file=sys.stderr)
+            kod = 1
+    return kod
+
+
+def polecenie_tag_lista(args) -> int:
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        typy = konsola.typy_wszystkie(klient)
+        if args.typ:
+            typy = [konsola.znajdz_typ(typy, args.typ)]
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    if args.json:
+        print(konsola._json(typy))
+        return 0
+    for t in typy:
+        print(f"{t.get('name')}  ({t.get('slug')}{', jeden tag' if not t.get('is_multi', True) else ''})")
+        for g in t.get("tags") or []:
+            print(f"    {g.get('name'):<30} {g.get('id')}")
+    return 0
+
+
+def _tag_wspolne(args):
+    konf = konfiguracja.wczytaj()
+    org_z_linku = flow.organizacja_z_linku(args.sprawa) or "" if flow.sprawa_z_linku(args.sprawa) else ""
+    klient = _klient_dla_zapisu(konf, args, org_z_linku)[0]
+    sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+    return klient, str(sprawa["id"])
+
+
+def polecenie_tag_nadaj(args) -> int:
+    try:
+        klient, sprawa_id = _tag_wspolne(args)
+        tag, typ = konsola.znajdz_tag(konsola.typy_wszystkie(klient), args.tag, typ=args.typ)
+        for linia in konsola.nadaj_tag(klient, sprawa_id, tag, typ, zamien=args.zamien):
+            print(f"✓ {linia}")
+    except (ValueError, BladAPI) as blad:
+        print(f"Tag nie nadany: {blad}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def polecenie_tag_zdejmij(args) -> int:
+    try:
+        klient, sprawa_id = _tag_wspolne(args)
+        tag, typ = konsola.znajdz_tag(konsola.typy_wszystkie(klient), args.tag, typ=args.typ)
+        klient.zdejmij_tag(sprawa_id, str(tag["id"]))
+    except (ValueError, BladAPI) as blad:
+        print(f"Tag nie zdjęty: {blad}", file=sys.stderr)
+        return 1
+    print(f"✓ zdjęty {typ.get('name')}: {tag.get('name')}")
+    return 0
+
+
+def polecenie_tag_pokaz(args) -> int:
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        sprawa_id = flow.sprawa_z_linku(args.sprawa) or str(asystent.znajdz_sprawe(klient, args.sprawa)["id"])
+        tagi = klient.tagi_sprawy(sprawa_id)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    if args.json:
+        print(konsola._json(tagi))
+        return 0
+    print("\n".join(f"  {(g.get('tag') or {}).get('name') or g.get('tag_id')}   "
+                    f"({(g.get('tag') or {}).get('value') or ''})" for g in tagi) or "Sprawa nie ma tagów.")
+    return 0
+
+
+def _sprawy_bez_tagu(konf, args) -> int:
+    klient = _klient(konf, args)
+    try:
+        typ = konsola.znajdz_typ(konsola.typy_wszystkie(klient), args.bez_tagu_typu)
+        lista, razem = konsola.sprawy_bez_tagu_typu(klient, typ, wszystkie_statusy=args.wszystkie_statusy,
+                                                    limit=args.limit)
+    except (ValueError, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    if args.json:
+        print(konsola._json(lista))
+        return 0
+    zakres = "" if args.wszystkie_statusy else " (bez resolved/closed)"
+    print(f"Sprawy bez tagu typu „{typ.get('name')}”{zakres}: {razem if razem is not None else len(lista)}"
+          f"{f' — pokazuję {len(lista)}' if razem and razem > len(lista) else ''}\n")
+    for s in lista:
+        print(f"  {asystent.numer_sprawy(s) or str(s.get('id'))[:8]:14} {s.get('status', '?'):12} "
+              f"{(s.get('title') or '')[:70]}")
     return 0
 
 
@@ -1831,13 +2163,18 @@ def polecenie_wpis(args) -> int:
     _ostrzez_o_szkicu(klient, sprawa_id)
     try:
         if args.zalacz:
-            klient.wpis_z_plikami(sprawa_id, tresc, args.zalacz,
-                                  widocznosc=args.widocznosc)
+            # with-attachments zna tylko kłódkę (internal/external); konsola/team = kłódka + PATCH poziomu.
+            wynik = klient.wpis_z_plikami(sprawa_id, tresc, args.zalacz,
+                                          widocznosc="external" if args.widocznosc == "external" else "internal")
+            if args.widocznosc in POZIOMY_PO_FAKCIE:
+                _wyrownaj_widocznosc(klient, sprawa_id, str((wynik or {}).get("id") or ""), args.widocznosc)
         else:
-            klient.wpis(sprawa_id, tresc, widocznosc=args.widocznosc)
+            wynik = klient.wpis(sprawa_id, tresc, widocznosc=args.widocznosc)
     except (BladAPI, FileNotFoundError) as blad:
         print(f"Nie udało się dopisać: {blad}", file=sys.stderr)
         return 1
+    if isinstance(wynik, dict) and wynik.get("id"):
+        print(f"id wpisu: {wynik['id']}", file=sys.stderr)
 
     if args.do:
         # Wpis JEST zapisany — wiadomość jest dodatkiem. Porażka wysyłki nie ma prawa
@@ -2315,6 +2652,8 @@ def polecenie_sprawy(args) -> int:
     """Sprawy w Organizacji tego klucza — żeby wiedzieć, do czego dopisywać."""
     konf = konfiguracja.wczytaj()
     czlowiek = getattr(konf, "pracuje_dla", None) if konf.profil == "asystent" else None
+    if getattr(args, "bez_tagu_typu", None):
+        return _sprawy_bez_tagu(konf, args)
     if (czlowiek or getattr(args, "tylko_moje", False)) and not getattr(args, "wszystkie", False):
         return _sprawy_asystenta(konf, args, czlowiek)
     klient = _klient(konf, args)
@@ -3071,7 +3410,88 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     ib.add_argument("--dni", type=int, default=None, help="okno skrzynki w dniach")
     ib.add_argument("--podejrzyj", action="store_true",
                     help="pokaż BEZ potwierdzania odbioru (wiadomości zostają w kolejce)")
+    ib.add_argument("--wszystkie-org", action="store_true",
+                    help="[koordynator] nieodebrane ze WSZYSTKICH Organizacji klucza (skrzynka + dyspozycje "
+                         "na session_target); tylko pokazuje")
+    ib.add_argument("--sesja", default=None, metavar="SLUG",
+                    help="session_target dyspozycji (domyślnie slug agenta z SF / z ustawień)")
+    ib.add_argument("--odebrane", nargs="+", default=None, metavar="ID",
+                    help="potwierdź odbiór tych wiadomości (consumed + --notka); Organizację Kit znajdzie sam")
+    ib.add_argument("--notka", default=None, help="notka odbioru (co zrobiono) — przy --odebrane")
+    ib.add_argument("--json", action="store_true", help="wynik jako JSON (przy --wszystkie-org)")
     ib.set_defaults(funkcja=polecenie_inbox)
+
+    # SF-486 krok 2: bloki Konsoli A (dla człowieka) — dedup kotwicy, opcje, lustro jak lib 1.12.0.
+    kn = pod.add_parser("konsola", help="[koordynator] bloki Konsoli A: blok, lista, pokaz, zamknij, odpowiedzi")
+    kn_pod = kn.add_subparsers(dest="konsola_polecenie", required=True)
+    kb = kn_pod.add_parser("blok", help="załóż blok (ACTION/INFO/UWAGA) z kotwicą na sprawie źródłowej")
+    kb.add_argument("--rodzaj", choices=list(konsola.RODZAJE_BLOKU), required=True)
+    kb.add_argument("--prio", default="med", help="high | med | low (domyślnie med)")
+    kb.add_argument("--effort", default=None, help="tag wysiłku przy action (np. 2min, 15min, decyzja)")
+    kb.add_argument("--opis", required=True, metavar="PLIK", help="plik z treścią (`-` = stdin)")
+    kb.add_argument("--sprawa", required=True,
+                    help="sprawa źródłowa: link z ?org=…, uuid albo numer (z --sprawa-org)")
+    kb.add_argument("--sprawa-org", default=None, metavar="SLUG|UUID",
+                    help="Organizacja sprawy źródłowej, gdy --sprawa to numer/uuid spoza Org konsoli")
+    kb.add_argument("--krok", default=None, help="sprawa kroku w Org konsoli (krok_id; kotwica lustra)")
+    kb.add_argument("--do", default=None, metavar="EMAIL|ID",
+                    help="adresat (domyślnie ustawienie `konsola_adresat`)")
+    kb.add_argument("--tytul", default=None, help="tytuł bloku (≤ 80 znaków)")
+    kb.add_argument("--zastepuje", default=None, metavar="#N", help="blok, który ten zastępuje")
+    kb.add_argument("--opcja", action="append", default=[], metavar="KLUCZ=ETYKIETA",
+                    help="opcja decyzji (2–6; powtarzalne); bez nich Kit czyta „A) … · B) …” z treści")
+    kb.add_argument("--rekomendowana", default=None, metavar="KLUCZ")
+    kb.add_argument("--bez-dedupu", action="store_true",
+                    help="świadomie drugi blok mimo otwartego z tą samą sprawą")
+    kb.add_argument("--dedup-h", type=float, default=konsola.DEDUP_H, help="okno dedupu w godzinach")
+    kb.add_argument("--json", action="store_true")
+    kb.set_defaults(funkcja=polecenie_konsola_blok)
+    kl = kn_pod.add_parser("lista", help="bloki konsoli (domyślnie otwarte)")
+    kl.add_argument("--status", default="open", help="open | closed | answered | ticked | expired | wszystkie")
+    kl.add_argument("--rodzaj", default=None, choices=list(konsola.RODZAJE_BLOKU))
+    kl.add_argument("--sprawa", default=None, help="tylko z kotwicą na tej sprawie (uuid albo link)")
+    kl.add_argument("--odpowiedziane", action="store_true", help="tylko z odpowiedzią")
+    kl.add_argument("--nieodebrane", action="store_true", help="odpowiedź jest, nieodebrana")
+    kl.add_argument("--sort", default="najnowsze", choices=["najnowsze", "priorytet"])
+    kl.add_argument("--limit", type=int, default=50)
+    kl.add_argument("--json", action="store_true")
+    kl.set_defaults(funkcja=polecenie_konsola_lista)
+    kp = kn_pod.add_parser("pokaz", help="jeden blok: treść, opcje, odpowiedź")
+    kp.add_argument("blok", help="#2364, 2364 albo id")
+    kp.add_argument("--json", action="store_true")
+    kp.set_defaults(funkcja=polecenie_konsola_pokaz)
+    kz = kn_pod.add_parser("zamknij", help="zamknij bloki (po numerach)")
+    kz.add_argument("bloki", nargs="+", metavar="#N")
+    kz.add_argument("--status", default="closed", help="docelowy status (domyślnie closed)")
+    kz.set_defaults(funkcja=polecenie_konsola_zamknij)
+    ko_ = kn_pod.add_parser("odpowiedzi", help="odpowiedzi człowieka na bloki, jeszcze nieodebrane")
+    ko_.add_argument("--odebrane", nargs="+", default=None, metavar="#N",
+                     help="oznacz odpowiedzi jako odebrane (po wykonaniu dyspozycji)")
+    ko_.add_argument("--limit", type=int, default=50)
+    ko_.add_argument("--json", action="store_true")
+    ko_.set_defaults(funkcja=polecenie_konsola_odpowiedzi)
+
+    # SF-486 krok 2: tagi spraw (taksonomia) — klasyfikacja „Rodzaj pracy” bez curla.
+    tg = pod.add_parser("tag", help="[koordynator] tagi spraw: lista, nadaj, zdejmij, pokaz")
+    tg_pod = tg.add_subparsers(dest="tag_polecenie", required=True)
+    tl = tg_pod.add_parser("lista", help="typy tagów i ich tagi w tej Organizacji")
+    tl.add_argument("--typ", default=None, help="tylko ten typ (nazwa albo slug)")
+    tl.add_argument("--json", action="store_true")
+    tl.set_defaults(funkcja=polecenie_tag_lista)
+    for nazwa, funkcja, pomoc in (("nadaj", polecenie_tag_nadaj, "nadaj sprawie tag"),
+                                  ("zdejmij", polecenie_tag_zdejmij, "zdejmij tag ze sprawy")):
+        tn = tg_pod.add_parser(nazwa, help=pomoc)
+        tn.add_argument("sprawa", help="numer, uuid albo link z ?org=…")
+        tn.add_argument("tag", help="nazwa tagu (bez względu na ogonki), wartość albo id")
+        tn.add_argument("--typ", default=None, help="typ tagu, gdy nazwa jest w kilku (np. \"Rodzaj pracy\")")
+        if nazwa == "nadaj":
+            tn.add_argument("--zamien", action="store_true",
+                            help="typ jednokrotny: zdejmij poprzedni tag tego typu")
+        tn.set_defaults(funkcja=funkcja)
+    tp = tg_pod.add_parser("pokaz", help="tagi jednej sprawy")
+    tp.add_argument("sprawa")
+    tp.add_argument("--json", action="store_true")
+    tp.set_defaults(funkcja=polecenie_tag_pokaz)
 
     ob = pod.add_parser("outbox", help="[agent] czy to, co wysłałem, doszło")
     ob.add_argument("--dni", type=int, default=None, help="okno w dniach")
@@ -3091,8 +3511,9 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     wp.add_argument("--opis", default=None, metavar="PLIK",
                     help="plik z treścią (albo `-` = ze standardowego wejścia)")
     wp.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK")
-    wp.add_argument("--widocznosc", choices=["internal", "external"], default="internal",
-                    help="internal = widzi zespół (domyślnie), external = widzi też klient")
+    wp.add_argument("--widocznosc", choices=["internal", "external", "konsola", "team"], default="internal",
+                    help="internal = widzi zespół (domyślnie), external = widzi też klient, "
+                         "konsola = notatka floty u klienta (SF-449), team = zespół Organizacji")
     wp.set_defaults(funkcja=polecenie_wpis)
 
     # SF-184: raport (SITREP i podobne) — dane w blokach, nie HTML; styl renderuje SF.
@@ -3108,6 +3529,13 @@ def zbuduj_parser() -> argparse.ArgumentParser:
 
     # ADVERTPR-782: poprawianie wpisów. Nazwy po polsku jak reszta Kitu, trasy i pola —
     # dokładnie te z API (`PATCH …/entries/{id}`, `…/versions`; decyzja D1, 24.09).
+    wv = pod.add_parser("wpis-widocznosc", help="[agent] zmień poziom widoczności wpisu po fakcie (SF-449)")
+    wv.add_argument("sprawa", help="numer, uuid albo link z ?org=…")
+    wv.add_argument("wpis", help="id wpisu (z `id wpisu:` po `sf-kit wpis`) albo id wiersza osi")
+    wv.add_argument("poziom", choices=["public", "external", "internal", "team", "konsola"])
+    wv.add_argument("--powod", default=None)
+    wv.set_defaults(funkcja=polecenie_wpis_widocznosc)
+
     we = pod.add_parser("wpis-edytuj", help="[agent] popraw treść wpisu — SF zachowa "
                                             "poprzednią wersję (ADVERTPR-782)")
     we.add_argument("sprawa", help="numer (FM-12) albo identyfikator sprawy")
@@ -3215,6 +3643,10 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     ktore.add_argument("--tylko-moje", action="store_true", help="tylko sprawy przypisane do mnie")
     ktore.add_argument("--tylko-czlowieka", action="store_true", help="tylko sprawy mojego człowieka")
     ktore.add_argument("--wszystkie", action="store_true", help="wszystkie sprawy Organizacji (jak przed SF-170)")
+    sp.add_argument("--bez-tagu-typu", default=None, metavar="TYP",
+                    help="[koordynator] sprawy bez żadnego tagu tego typu (np. \"Rodzaj pracy\"); filtr SF")
+    sp.add_argument("--wszystkie-statusy", action="store_true", help="przy --bez-tagu-typu: także resolved/closed")
+    sp.add_argument("--json", action="store_true", help="przy --bez-tagu-typu: wynik jako JSON")
     sp.set_defaults(funkcja=polecenie_sprawy)
     sa = pod.add_parser("sprawa", help="[wykonawca] karta sprawy: opis, wpisy, załączniki (SF-38)")
     sa.add_argument("sprawa", help="numer (ADVERTPR-927), identyfikator albo link do sprawy z ?org=…")

@@ -171,6 +171,17 @@ class Klient:
         #: SF-170: e-mail człowieka, dla którego pracuje asystent — idzie do wpisów jako PODPIS
         #: (`na_rzecz`). Tylko tożsamość: prawa wpisu to nadal prawa tego klucza.
         self.na_rzecz: str | None = None
+        #: SF-486: dziennik audytu zapisów (`audyt.Dziennik`) — `None` = nie piszemy nic.
+        self.dziennik = None
+
+    def _zapisz_w_dzienniku(self, metoda: str, sciezka: str, cialo, kod: int | None) -> None:
+        if self.dziennik is None:
+            return
+        try:
+            self.dziennik.zapisz(metoda, sciezka, cialo=cialo if isinstance(cialo, dict) else None,
+                                 organizacja=self.organizacja, kod=kod)
+        except Exception:                          # noqa: BLE001 — dziennik nie jest bramką
+            pass
 
     def _naglowki(self) -> dict[str, str]:
         naglowki = {
@@ -199,8 +210,10 @@ class Klient:
             with urllib.request.urlopen(zadanie, timeout=LIMIT_CZASU_S) as odp:
                 tresc = odp.read().decode("utf-8")
                 _odswiez_wersje_z_naglowkow_jesli_sa(odp.headers)
+                self._zapisz_w_dzienniku(metoda, sciezka, cialo, getattr(odp, "status", 200))
                 return json.loads(tresc) if tresc else {}
         except urllib.error.HTTPError as blad:
+            self._zapisz_w_dzienniku(metoda, sciezka, cialo, blad.code)
             tresc = ""
             try:
                 tresc = blad.read().decode("utf-8", errors="replace")[:_limit_tresci_bledu(blad.code)]
@@ -209,6 +222,7 @@ class Klient:
             _odswiez_wersje_z_naglowkow_jesli_sa(getattr(blad, "headers", None))
             raise self._na_wyjatek(blad.code, metoda, sciezka, tresc, self.organizacja) from None
         except urllib.error.URLError as blad:
+            self._zapisz_w_dzienniku(metoda, sciezka, cialo, None)
             raise BladAPI(
                 f"nie mogę połączyć się z {self.baza} ({blad.reason}). "
                 f"Sprawdź adres i sieć — to nie jest problem z kluczem.") from None
@@ -512,8 +526,10 @@ class Klient:
         try:
             with urllib.request.urlopen(zadanie, timeout=LIMIT_CZASU_WYSYLKI_S) as odp:
                 tresc = odp.read().decode("utf-8")
+                self._zapisz_w_dzienniku(metoda, sciezka, None, getattr(odp, "status", 200))
                 return json.loads(tresc) if tresc else {}
         except urllib.error.HTTPError as blad:
+            self._zapisz_w_dzienniku(metoda, sciezka, None, blad.code)
             tresc = ""
             try:
                 tresc = blad.read().decode("utf-8", errors="replace")[:_limit_tresci_bledu(blad.code)]
@@ -521,6 +537,7 @@ class Klient:
                 pass
             raise self._na_wyjatek(blad.code, metoda, sciezka, tresc, self.organizacja) from None
         except urllib.error.URLError as blad:
+            self._zapisz_w_dzienniku(metoda, sciezka, None, None)
             raise BladAPI(
                 f"nie mogę połączyć się z {self.baza} ({blad.reason}). "
                 f"Sprawdź adres i sieć — to nie jest problem z kluczem.") from None
@@ -688,6 +705,145 @@ class Klient:
             cialo={"session_target": slug, "kind": rodzaj, "body": tresc})
         return wynik if isinstance(wynik, dict) else {}
 
+    # ── KONSOLA KOORDYNATORA (SF-486 krok 2) ─────────────────────────────────
+    #
+    # Bloki Konsoli A (ACTION/INFO/UWAGA dla człowieka) i wiadomości konsoli w KAŻDEJ Organizacji.
+    # Kontrakt z OpenAPI SF 03.11: BoxCreate/BoxPatch, `GET /console/boxes` z filtrami po stronie
+    # serwera (status, kind, anchor_id, replied, seen, numer), `GET /console/messages` (dyspozycje
+    # bez adresata — `session_target`), `PATCH /console/messages/{id}` (consumed + failure_reason).
+
+    def bloki(self, **filtry) -> list[dict]:
+        """`GET /console/boxes` — filtry 1:1 z trasą (None pomijamy). Lista, nie strona."""
+        parametry = {k: (str(v).lower() if isinstance(v, bool) else v)
+                     for k, v in filtry.items() if v is not None}
+        ogon = ("?" + urllib.parse.urlencode(parametry)) if parametry else ""
+        wynik = self._wywolaj("GET", f"console/boxes{ogon}")
+        if isinstance(wynik, dict):
+            wynik = wynik.get("items") or []
+        return [b for b in wynik if isinstance(b, dict)]
+
+    def blok_konsoli(self, box_id: str) -> dict:
+        wynik = self._wywolaj("GET", f"console/boxes/{box_id}")
+        return wynik if isinstance(wynik, dict) else {}
+
+    def zaloz_blok(self, cialo: dict) -> dict:
+        wynik = self._wywolaj("POST", "console/boxes", cialo=cialo)
+        return wynik if isinstance(wynik, dict) else {}
+
+    def zmien_blok(self, box_id: str, cialo: dict) -> dict:
+        """`PATCH /console/boxes/{id}` — status (closed…), `reply_seen`, `converted_task_id`."""
+        wynik = self._wywolaj("PATCH", f"console/boxes/{box_id}", cialo=cialo)
+        return wynik if isinstance(wynik, dict) else {}
+
+    def kanal_konsoli(self) -> bool | None:
+        """Czy kanał konsoli TEJ Organizacji jest włączony. `None` = nie wiadomo (błąd/brak trasy)."""
+        try:
+            wynik = self._wywolaj("GET", "console/kanal")
+        except BladAPI:
+            return None
+        return bool(wynik.get("wlaczony")) if isinstance(wynik, dict) else None
+
+    def wiadomosci_konsoli(self, *, status: str | None = "new", session_target: str | None = None,
+                           limit: int = 50) -> list[dict]:
+        """`GET /console/messages` — wiadomości TEJ Organizacji (także dyspozycje bez adresata)."""
+        parametry: dict = {"limit": int(limit)}
+        if status:
+            parametry["status"] = status
+        if session_target:
+            parametry["session_target"] = session_target
+        wynik = self._wywolaj("GET", f"console/messages?{urllib.parse.urlencode(parametry)}")
+        if isinstance(wynik, dict):
+            wynik = wynik.get("items") or []
+        return [w for w in wynik if isinstance(w, dict)]
+
+    def wiadomosc_konsoli(self, message_id: str) -> dict:
+        wynik = self._wywolaj("GET", f"console/messages/{message_id}")
+        return wynik if isinstance(wynik, dict) else {}
+
+    def zmien_wiadomosc(self, message_id: str, *, status: str, notka: str | None = None) -> dict:
+        """`PATCH /console/messages/{id}` — droga dla dyspozycji bez adresata (`/recipients/me` = 404)."""
+        cialo: dict = {"status": status}
+        if notka:
+            cialo["failure_reason"] = notka[:2000]
+        wynik = self._wywolaj("PATCH", f"console/messages/{message_id}", cialo=cialo)
+        return wynik if isinstance(wynik, dict) else {}
+
+    # ── widoczność wpisu (SF-449) ────────────────────────────────────────────
+
+    def zmien_widocznosc(self, timeline_id: str, poziom: str, *, powod: str | None = None) -> dict:
+        """`PATCH /timeline/entries/{id}/visibility` — UWAGA: id wiersza OSI, nie wpisu sprawy."""
+        cialo: dict = {"visibility": poziom}
+        if powod:
+            cialo["reason"] = powod[:500]
+        wynik = self._wywolaj("PATCH", f"timeline/entries/{timeline_id}/visibility", cialo=cialo)
+        return wynik if isinstance(wynik, dict) else {}
+
+    # ── taksonomia (tagi spraw) ──────────────────────────────────────────────
+
+    def typy_tagow(self) -> list[dict]:
+        wynik = self._wywolaj("GET", "taxonomy/types")
+        if isinstance(wynik, dict):
+            wynik = wynik.get("items") or []
+        return [t for t in wynik if isinstance(t, dict)]
+
+    def typ_tagow(self, type_id: str) -> dict:
+        """`GET /taxonomy/types/{id}/full` — typ z tagami (działa także dla typów, których lista nie pokazuje)."""
+        wynik = self._wywolaj("GET", f"taxonomy/types/{type_id}/full")
+        return wynik if isinstance(wynik, dict) else {}
+
+    def grupy_taksonomii(self) -> dict:
+        """`GET /taxonomy/permissions` → `{type_id: {slug, …}}` — WSZYSTKIE grupy Organizacji.
+
+        `GET /taxonomy/types` nie pokazuje części typów (03.11: „Rodzaj pracy”, „Rozgrywka” — brak
+        w liście dla konta bez admina), a uprawnienia wymieniają każdą grupę. Stąd uzupełnianie.
+        """
+        wynik = self._wywolaj("GET", "taxonomy/permissions")
+        grupy = wynik.get("groups") if isinstance(wynik, dict) else None
+        return grupy if isinstance(grupy, dict) else {}
+
+    def tagi(self, *, type_id: str | None = None) -> list[dict]:
+        ogon = f"?{urllib.parse.urlencode({'type_id': type_id})}" if type_id else ""
+        wynik = self._wywolaj("GET", f"taxonomy/tags{ogon}")
+        if isinstance(wynik, dict):
+            wynik = wynik.get("items") or []
+        return [t for t in wynik if isinstance(t, dict)]
+
+    def tagi_sprawy(self, ticket_id: str) -> list[dict]:
+        wynik = self._wywolaj("GET", f"taxonomy/entities/ticket/{ticket_id}/tags")
+        if isinstance(wynik, dict):
+            wynik = wynik.get("items") or wynik.get("tags") or []
+        return [t for t in wynik if isinstance(t, dict)]
+
+    def nadaj_tag(self, ticket_id: str, tag_id: str) -> dict:
+        wynik = self._wywolaj("POST", f"taxonomy/entities/ticket/{ticket_id}/tags",
+                              cialo={"tag_id": tag_id})
+        return wynik if isinstance(wynik, dict) else {}
+
+    def zdejmij_tag(self, ticket_id: str, tag_id: str) -> None:
+        self._wywolaj("DELETE", f"taxonomy/entities/ticket/{ticket_id}/tags/{tag_id}")
+
+    def sprawy_filtrem(self, *, limit: int = 200, **filtry) -> tuple[list[dict], int | None]:
+        """`GET /tickets` z filtrami serwera (status, exclude_status, tags, exclude_tags, tag_mode…).
+
+        Zwraca `(sprawy, razem)`; `razem` z odpowiedzi (`total`), gdy SF go podaje.
+        """
+        wynik: list[dict] = []
+        razem = None
+        strona = 1
+        while len(wynik) < limit:
+            parametry = {k: v for k, v in filtry.items() if v not in (None, "")}
+            parametry.update({"page": strona, "per_page": min(self.SPRAW_NA_STRONE, limit)})
+            odp = self._wywolaj("GET", f"tickets?{urllib.parse.urlencode(parametry)}")
+            if not isinstance(odp, dict):
+                break
+            pozycje = odp.get("items") or []
+            razem = odp.get("total", razem)
+            wynik += pozycje
+            if not pozycje or strona >= int(odp.get("pages") or 1):
+                break
+            strona += 1
+        return wynik[:limit], razem
+
     # ── sonda ────────────────────────────────────────────────────────────────
 
     def wersja_kita(self) -> dict:
@@ -851,7 +1007,9 @@ class Klient:
         Czy klucz TAM coś może, rozstrzyga serwer — klon nie daje żadnych praw, zmienia tylko
         to, o którą Organizację pytamy.
         """
-        return type(self)(baza=self.baza, klucz=self._klucz, organizacja=organizacja)
+        klon = type(self)(baza=self.baza, klucz=self._klucz, organizacja=organizacja)
+        klon.dziennik = self.dziennik
+        return klon
 
     # ── flow odpowiedzi i publikacji ze zgodą (SF-51, ADVERTPR-948) ───────────
 

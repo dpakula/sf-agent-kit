@@ -40,9 +40,18 @@ Sprawdź w `sf-kit whoami` i w konfiguracji (`sf-kit init`), w którym trybie pr
 |---|---|---|
 | **asystent** (`asystent`) | pracujesz z człowiekiem: odpowiadasz w sprawach, oddajesz jego pracę | `odpowiedz`, `wpis`, `zalacz`, `tresc-wersja`, `zglos`, `sprawy`, `sprawa`, `obserwujacy`, `ustawienia` |
 | **worker** (`worker`) | bierzesz zadania z kolejki i wykonujesz je w tle | `tasks`, `worker` |
-| **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status --kolejka`, `publikuj` |
+| **koordynator** (`koordynator`) | rozdzielasz pracę flocie i odbierasz wyniki; publikujesz szkice na zgodę | `flota`, `zlec`, `kolejka`, `odbierz`, `status --kolejka`, `publikuj`, `konsola`, `inbox --wszystkie-org`, `tag`, `sprawy --bez-tagu-typu` |
 
 Profil nie nadaje uprawnień — te są po stronie SalesForge. Jeśli polecenie odpowie brakiem uprawnienia, zatrzymaj się i przekaż użytkownikowi, czego brakuje.
+
+### Koordynator: konsola, wiadomości, tagi (SF-486)
+
+- **Blok dla człowieka (Konsola A):** `sf-kit --org <org konsoli> konsola blok --rodzaj action|info|uwaga --prio high|med|low --effort 2min --opis plik.md --sprawa <link sprawy z ?org=…> [--krok <sprawa kroku>] [--do e-mail]`. Wynik na stdout: numer bloku (`#2365`). Otwarty blok tego samego rodzaju z tą samą sprawą sprzed < 2 h Kit oddaje zamiast zakładać drugi (`--bez-dedupu` = świadomie drugi). Opcje decyzji: „A) … · B) …” w treści albo `--opcja A="…" --rekomendowana A`. „Zastępuje …” zostaje w treści tylko z numerem istniejącego bloku (`--zastepuje #N`). Domyślny adresat: `sf-kit ustawienia konsola_adresat <e-mail>`.
+- **Bloki:** `konsola lista [--status open|wszystkie] [--sprawa …]`, `konsola pokaz #N`, `konsola zamknij #N…`, `konsola odpowiedzi` (odpowiedzi człowieka, jeszcze nieodebrane) → po wykonaniu `konsola odpowiedzi --odebrane #N…`.
+- **Wiadomości ze wszystkich Organizacji:** `sf-kit inbox --wszystkie-org` (skrzynka + dyspozycje z konsoli na Twój `session_target`; tylko pokazuje). Po wykonaniu: `sf-kit inbox --odebrane <id>… --notka "co zrobiono"` — Organizację Kit znajdzie sam.
+- **Widoczność wpisu:** `wpis --widocznosc konsola|team` (konsola = notatka floty u klienta, SF-449); po fakcie `sf-kit wpis-widocznosc <sprawa> <id wpisu> <poziom>`.
+- **Tagi:** `tag lista [--typ "Rodzaj pracy"]`, `tag nadaj <sprawa> <tag> [--typ …] [--zamien]`, `tag zdejmij`, `tag pokaz <sprawa>`; `sprawy --bez-tagu-typu "Rodzaj pracy"` (filtr po stronie SF, bez resolved/closed).
+- **Dziennik audytu:** `SF_KIT_AUDIT_LOG=<plik>` albo `sf-kit ustawienia dziennik_audytu <plik>` — każdy zapis dostaje wiersz w formacie `sf_audit.log` floty (`hook=kit … sesja=jawny|zaplecze`; sesja z `SF_KIT_SESJA` albo `AGATA_ROLA=zaplecze`).
 
 ### Gdy coś nie działa
 

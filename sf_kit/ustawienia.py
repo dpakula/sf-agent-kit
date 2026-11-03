@@ -39,6 +39,8 @@ LOKALNE = {
     "organizacja": "domyślna Organizacja (slug)",
     "auto_update": "off | patch — samoczynne poprawki u workera",
     "pracuje_dla": "e-mail człowieka, dla którego pracuje asystent (SF-170; sprawdzany w SF)",
+    "dziennik_audytu": "plik dziennika zapisów (format sf_audit.log floty; SF-486); pusty = wyłączony",
+    "konsola_adresat": "e-mail adresata bloków `sf-kit konsola blok` (SF-486)",
 }
 AUTO_UPDATE = ("off", "patch")
 
