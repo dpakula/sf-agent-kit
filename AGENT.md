@@ -51,6 +51,11 @@ Profil nie nadaje uprawnień — te są po stronie SalesForge. Jeśli polecenie 
 - **Wiadomości ze wszystkich Organizacji:** `sf-kit inbox --wszystkie-org` (skrzynka + dyspozycje z konsoli na Twój `session_target`; tylko pokazuje). Po wykonaniu: `sf-kit inbox --odebrane <id>… --notka "co zrobiono"` — Organizację Kit znajdzie sam.
 - **Widoczność wpisu:** `wpis --widocznosc konsola|team` (konsola = notatka floty u klienta, SF-449); po fakcie `sf-kit wpis-widocznosc <sprawa> <id wpisu> <poziom>`.
 - **Tagi:** `tag lista [--typ "Rodzaj pracy"]`, `tag nadaj <sprawa> <tag> [--typ …] [--zamien]`, `tag zdejmij`, `tag pokaz <sprawa>`; `sprawy --bez-tagu-typu "Rodzaj pracy"` (filtr po stronie SF, bez resolved/closed).
+- **Status i rodzaj sprawy:** `sf-kit --org <org> sprawa <s> --status in_progress|resolved|closed|…` — `resolved`/`closed` Kit odmówi, gdy w sprawie jest otwarte zadanie albo tag „czeka na wdrożenie / bramkę / klienta” (świadomie: `--mimo-to`); `--kind message` (sprawa-wiadomość); `sprawa <s> --json` = karta z wpisami. `odbierz` zamyka zadanie, ale sprawy NIE rozwiązuje — mówi, co z nią dalej.
+- **Rodzaj pracy:** `nowa-sprawa|zglos|zlec … --rodzaj Rdzeń|Rozwojowe|Poboczne|Prywatne` (tag typu „Rodzaj pracy”).
+- **Doręczenie zlecenia:** `zlec … --dostarcz` — wiadomość do sesji agenta przez skrzynkę SF (link sprawy + polecenie odczytu kontekstu).
+- **Kroki rozgrywki:** `krok nowy --opis sedno.md` (numer nadaje SF, `POST /kroki/dzis`), `krok zamknij <sprawa> --opis zamkniecie.md`.
+- **Sprzątanie kolejki:** `kolejka --stare 14d`, potem `odbierz --hurt <id…> --status cancelled --notka "…"` (tylko cancelled/on_hold; `completed` = jeden odbiór z kontrolą wyniku).
 - **Dziennik audytu:** `SF_KIT_AUDIT_LOG=<plik>` albo `sf-kit ustawienia dziennik_audytu <plik>` — każdy zapis dostaje wiersz w formacie `sf_audit.log` floty (`hook=kit … sesja=jawny|zaplecze`; sesja z `SF_KIT_SESJA` albo `AGATA_ROLA=zaplecze`).
 
 ### Gdy coś nie działa

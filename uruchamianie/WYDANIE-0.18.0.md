@@ -20,6 +20,9 @@ i tagów:
 - Dziennik audytu zapisów w formacie `sf_audit.log` floty (`SF_KIT_AUDIT_LOG` albo ustawienie `dziennik_audytu`);
   domyślnie wyłączony.
 - Ustawienia lokalne `dziennik_audytu`, `konsola_adresat`.
+- Luki 4–6 (SF-486 krok 3): `sprawa --status/--kind/--json` (rozwiązanie sprawdza otwarte zadania i tagi „czeka na…”,
+  `--mimo-to`), `--rodzaj` przy `nowa-sprawa/zglos/zlec`, `zlec --dostarcz` (skrzynka SF), `krok nowy|zamknij`,
+  `kolejka --stare`, `odbierz --hurt`. `odbierz` NIE rozwiązuje sprawy (Agata 03.11: 4× cofanie resolved).
 
 **`sf-kit status`: ekran statusu „jak w grze” (ADVERTPR-1075, klaudiusz-general).**
 - Domyślny widok jest zwięzły, ≤ 12 linii: 4 paski i pod każdym „powód → co zrobić”. Rozbicie pokazuje `--pelny`
@@ -35,6 +38,7 @@ i tagów:
 - Dawny `sf-kit status` koordynatora (whoami + kolejka floty) to teraz `sf-kit status --kolejka`. Z `--agent-slug`
   albo `--status` Kit sam wybiera dawny widok. „Czy klucz działa” sprawdza się przez `sf-kit whoami`.
 - `inbox` bez `--wszystkie-org` działa jak dotąd: pokazuje wiadomości i potwierdza odbiór.
+- `odbierz` przyjmuje kilka identyfikatorów tylko z `--hurt`; bez niego jak dotąd jedno zadanie.
 
 ## Poprawka bezpieczeństwa (borys-sf, 15.10)
 
