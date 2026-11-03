@@ -2498,6 +2498,57 @@ def polecenie_zalacz(args) -> int:
     return 0
 
 
+# ── poczta: mail z konta użytkownika (SF-491) ─────────────────────────────────
+
+#: Stan wysyłki → zdanie dla człowieka (agent czyta wynik w terminalu).
+STANY_POCZTY = {
+    "wyslana": "Wysłane.",
+    "czeka_na_akcept": "Czeka na akcept właściciela skrzynki — w konsoli sprawy jest blok A/B; wyśle on jednym kliknięciem.",
+    "szkic": "Zapisane jako szkic (nic nie wyszło) — popraw i wyślij w kompozytorze sprawy.",
+    "odrzucona": "Serwer pocztowy odrzucił wszystkich adresatów — powód jest na osi sprawy.",
+}
+
+
+def klucz_wysylki(dane: dict, pliki: list) -> str:
+    """`Idempotency-Key` z TREŚCI polecenia: to samo polecenie powtórzone w ciągu doby (agent ponawia po zerwanym
+    połączeniu) nie wyśle drugiego maila ani nie założy drugiej sprawy. Inna treść = inny klucz."""
+    import hashlib
+
+    odcisk = json.dumps({**dane, "pliki": sorted(str(Path(p).resolve()) for p in pliki)},
+                        sort_keys=True, ensure_ascii=False)
+    return "sfkit-poczta-" + hashlib.sha256(odcisk.encode("utf-8")).hexdigest()[:40]
+
+
+def polecenie_poczta_wyslij(args) -> int:
+    """Mail z konta Poczty SF użytkownika (SF-491). Bez `--szkic`: wyślij albo poproś o akcept (zasada floty:
+    z cudzej skrzynki zawsze akcept człowieka). Treść — plik Markdown."""
+    konf = konfiguracja.wczytaj()
+    try:
+        tresc = Path(args.tresc).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as blad:
+        print(f"Nie czytam treści z {args.tresc}: {blad}", file=sys.stderr)
+        return 1
+    dane = {"konto": args.konto, "do": args.do or [], "dw": args.dw or [], "udw": args.udw or [],
+            "temat": args.temat, "tresc_md": tresc, "tryb": "szkic" if args.szkic else "wyslij"}
+    if args.odpowiedz_na:
+        dane["w_odpowiedzi_do"] = args.odpowiedz_na
+    if args.sprawa:
+        dane["sprawa"] = args.sprawa
+    pliki = args.zalacznik or []
+    klient = _klient_dla_zapisu(konf, args)[0]
+    try:
+        wynik = klient.poczta_wyslij(dane, pliki, klucz_idem=klucz_wysylki(dane, pliki))
+    except (ValueError, BladAPI, FileNotFoundError) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    print(STANY_POCZTY.get(wynik.get("stan"), f"Stan: {wynik.get('stan')}"))
+    print(f"Z: {(wynik.get('konto') or {}).get('adres')} · wersja {wynik.get('wersja_nr')}"
+          + (f" · załączniki: {len(wynik.get('zalaczniki') or [])}" if wynik.get("zalaczniki") else ""))
+    _pokaz_sprawe(konf, str(wynik["ticket_id"]), "",
+                  co_dalej="Nowa sprawa „Wiadomość”." if wynik.get("nowa_sprawa") else "Gotowe.")
+    return 0 if wynik.get("stan") != "odrzucona" else 2
+
+
 # ── flow odpowiedzi i treści w wersjach (SF-51, ADVERTPR-948) ─────────────────
 
 
@@ -3806,6 +3857,23 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     za.add_argument("id", help="identyfikator załącznika (z `sf-kit sprawa`)")
     za.add_argument("--do", help="ścieżka pliku docelowego (domyślnie zalacznik-<id>)")
     za.set_defaults(funkcja=polecenie_zalacznik)
+
+    po = pod.add_parser("poczta", help="[wykonawca] mail z konta Poczty SF (SF-491)")
+    po_pod = po.add_subparsers(dest="poczta_co", required=True)
+    pw = po_pod.add_parser("wyslij", help="wyślij mail z konta użytkownika (z cudzej skrzynki — po akcepcie człowieka)")
+    pw.add_argument("--konto", required=True, help="adres albo uuid skrzynki „Z” (np. d.pakula@advertpro.co)")
+    pw.add_argument("--do", action="append", help="adresat (powtarzalne)")
+    pw.add_argument("--dw", action="append", help="kopia (powtarzalne)")
+    pw.add_argument("--udw", action="append", help="ukryta kopia (powtarzalne)")
+    pw.add_argument("--temat", required=True)
+    pw.add_argument("--tresc", required=True, help="plik Markdown z treścią maila")
+    pw.add_argument("--zalacznik", action="append", help="plik do załączenia (powtarzalne)")
+    gr = pw.add_mutually_exclusive_group()
+    gr.add_argument("--odpowiedz-na", dest="odpowiedz_na", help="id wiadomości Poczty — odpowiedź w jej wątku")
+    gr.add_argument("--sprawa", help="uuid sprawy — nowy mail w jej wątku (bez: nowa sprawa „Wiadomość”)")
+    pw.add_argument("--szkic", action="store_true", help="tylko zapisz wersję do akceptu człowieka, nie wysyłaj")
+    pw.add_argument("--org", help="Organizacja (uuid albo slug) — skrzynka należy do niej")
+    pw.set_defaults(funkcja=polecenie_poczta_wyslij)
 
     # ── profil KOORDYNATOR ────────────────────────────────────────────────────
     fl = pod.add_parser("flota", help="[koordynator] agenci tej Organizacji; "

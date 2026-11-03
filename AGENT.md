@@ -1120,6 +1120,7 @@ nikt poza wskazanymi linkiem tego nie zobaczy.
 | polecenie | co robi |
 |---|---|
 | `sf-kit odpowiedz <link> --opis plik.md [--wewn]` | odpowiedź w istniejącej sprawie (domyślnie wiadomość na zewnątrz, `--wewn` = wewnętrzna); Organizacja z `?org=` w linku |
+| `sf-kit poczta wyslij --konto <adres> --do <adres> --temat "…" --tresc mail.md [--zalacznik plik]… [--odpowiedz-na <id>\|--sprawa <uuid>] [--szkic]` | mail z konta Poczty SF (SF-491). Z cudzej skrzynki (np. Damiana) **zawsze kończy się blokiem akceptu** właściciela — wyśle on; z własnej skrzynki człowieka wysyła od razu. `--szkic` = tylko wersja do akceptu. Bez `--odpowiedz-na`/`--sprawa` zakłada sprawę „Wiadomość”. Powtórzenie tego samego polecenia w ciągu doby nie wyśle drugiego maila |
 | `sf-kit --org <slug> tresc-wersja <sprawa> <plik.md> [--zmiany plik]` | kolejna wersja treści: załącznik `nazwa-vN.md` + wpis „co się zmieniło" |
 | `sf-kit --org <slug> opis-sprawy <sprawa> --plik opis.md` | krótki opis sprawy; długi na sprawie, która już ma opis → odmowa (obejście `--mimo-to`) |
 | `sf-kit publikuj <sprawa> --zgoda <wpis>` | koordynator publikuje szkic na zgodę owner/admina (wpis ≤ 7 dni) |
@@ -1200,6 +1201,7 @@ sf-kit tresc-wersja <sprawa> <plik.md> [--zmiany plik.md|-]  # treść w wersjac
 sf-kit opis-sprawy <sprawa> --plik plik.md [--mimo-to]       # zmiana opisu pod strażnikiem (SF-51)
 sf-kit publikuj <sprawa> --zgoda <wpis>                      # publikacja szkicu ze zgodą ownera/admina (SF-51)
 sf-kit zalacz <sprawa> <plik…> [--notka "…"]
+sf-kit poczta wyslij --konto <adres> --do <adres> --temat "…" --tresc mail.md [--zalacznik plik]… [--szkic]   # mail z konta Poczty SF (SF-491)
 sf-kit sprawy [--limit 50]
 sf-kit wpis-edytuj <sprawa> <wpis> (--plik plik.md|- | --tresc "…") [--powod "…"]   # v0.11
 sf-kit wpis-wersje <sprawa> <wpis> [--pelne] [--json]                                 # v0.11

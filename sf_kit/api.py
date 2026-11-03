@@ -513,7 +513,7 @@ class Klient:
             dane=cialo, typ_tresci=typ)
 
     def _wywolaj_surowo(self, metoda: str, sciezka: str, *, dane: bytes,
-                        typ_tresci: str) -> dict:
+                        typ_tresci: str, dodatkowe: dict[str, str] | None = None) -> dict:
         """Żądanie z gotowym ciałem (multipart). Osobne od `_wywolaj`, które składa JSON.
 
         Limit czasu jest tu WIĘKSZY: paczka plików idzie dłużej niż zapytanie o listę,
@@ -522,6 +522,7 @@ class Klient:
         adres = f"{self.baza}/api/v1/{sciezka.lstrip('/')}"
         naglowki = self._naglowki()
         naglowki["Content-Type"] = typ_tresci
+        naglowki.update(dodatkowe or {})                 # SF-491: `Idempotency-Key` wysyłki maila
         zadanie = urllib.request.Request(adres, data=dane, headers=naglowki, method=metoda)
         try:
             with urllib.request.urlopen(zadanie, timeout=LIMIT_CZASU_WYSYLKI_S) as odp:
@@ -541,6 +542,22 @@ class Klient:
             raise BladAPI(
                 f"nie mogę połączyć się z {self.baza} ({blad.reason}). "
                 f"Sprawdź adres i sieć — to nie jest problem z kluczem.") from None
+
+    # ── poczta (SF-491) ──────────────────────────────────────────────────────
+
+    def poczta_wyslij(self, dane: dict, pliki: list, *, klucz_idem: str) -> dict:
+        """Nowa wiadomość z konta Poczty SF (`POST /poczta/wyslij`): część `dane` (JSON) + pliki `plik`.
+
+        Zawsze multipart (także bez plików) — jedna ścieżka w Kicie. `klucz_idem` = `Idempotency-Key`: powtórka tego
+        samego polecenia w ciągu doby oddaje pierwszy wynik (bez drugiej sprawy i drugiego maila).
+        """
+        from . import multipart
+
+        gotowe = multipart.sprawdz_pliki([str(p) for p in pliki]) if pliki else []
+        cialo, typ = multipart.zloz({"dane": json.dumps(dane, ensure_ascii=False)}, gotowe,
+                                    nazwa_pola_plikow="plik")
+        return self._wywolaj_surowo("POST", "poczta/wyslij", dane=cialo, typ_tresci=typ,
+                                    dodatkowe={"Idempotency-Key": klucz_idem})
 
     # ── sprawy ───────────────────────────────────────────────────────────────
 
