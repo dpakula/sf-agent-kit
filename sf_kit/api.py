@@ -1,6 +1,8 @@
 """Rozmowa z SalesForge. Wyłącznie biblioteka standardowa — zero `pip install`.
 
 v0.2 (28.09.2026) - APro Agents / borys-sf
+  ADVERTPR-612 (04.11.2026): profil komunikacji — `profil_po_adresie`, `profil`, `profile`, `profil_utworz`,
+  `profil_zmien`; `klienci(q)` do sprawdzenia, czy osoba jest w kartotece.
   0.2 — SF-86: `potwierdz_odbior(instancja, generacja)`, `dzierzawa()`; SF-87: `puls()`.
 v0.1 (14.09.2026) - APro Agents / borys-sf
 
@@ -541,6 +543,49 @@ class Klient:
             raise BladAPI(
                 f"nie mogę połączyć się z {self.baza} ({blad.reason}). "
                 f"Sprawdź adres i sieć — to nie jest problem z kluczem.") from None
+
+    # ── profil komunikacji kontaktu (ADVERTPR-612) ───────────────────────────
+
+    def profil_po_adresie(self, email: str) -> dict | None:
+        """`GET /profile-komunikacji/po-adresie` → profil albo None (404 = brak profilu, a nie błąd)."""
+        try:
+            odp = self._wywolaj("GET", "profile-komunikacji/po-adresie?" + urllib.parse.urlencode({"email": email}))
+        except BladAPI as blad:
+            if blad.kod == 404:
+                return None
+            raise
+        return odp if isinstance(odp, dict) else None
+
+    def profil(self, profil_id: str) -> dict | None:
+        try:
+            odp = self._wywolaj("GET", f"profile-komunikacji/{urllib.parse.quote(profil_id)}")
+        except BladAPI as blad:
+            if blad.kod == 404:
+                return None
+            raise
+        return odp if isinstance(odp, dict) else None
+
+    def profile(self, *, q: str = "", limit: int = 200, offset: int = 0) -> dict:
+        """Jedna strona profili Organizacji (`items`, `total`)."""
+        parametry = {"limit": limit, "offset": offset}
+        if q:
+            parametry["q"] = q
+        odp = self._wywolaj("GET", "profile-komunikacji?" + urllib.parse.urlencode(parametry))
+        return odp if isinstance(odp, dict) else {"items": [], "total": 0}
+
+    def profil_utworz(self, dane: dict) -> dict:
+        """`POST` — ten sam żywy adres w Organizacji = 409 (`Konflikt`)."""
+        return self._wywolaj("POST", "profile-komunikacji", cialo=dane)
+
+    def profil_zmien(self, profil_id: str, wersja: int, zmiany: dict) -> dict:
+        """`PATCH` z blokadą wersji: ktoś zmienił profil od naszego odczytu = 409 (`Konflikt`), nic nie nadpisane."""
+        return self._wywolaj("PATCH", f"profile-komunikacji/{urllib.parse.quote(profil_id)}",
+                             cialo={"wersja": wersja, **zmiany})
+
+    def klienci(self, q: str, *, limit: int = 20) -> list[dict]:
+        """`GET /customers?q=` — kartoteka klientów końcowych (do sprawdzenia „czy osoba jest kontaktem w SF”)."""
+        odp = self._wywolaj("GET", "customers?" + urllib.parse.urlencode({"q": q, "limit": limit}))
+        return list(odp.get("items") or []) if isinstance(odp, dict) else []
 
     # ── sprawy ───────────────────────────────────────────────────────────────
 

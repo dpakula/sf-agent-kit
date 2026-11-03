@@ -2498,6 +2498,277 @@ def polecenie_zalacz(args) -> int:
     return 0
 
 
+# ── kontakt: profil komunikacji osoby (ADVERTPR-612) ─────────────────────────
+
+#: Co agent robi, gdy osoba nie ma profilu — to samo, co mówi makieta karty (arek, wpis 939136db).
+BRAK_PROFILU = ("Brak profilu komunikacji — pisz neutralnie: per Pan/Pani, ton L1 (łagodnie). "
+                "Profil założysz: sf-kit kontakt ustaw ADRES --org ORG …")
+
+
+def _profil_wskazany(klient: Klient, wskazanie: str) -> tuple[dict | None, str | None]:
+    """`(profil albo None, adres)` — uuid profilu albo adres e-mail. Przy uuid adres znamy dopiero z profilu."""
+    from . import kontakt
+
+    if kontakt.to_uuid(wskazanie):
+        profil = klient.profil(wskazanie.strip())
+        return profil, (profil or {}).get("email")
+    adres = kontakt.normalizuj_email(wskazanie)
+    return klient.profil_po_adresie(adres), adres
+
+
+def polecenie_kontakt_pokaz(args) -> int:
+    """Profil komunikacji osoby — blok `dla_agenta` 1:1 (agent wkleja go w prompt przed mailem/wpisem/WhatsAppem).
+
+    Brak profilu to NIE błąd (kod 0 + zdanie, jak pisać neutralnie): agent woła to przed każdą wiadomością
+    i skrypt z `set -e` nie może się na tym zatrzymać. Kod 1 = błąd (sieć, prawo, zły adres)."""
+    from . import kontakt
+
+    konf = konfiguracja.wczytaj()
+    try:
+        klient = _klient(konf, args)
+        profil, adres = _profil_wskazany(klient, args.kto)
+    except (kontakt.BladProfilu, BladAPI) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(profil, ensure_ascii=False, indent=2))
+        return 0
+    if profil is None:
+        print(f"{adres or args.kto}: {BRAK_PROFILU}")
+        return 0
+    print(profil.get("dla_agenta") or f"Profil komunikacji: <{profil.get('email')}>")
+    print(f"\n(profil {profil.get('id')} · wersja {profil.get('wersja')} · zmienił "
+          f"{profil.get('updated_by_label') or '—'} {str(profil.get('updated_at') or '')[:16]})")
+    return 0
+
+
+def polecenie_kontakt_ustaw(args) -> int:
+    """Zapis profilu: tylko podane pola. Nowy adres = nowy profil (POST), istniejący = PATCH z wersją.
+
+    `--sucho` drukuje „było → będzie” i ciało żądania, nic nie zapisuje. Organizacja zapisu wyłącznie jawna
+    (`--org`) — profil żyje w Organizacji, a pomyłka Organizacji to profil, którego nikt nie znajdzie."""
+    from . import kontakt
+
+    konf = konfiguracja.wczytaj()
+    try:
+        if args.notatki_plik:
+            args.notatki = Path(args.notatki_plik).read_text(encoding="utf-8")
+        klient, org = _klient_dla_zapisu(konf, args)
+        obecny, adres = _profil_wskazany(klient, args.kto)
+        if obecny is None and kontakt.to_uuid(args.kto):
+            print(f"Nie ma profilu {args.kto} w Organizacji {org.slug}. Nowy profil zakłada się adresem e-mail.",
+                  file=sys.stderr)
+            return 1
+        zmiany = kontakt.zmiany_z_polecenia(args, obecny)
+    except (kontakt.BladProfilu, BladAPI, OSError, UnicodeDecodeError) as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    zmiany = kontakt.tylko_zmienione(obecny, zmiany)
+    if obecny is not None and not zmiany:
+        print(f"Bez zmian — profil {adres} ma już te wartości (wersja {obecny.get('wersja')}).")
+        return 0
+    ostrzezenie = kontakt.sprawdz_kanaly({**(obecny or {}), **zmiany})
+    naglowek = (f"Nowy profil {adres} w Organizacji {org.slug}" if obecny is None
+                else f"Profil {adres} (wersja {obecny.get('wersja')}) w Organizacji {org.slug}")
+    print(naglowek + ":")
+    for linia in kontakt.roznice(obecny, zmiany) or ["(tylko adres — profil bez pól)"]:
+        print(f"  {linia}")
+    if ostrzezenie:
+        print(f"UWAGA: {ostrzezenie}", file=sys.stderr)
+    if args.sucho:
+        cialo = {"email": adres, **zmiany} if obecny is None else {"wersja": obecny.get("wersja"), **zmiany}
+        print("\n--sucho: nic nie zapisane. Poszłoby:")
+        print(("POST /profile-komunikacji " if obecny is None else f"PATCH /profile-komunikacji/{obecny.get('id')} ")
+              + json.dumps(cialo, ensure_ascii=False))
+        return 0
+    try:
+        if obecny is None:
+            wynik = klient.profil_utworz({"email": adres, **zmiany})
+        else:
+            wynik = klient.profil_zmien(str(obecny["id"]), int(obecny["wersja"]), zmiany)
+    except BladAPI as blad:
+        print(str(blad), file=sys.stderr)
+        if getattr(blad, "kod", None) == 409:
+            print("Profil zmienił się od odczytu (albo adres ma już profil) — uruchom polecenie jeszcze raz.",
+                  file=sys.stderr)
+        return 1
+    print(f"\nZapisane: profil {wynik.get('id')} · wersja {wynik.get('wersja')}.")
+    return 0
+
+
+def _kontakt_w_sf(klient: Klient, adres: str) -> tuple[str, str | None]:
+    """`(opis, party_id)`: czy osoba jest klientem w kartotece i/albo członkiem Organizacji.
+
+    Błąd odczytu (np. brak prawa do kartoteki) = „nie sprawdzono”, a nie „brak” — raport nie może kłamać."""
+    opisy, party_id, niepewne = [], None, False
+    try:
+        trafienia = [k for k in klient.klienci(adres) if (k.get("email") or "").lower() == adres
+                     and k.get("kind") == "person"]
+        if len(trafienia) == 1:
+            party_id = str(trafienia[0]["id"])
+        if trafienia:
+            opisy.append("klient" if len(trafienia) == 1 else f"klient ×{len(trafienia)}")
+    except BladAPI:
+        niepewne = True
+    try:
+        klient.czlonek(adres)
+        opisy.append("członek")
+    except BladAPI as blad:
+        if blad.kod != 404:
+            niepewne = True
+    if opisy:
+        return " + ".join(opisy), party_id
+    return ("nie sprawdzono" if niepewne else "brak"), None
+
+
+def polecenie_kontakt_migruj(args) -> int:
+    """Migracja profili z LUDZIE.md (sekcja PROFILE) + contacts.md → profile w SF. DOMYŚLNIE NA SUCHO.
+
+    Raport różnic (kto, jakie pola, konflikty, osoby bez kontaktu w SF) idzie do PLIKU lokalnie — zawiera dane
+    osobowe i nie wychodzi poza maszynę. Na ekran: same liczby i przykłady z zamaskowanymi adresami (do wpisu).
+    Zapis (`--zapisz`) wymaga `--zgoda <id wpisu z GO Damiana>`; wartości różne od tych w SF nie są nadpisywane
+    bez `--nadpisz`."""
+    from . import kontakt
+
+    if args.zapisz and not (args.zgoda or "").strip():
+        print("--zapisz wymaga --zgoda <id wpisu z GO Damiana> (ADVERTPR-612: zapis na PROD po GO).",
+              file=sys.stderr)
+        return 1
+    try:
+        osoby_l, uwagi = kontakt.parsuj_profile(kontakt.wczytaj_plik(args.ludzie), Path(args.ludzie).name,
+                                                tylko_sekcja_profile=True) if args.ludzie else ([], [])
+        osoby_c, uwagi_c = kontakt.parsuj_profile(kontakt.wczytaj_plik(args.kontakty), Path(args.kontakty).name,
+                                                  tylko_sekcja_profile=False) if args.kontakty else ([], [])
+    except (OSError, UnicodeDecodeError) as blad:
+        print(f"Nie czytam pliku: {blad}", file=sys.stderr)
+        return 1
+    if not args.ludzie and not args.kontakty:
+        print("Podaj --ludzie LUDZIE.md i/lub --kontakty contacts.md.", file=sys.stderr)
+        return 1
+    osoby, konflikty_zrodel = kontakt.scal_zrodla(osoby_l, osoby_c)
+    uwagi += uwagi_c
+
+    konf = konfiguracja.wczytaj()
+    klient, org = _klient_dla_zapisu(konf, args)
+    plan, inna_org = [], []
+    for adres in sorted(osoby):
+        osoba = osoby[adres]
+        if not kontakt.odpowiada_organizacji(osoba, org.slug, org.uuid):
+            inna_org.append((adres, osoba.organizacja))
+            continue
+        try:
+            obecny = klient.profil_po_adresie(adres)
+        except BladAPI as blad:
+            print(f"Przerywam: odczyt profilu {kontakt.maskuj_email(adres)} — {blad}", file=sys.stderr)
+            return 1
+        poz = kontakt.zaplanuj(osoba, obecny, nadpisz=args.nadpisz)
+        poz.kontakt_w_sf, party_id = _kontakt_w_sf(klient, adres)
+        if party_id and not (obecny or {}).get("party_id") and "party_id" not in poz.zmiany:
+            poz.zmiany["party_id"] = party_id
+            poz.roznice.append(f"party_id: — → {party_id} (klient z kartoteki, ten sam adres)")
+            if poz.akcja == "bez_zmian":
+                poz.akcja = "uzupelnij"
+        plan.append(poz)
+
+    raport = _raport_migracji(plan, konflikty_zrodel, uwagi, inna_org, org, args)
+    sciezka = Path(args.raport or f"raport-profili-612-{org.slug}.md").expanduser()
+    sciezka.write_text(raport, encoding="utf-8")
+    try:
+        os.chmod(sciezka, 0o600)                       # dane osobowe: tylko właściciel pliku
+    except OSError:
+        pass
+
+    zapisane, bledy = 0, []
+    if args.zapisz:
+        for poz in plan:
+            if poz.akcja not in ("utworz", "uzupelnij"):
+                continue
+            try:
+                if poz.akcja == "utworz":
+                    klient.profil_utworz({"email": poz.email, **poz.zmiany})
+                else:
+                    klient.profil_zmien(poz.profil_id, int(poz.wersja), poz.zmiany)
+                zapisane += 1
+            except BladAPI as blad:
+                bledy.append(f"{kontakt.maskuj_email(poz.email)}: {str(blad)[:160]}")
+
+    print(_podsumowanie_migracji(plan, konflikty_zrodel, inna_org, org, sciezka, args, zapisane, bledy))
+    return 1 if bledy else 0
+
+
+def _liczby_planu(plan) -> dict:
+    return {
+        "osob": len(plan),
+        "utworz": sum(p.akcja == "utworz" for p in plan),
+        "uzupelnij": sum(p.akcja == "uzupelnij" for p in plan),
+        "bez_zmian": sum(p.akcja == "bez_zmian" for p in plan),
+        "konflikty_z_sf": sum(len(p.konflikty_z_sf) for p in plan),
+        "bez_kontaktu": sum(p.kontakt_w_sf == "brak" for p in plan),
+        "nie_sprawdzono": sum(p.kontakt_w_sf == "nie sprawdzono" for p in plan),
+        "reguly": sum(len([r for r in p.zmiany.get("reguly") or [] if not r.get("id")]) for p in plan),
+        "uwagi": sum(len(p.uwagi) for p in plan),
+    }
+
+
+def _raport_migracji(plan, konflikty_zrodel, uwagi, inna_org, org, args) -> str:
+    """Pełny raport różnic — z adresami i treścią. Zostaje lokalnie (chmod 600)."""
+    from datetime import datetime
+
+    n = _liczby_planu(plan)
+    linie = [f"# Migracja profili komunikacji → SF ({'ZAPIS' if args.zapisz else 'NA SUCHO'})", "",
+             f"- Organizacja: {org.slug} ({org.uuid})", f"- Źródła: {args.ludzie or '—'} · {args.kontakty or '—'}",
+             f"- Wygenerowano: {datetime.now().isoformat(timespec='minutes')} · sf-kit {WERSJA}",
+             f"- Osób: {n['osob']} · nowe profile {n['utworz']} · uzupełnienia {n['uzupelnij']} · bez zmian "
+             f"{n['bez_zmian']} · konflikty z SF {n['konflikty_z_sf']} · bez kontaktu w SF {n['bez_kontaktu']}"
+             + (f" · kontaktu nie sprawdzono {n['nie_sprawdzono']}" if n["nie_sprawdzono"] else ""),
+             "", "> Dane osobowe — raport nie wychodzi poza tę maszynę (ADVERTPR-612).", ""]
+    if uwagi:
+        linie += ["## Uwagi parsera", ""] + [f"- {u}" for u in uwagi] + [""]
+    if konflikty_zrodel:
+        linie += ["## Konflikty między plikami (wygrywa LUDZIE.md)", ""] + [f"- {k}" for k in konflikty_zrodel] + [""]
+    if inna_org:
+        linie += ["## Pominięte — inna Organizacja w pliku", ""] + [f"- {a} → {o}" for a, o in inna_org] + [""]
+    etykiety = {"utworz": "NOWY PROFIL", "uzupelnij": "UZUPEŁNIENIE", "bez_zmian": "bez zmian", "pomin": "pominięty"}
+    for p in plan:
+        linie += [f"## {p.email} — {etykiety[p.akcja]}", "",
+                  f"- Kontakt w SF: {p.kontakt_w_sf}" + (f" · profil {p.profil_id} v{p.wersja}" if p.profil_id else "")]
+        if p.roznice:
+            linie += ["- Zmiany:"] + [f"  - {r}" for r in p.roznice]
+        if p.konflikty_z_sf:
+            linie += ["- Konflikty z SF (zostaje wartość z SF" + ("" if not args.nadpisz else " — NADPISANE --nadpisz")
+                      + "):"] + [f"  - {k}" for k in p.konflikty_z_sf]
+        if p.uwagi:
+            linie += ["- Uwagi:"] + [f"  - {u}" for u in p.uwagi]
+        linie.append("")
+    return "\n".join(linie)
+
+
+def _podsumowanie_migracji(plan, konflikty_zrodel, inna_org, org, sciezka, args, zapisane, bledy) -> str:
+    """Ekran = to, co wolno wkleić do wpisu w SF: liczby + przykłady z zamaskowanymi adresami."""
+    from . import kontakt
+
+    n = _liczby_planu(plan)
+    linie = [f"Migracja profili ({'ZAPIS' if args.zapisz else 'na sucho — nic nie zapisane'}) · Organizacja {org.slug}",
+             f"- osób w plikach (tej Organizacji): {n['osob']}" + (f", innej Organizacji: {len(inna_org)}" if inna_org else ""),
+             f"- nowe profile: {n['utworz']} · uzupełnienia: {n['uzupelnij']} · bez zmian: {n['bez_zmian']}",
+             f"- nowe reguły szczególne: {n['reguly']}",
+             f"- konflikty z SF (zostaje SF): {n['konflikty_z_sf']} · konflikty między plikami: {len(konflikty_zrodel)}",
+             f"- osoby bez kontaktu w SF (ani klient, ani członek): {n['bez_kontaktu']}"
+             + (f" · nie sprawdzono: {n['nie_sprawdzono']}" if n["nie_sprawdzono"] else ""),
+             f"- uwagi do ręcznego przejrzenia (niejasne wartości, kanały): {n['uwagi']}"]
+    przyklady = [p for p in plan if p.roznice][:3]
+    if przyklady:
+        linie.append("Przykłady (adresy zamaskowane):")
+        for p in przyklady:
+            pola = sorted({r.split(":", 1)[0] for r in p.roznice})
+            linie.append(f"  {kontakt.maskuj_email(p.email)} — {p.akcja}: {', '.join(pola)}")
+    if args.zapisz:
+        linie.append(f"Zapisane: {zapisane} · błędy: {len(bledy)}")
+        linie += [f"  {b}" for b in bledy]
+    linie.append(f"Pełny raport różnic (dane osobowe, chmod 600): {sciezka}")
+    return "\n".join(linie)
+
+
 # ── flow odpowiedzi i treści w wersjach (SF-51, ADVERTPR-948) ─────────────────
 
 
@@ -3706,6 +3977,54 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     za.add_argument("pliki", nargs="+", metavar="PLIK")
     za.add_argument("--notka", default=None, help="jedno zdanie, co to za pliki")
     za.set_defaults(funkcja=polecenie_zalacz)
+
+    # ── kontakt: profil komunikacji (ADVERTPR-612) ────────────────────────────
+    ko = pod.add_parser("kontakt", help="[wykonawca] profil komunikacji osoby — czytaj PRZED każdą wiadomością "
+                                        "(ADVERTPR-612)")
+    ko_pod = ko.add_subparsers(dest="kontakt_co", required=True)
+    # `--org` także po poleceniu; SUPPRESS = brak tu nie kasuje globalnego `sf-kit --org X kontakt …`.
+    kp = ko_pod.add_parser("pokaz", help="profil (blok dla agenta) po adresie e-mail albo uuid profilu")
+    kp.add_argument("kto", metavar="EMAIL|UUID")
+    kp.add_argument("--json", action="store_true", help="cały profil jako JSON (null = brak profilu)")
+    kp.add_argument("--org", default=argparse.SUPPRESS, metavar="SLUG|UUID")
+    kp.set_defaults(funkcja=polecenie_kontakt_pokaz)
+
+    ku = ko_pod.add_parser("ustaw", help="załóż albo zmień profil — tylko podane pola (pusty napis czyści pole)")
+    ku.add_argument("kto", metavar="EMAIL|UUID", help="adres (nowy adres = nowy profil) albo uuid profilu")
+    ku.add_argument("--nazwa", help="imię i nazwisko / nazwa")
+    ku.add_argument("--relacja", help="zespol | wspolnik | klient | dostawca | partner | inna")
+    ku.add_argument("--relacja-opis", dest="relacja_opis", help="kim jest dla nas, słowami")
+    ku.add_argument("--forma", help="forma zwrotu: ty | pan | pani | panstwo")
+    ku.add_argument("--zwrot", help="jak się zwracać, np. „Michale”")
+    ku.add_argument("--ton", help="poziom SZCZEROŚCI: L1 soft | L2 balanced | L3 frank (nie formalność)")
+    ku.add_argument("--jezyk", help="kod języka, np. pl, en")
+    ku.add_argument("--kanal", help="kanał preferowany: email | sf | telefon | sms | whatsapp | signal | teams")
+    ku.add_argument("--kanaly", help="kanały dozwolone po przecinku, np. email,sf (pusty = bez ograniczeń)")
+    ku.add_argument("--regula", action="append", metavar="'WARUNEK => DZIAŁANIE'",
+                    help="reguła szczególna (powtarzalne); dokłada do istniejących")
+    ku.add_argument("--zastap-reguly", dest="zastap_reguly", action="store_true",
+                    help="--regula zastępuje CAŁĄ listę (bez --regula = wyczyść reguły)")
+    ku.add_argument("--usun-regule", dest="usun_regule", action="append", type=int, metavar="N",
+                    help="usuń N-tą regułę z bloku `kontakt pokaz` (powtarzalne)")
+    gn = ku.add_mutually_exclusive_group()
+    gn.add_argument("--notatki", help="notatki (zastępują dotychczasowe)")
+    gn.add_argument("--notatki-plik", dest="notatki_plik", help="notatki z pliku")
+    ku.add_argument("--zrodlo", help="skąd wiemy (np. „rozmowa z Damianem 03.11”)")
+    ku.add_argument("--ustalono", help="data ustalenia RRRR-MM-DD")
+    ku.add_argument("--party", help="uuid klienta z kartoteki SF (pusty napis odpina)")
+    ku.add_argument("--sucho", action="store_true", help="pokaż „było → będzie” i ciało żądania, nic nie zapisuj")
+    ku.add_argument("--org", default=argparse.SUPPRESS, metavar="SLUG|UUID", help="Organizacja profilu (wymagana)")
+    ku.set_defaults(funkcja=polecenie_kontakt_ustaw, notatki_plik=None)
+
+    km = ko_pod.add_parser("migruj", help="profile z LUDZIE.md (PROFILE) + contacts.md → SF; domyślnie NA SUCHO")
+    km.add_argument("--ludzie", help="ścieżka LUDZIE.md (czytana sekcja z nagłówkiem PROFILE)")
+    km.add_argument("--kontakty", help="ścieżka contacts.md (skill create-email; cały plik)")
+    km.add_argument("--raport", help="plik raportu różnic (domyślnie raport-profili-612-<org>.md, chmod 600)")
+    km.add_argument("--zapisz", action="store_true", help="ZAPISZ w SF (tylko po GO Damiana, z --zgoda)")
+    km.add_argument("--zgoda", help="id wpisu z GO Damiana na zapis")
+    km.add_argument("--nadpisz", action="store_true", help="wartość z pliku wygrywa z inną wartością w SF")
+    km.add_argument("--org", default=argparse.SUPPRESS, metavar="SLUG|UUID", help="Organizacja profili (wymagana)")
+    km.set_defaults(funkcja=polecenie_kontakt_migruj)
 
     # ── flow odpowiedzi i treści w wersjach (SF-51, ADVERTPR-948) ─────────────
     od = pod.add_parser("odpowiedz", help="[asystent] odpowiedz w ISTNIEJĄCEJ sprawie — "

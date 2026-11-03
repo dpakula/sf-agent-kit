@@ -1119,6 +1119,8 @@ nikt poza wskazanymi linkiem tego nie zobaczy.
 
 | polecenie | co robi |
 |---|---|
+| `sf-kit kontakt pokaz <adres\|uuid> [--json]` | profil komunikacji osoby (forma zwrotu, ton = poziom szczerości L1–L3, relacja, kanały, reguły szczególne) — **czytaj PRZED każdym mailem, wpisem publicznym, WhatsAppem** i stosuj 1:1. Brak profilu = kod 0 i zdanie „pisz neutralnie: per Pan/Pani, L1” (ADVERTPR-612) |
+| `sf-kit --org <slug> kontakt ustaw <adres\|uuid> [--forma ty\|pan\|pani\|panstwo] [--zwrot "…"] [--ton L1\|L2\|L3] [--relacja …] [--kanal …] [--kanaly email,sf] [--regula 'warunek => działanie']… [--usun-regule N] [--sucho]` | założenie albo zmiana profilu — tylko podane pola, pusty napis czyści pole; `--sucho` pokazuje „było → będzie” bez zapisu. Zmiana, którą ktoś zrobił po Twoim odczycie, kończy się odmową (409), nie nadpisaniem |
 | `sf-kit odpowiedz <link> --opis plik.md [--wewn]` | odpowiedź w istniejącej sprawie (domyślnie wiadomość na zewnątrz, `--wewn` = wewnętrzna); Organizacja z `?org=` w linku |
 | `sf-kit --org <slug> tresc-wersja <sprawa> <plik.md> [--zmiany plik]` | kolejna wersja treści: załącznik `nazwa-vN.md` + wpis „co się zmieniło" |
 | `sf-kit --org <slug> opis-sprawy <sprawa> --plik opis.md` | krótki opis sprawy; długi na sprawie, która już ma opis → odmowa (obejście `--mimo-to`) |
@@ -1200,6 +1202,9 @@ sf-kit tresc-wersja <sprawa> <plik.md> [--zmiany plik.md|-]  # treść w wersjac
 sf-kit opis-sprawy <sprawa> --plik plik.md [--mimo-to]       # zmiana opisu pod strażnikiem (SF-51)
 sf-kit publikuj <sprawa> --zgoda <wpis>                      # publikacja szkicu ze zgodą ownera/admina (SF-51)
 sf-kit zalacz <sprawa> <plik…> [--notka "…"]
+sf-kit kontakt pokaz <adres|uuid> [--json]                  # profil komunikacji — przed każdą wiadomością (ADVERTPR-612)
+sf-kit --org <slug> kontakt ustaw <adres|uuid> [pola…] [--sucho]   # zapis profilu (tylko podane pola)
+sf-kit --org <slug> kontakt migruj --ludzie LUDZIE.md [--kontakty contacts.md] [--raport plik.md]   # na sucho; zapis: --zapisz --zgoda <wpis GO>
 sf-kit sprawy [--limit 50]
 sf-kit wpis-edytuj <sprawa> <wpis> (--plik plik.md|- | --tresc "…") [--powod "…"]   # v0.11
 sf-kit wpis-wersje <sprawa> <wpis> [--pelne] [--json]                                 # v0.11
