@@ -418,7 +418,7 @@ class Klient:
     def zaloz_sprawe(self, *, tytul: str, opis: str, priorytet: str = "medium",
                      kategoria: str | None = None,
                      obserwatorzy: list[str] | None = None,
-                     szkic: bool = False) -> dict:
+                     szkic: bool = False, przypisany: str | None = None) -> dict:
         """Nowa sprawa w Organizacji klucza. Wymaga `tickets:write`.
 
         `obserwatorzy` to identyfikatory KONT (nie adresy) — SalesForge sprawdza przy tym
@@ -440,6 +440,8 @@ class Klient:
             cialo["watcher_user_ids"] = list(obserwatorzy)
         if szkic:
             cialo["szkic"] = True
+        if przypisany:                   # 0.19 (SF-496 pkt 4): TicketCreateRequest.assignee_user_id
+            cialo["assignee_user_id"] = przypisany
         return self._wywolaj("POST", "tickets", cialo=cialo)
 
     #: Sufit strony `GET /tickets` (`per_page` ≤ 100 po stronie SF).

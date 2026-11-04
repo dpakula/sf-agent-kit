@@ -46,6 +46,22 @@ Profil nie nadaje uprawnień — te są po stronie SalesForge. Jeśli polecenie 
 
 ### Koordynator: konsola, wiadomości, tagi (SF-486)
 
+- **0.19 (SF-496) — skróty koordynatorki, kody wyjścia:** każda komenda z treścią przyjmuje obok `--opis PLIK|-` także
+  `--tresc "tekst"` (albo plik / `-`); napis wyglądający na plik, którego nie ma, to **błąd z kodem 2**, nie wpis z nazwą
+  pliku. Kody: `0` zrobione · `1` SF odmówił / częściowo (sprawa jest, załącznik nie) · `2` złe wejście, nic nie wysłane.
+  Z `--json`: jeden obiekt `{"ok": …}` na stdout, narracja na stderr.
+  - `sf-kit --org advertpro-co blok nowy --sprawa <nr|uuid|link> --rodzaj action|info --prio high|med|low --effort 2min|15min|30min+|decyzja --tresc "…"|PLIK|- [--krok <nr>] [--zastepuje #N]`
+    = `konsola blok`. Krok domyślnie z `tracking/rozgrywka.json` → `ostatni_ticket_id` (jak `sf_box_sprawa`; inna ścieżka:
+    `SF_KIT_ROZGRYWKA`, wyłącz: `--bez-kroku`). `--zastepuje #N` zamyka stary blok po założeniu nowego. Dedup jak niżej.
+  - `konsola bloki [--otwarte|--wszystkie] [--sprawa <nr|uuid|link>] [--json]` — numer, rodzaj, prio, wysiłek, wiek, kotwica.
+  - `konsola zamknij #N… --odpowiedz "co zrobiono"` — status closed + odpowiedź odebrana + wpis wewnętrzny na sprawie
+    kotwicy (blok nie ma pola na treść zamknięcia). `konsola odpowiedzi --odebrane #N --notka "…"` — to samo bez zamykania.
+  - `nowa-sprawa --org <slug> --tytul … --tresc "…"|--opis PLIK --prio med --przypisz <e-mail> --obserwujacy a@x,b@y --tag Krok --zalacz plik… [--json]`
+    — jedna komenda zamiast pięciu wywołań. `--tag` z taksonomii (`tag lista`) jest nadawany; nazwa spoza = kategoria.
+  - `sprawa <nr> --rodzaj document|message|lead|case` (= `--kind`, ślad na osi), `--status …`, `sprawa <nr> --id`
+    → `uuid  numer  uuid-Organizacji` (z `--json` obiekt).
+  - `wpis <nr> --tresc "…"`, `krok zamknij <nr> --wpis "…"`, `odpowiedz … --tresc "…"`, `zlec … --tresc "…"`.
+
 - **Blok dla człowieka (Konsola A):** `sf-kit --org <org konsoli> konsola blok --rodzaj action|info|uwaga --prio high|med|low --effort 2min --opis plik.md --sprawa <link sprawy z ?org=…> [--krok <sprawa kroku>] [--do e-mail]`. Wynik na stdout: numer bloku (`#2365`). Otwarty blok tego samego rodzaju z tą samą sprawą sprzed < 2 h Kit oddaje zamiast zakładać drugi (`--bez-dedupu` = świadomie drugi). Opcje decyzji: „A) … · B) …” w treści albo `--opcja A="…" --rekomendowana A`. „Zastępuje …” zostaje w treści tylko z numerem istniejącego bloku (`--zastepuje #N`). Domyślny adresat: `sf-kit ustawienia konsola_adresat <e-mail>`.
 - **Bloki:** `konsola lista [--status open|wszystkie] [--sprawa …]`, `konsola pokaz #N`, `konsola zamknij #N…`, `konsola odpowiedzi` (odpowiedzi człowieka, jeszcze nieodebrane) → po wykonaniu `konsola odpowiedzi --odebrane #N…`.
 - **Wiadomości ze wszystkich Organizacji:** `sf-kit inbox --wszystkie-org` (skrzynka + dyspozycje z konsoli na Twój `session_target`; tylko pokazuje). Po wykonaniu: `sf-kit inbox --odebrane <id>… --notka "co zrobiono"` — Organizację Kit znajdzie sam.
