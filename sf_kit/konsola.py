@@ -466,3 +466,82 @@ def sprawy_bez_tagu_typu(klient: Klient, typ: dict, *, wszystkie_statusy: bool =
     if not wszystkie_statusy:
         filtry["exclude_status"] = "resolved,closed"
     return klient.sprawy_filtrem(limit=limit, **filtry)
+
+
+# ── 0.20 (SF-486 luka 5, SF-433): odpowiedzi człowieka W WĄTKACH pod moimi wpisami ──────────────────────────
+#
+# `konsola odpowiedzi` znało tylko odpowiedzi na BLOKI (`replied=true`). Odpowiedź pod notatką/szkicem na sprawie
+# („ok wysyłaj” pod szkicem do klienta, 05.11) jest zwykłym wpisem z `w_odpowiedzi_do` — Kit jej nie widział.
+# Źródło: feed osoby (`/timeline/feed?osoba=`) w każdej Organizacji klucza → oś sprawy (`/timeline/ticket/{id}`,
+# od najnowszych; `GET /tickets/{id}` oddaje 200 NAJSTARSZYCH wpisów) → odpowiedź człowieka, której rodzic jest
+# MÓJ, a po niej nie ma mojego wpisu w tym wątku (albo z id rodzica w treści) = nieodebrana.
+
+def _moj(e: dict, toz, slug: str) -> bool:
+    a = f"{e.get('author_email') or ''}|{e.get('author_label') or e.get('autor_label') or ''}".lower()
+    email = (getattr(toz, "konto_email", "") or "").lower()
+    return bool(email and email in a) or (bool(slug) and f"api:{slug.lower()}" in a)
+
+
+def _watki_w_org(klient: Klient, org, osoby: list[str], od: str, toz, slug: str) -> tuple[list[dict], str | None]:
+    k = klient.w_organizacji(org.uuid)
+    try:
+        feed = k.feed_osoby(osoby, od=od)
+    except BladAPI as blad:
+        return [], None if getattr(blad, "kod", None) in (403, 422) else f"feed: {blad}"
+    sprawy = {}
+    for it in feed:
+        if it.get("primary_type") == "ticket" and it.get("primary_id"):
+            sprawy.setdefault(str(it["primary_id"]), it.get("primary_label") or "")
+    wynik, bledy = [], []
+    for sid, etykieta in list(sprawy.items())[:40]:
+        try:
+            wpisy = k.os_obiektu("ticket", sid, limit=200).get("entries") or []
+        except BladAPI as blad:
+            bledy.append(f"{sid[:8]}: {blad}")
+            continue
+        po_id = {str(e.get("native_entry_id") or e.get("id")): e for e in wpisy}
+        for e in wpisy:
+            w = e.get("w_odpowiedzi_do") if isinstance(e.get("w_odpowiedzi_do"), dict) else None
+            if not w or not w.get("native_entry_id") or (e.get("occurred_at") or "") < od or _moj(e, toz, slug):
+                continue
+            autor = f"{e.get('author_email') or ''}|{e.get('author_label') or ''}"
+            if not any(o in autor for o in osoby):
+                continue
+            rodzic_id = str(w["native_entry_id"])
+            rodzic = po_id.get(rodzic_id) or {"autor_label": w.get("autor_label"), "content": ""}
+            if not _moj(rodzic, toz, slug) and not _moj(w, toz, slug):
+                continue
+            t = e.get("occurred_at") or ""
+            odebrane = any((x.get("occurred_at") or "") > t and _moj(x, toz, slug) and x.get("kind") != "field_change"
+                           and ((x.get("w_odpowiedzi_do") or {}).get("native_entry_id") == rodzic_id
+                                or rodzic_id[:8] in (x.get("content") or ""))
+                           for x in wpisy)
+            if odebrane:
+                continue
+            wynik.append({"_org": org.slug, "_org_uuid": org.uuid, "sprawa_id": sid, "sprawa": etykieta.split(" · ")[0],
+                          "rodzic_id": rodzic_id, "rodzic": _krotko(rodzic.get("content") or "", 80),
+                          "odpowiedz": _krotko(e.get("content") or "", 120), "kiedy": t,
+                          "autor": e.get("author_label") or e.get("author_email")})
+    return wynik, ("; ".join(bledy) or None)
+
+
+def odpowiedzi_w_watkach(klient: Klient, toz, osoby: list[str], *, dni: int = 7, slug: str = "") -> tuple[list[dict], list[str]]:
+    """Odpowiedzi `osoby` w wątkach pod MOIMI wpisami bez mojej reakcji, ze wszystkich Organizacji klucza."""
+    od = (datetime.now(timezone.utc) - timedelta(days=dni)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    orgi = toz.z_nadaniami or toz.organizacje
+    with ThreadPoolExecutor(max_workers=WATKI) as pula:
+        wyniki = list(pula.map(lambda o: (o, _watki_w_org(klient, o, osoby, od, toz, o.agent_slug or slug)), orgi))
+    wszystkie, problemy = [], []
+    for org, (lista, blad) in wyniki:
+        wszystkie += lista
+        if blad:
+            problemy.append(f"{org.slug}: {blad}")
+    wszystkie.sort(key=lambda x: x["kiedy"])
+    return wszystkie, problemy
+
+
+def wiersz_watku(w: dict) -> str:
+    return (f"{w['kiedy'][:16].replace('T', ' ')}  {w['sprawa'] or w['sprawa_id'][:8]} [{w['_org']}]  "
+            f"„{w['odpowiedz']}” — pod: {w['rodzic']}\n"
+            f"   odpowiedz w wątku: sf-kit --org {w['_org']} wpis {w['sprawa_id']} --w-odpowiedzi {w['rodzic_id'][:8]} "
+            f"--tresc \"…\"")

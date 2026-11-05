@@ -12,6 +12,7 @@ import argparse
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -1537,14 +1538,50 @@ def polecenie_krok_nowy(args) -> int:
     except BladAPI as blad:
         print(f"Krok nie powstał: {blad}", file=sys.stderr)
         return 1
-    if args.json:
-        print(json.dumps(krok, ensure_ascii=False, indent=2, default=str))
-        return 0
     sid = krok.get("ticket_id") or krok.get("id")
-    print(f"{asystent.numer_sprawy(krok) or sid}  {krok.get('title') or ''}".strip())
+    # 0.20 (SF-486 luka 4): krok od razu kompletny — tytuł z rozgrywki, tag Krok, obserwujący, załącznik.
+    # Każdy element osobno: błąd jednego nie cofa kroku (krok już istnieje), tylko kod wyjścia 3.
+    braki = _uzupelnij_krok(klient, str(sid), args) if sid else []
+    if args.json:
+        print(json.dumps({**krok, "braki": braki}, ensure_ascii=False, indent=2, default=str))
+        return 3 if braki else 0
+    if braki:
+        for b in braki:
+            print(f"UWAGA krok: {b}", file=sys.stderr)
+    print(f"{asystent.numer_sprawy(krok) or sid}  {args.tytul or krok.get('title') or ''}".strip())
     if sid:
         print(asystent.adres_sprawy(str(sid), baza=konf.adres), file=sys.stderr)
-    return 0
+    return 3 if braki else 0
+
+
+def _uzupelnij_krok(klient, sid: str, args) -> list[str]:
+    """Tytuł, tag, obserwujący, załączniki nowego kroku → lista tego, czego nie udało się dołożyć."""
+    braki: list[str] = []
+    if getattr(args, "tytul", None):
+        try:
+            klient.zmien_sprawe(sid, {"title": args.tytul})
+        except BladAPI as blad:
+            braki.append(f"tytuł: {blad}")
+    tag = getattr(args, "tag", None)
+    if tag:
+        try:
+            typy = konsola.typy_wszystkie(klient)
+            t, typ = konsola.znajdz_tag(typy, tag)
+            konsola.nadaj_tag(klient, sid, t, typ)
+        except (ValueError, BladAPI) as blad:
+            braki.append(f"tag {tag}: {blad}")
+    for email in getattr(args, "obserwujacy", None) or []:
+        try:
+            klient.dodaj_obserwujacego(sid, email)
+        except BladAPI as blad:
+            braki.append(f"obserwujący {email}: {blad}")
+    pliki = getattr(args, "zalacz", None) or []
+    if pliki:
+        try:
+            klient.wpis_z_plikami(sid, "Załączniki kroku.", pliki)
+        except (BladAPI, ValueError, FileNotFoundError) as blad:
+            braki.append(f"załączniki: {blad}")
+    return braki
 
 
 def polecenie_krok_zamknij(args) -> int:
@@ -1753,16 +1790,30 @@ def polecenie_konsola_odpowiedzi(args) -> int:
     except BladAPI as blad:
         print(f"Nie pobrałem odpowiedzi: {blad}", file=sys.stderr)
         return 1
+    # 0.20 (SF-486 luka 5): także odpowiedzi W WĄTKACH pod moimi wpisami (szkic → „ok wysyłaj”)
+    watki, problemy = [], []
+    osoby = [o for o in (args.osoba or [getattr(konf, "konsola_adresat", "")]) if o]
+    if not args.bez_watkow and osoby:
+        watki, problemy = konsola.odpowiedzi_w_watkach(_klient_bez_organizacji(konf), _tozsamosc(klient), osoby,
+                                                       dni=args.dni, slug=konf.slug)
+    for p in problemy:
+        print(f"UWAGA {p}", file=sys.stderr)
     if args.json:
-        print(konsola._json(bloki))
+        print(konsola._json({"bloki": bloki, "watki": watki}) if not args.bez_watkow else konsola._json(bloki))
         return 0
-    if not bloki:
-        print("Brak nieodebranych odpowiedzi.")
+    if not bloki and not watki:
+        print("Brak nieodebranych odpowiedzi" + ("" if args.bez_watkow or not osoby else
+                                                 f" (bloki i wątki: {', '.join(osoby)}, {args.dni} dni)") + ".")
         return 0
     for b in bloki:
         print(konsola.pokaz_blok(b) + "\n" + "─" * 60)
-    print(f"{len(bloki)} odpowiedzi do odebrania · po wykonaniu: "
-          f"sf-kit --org <slug> konsola odpowiedzi --odebrane {' '.join(str(b.get('numer')) for b in bloki[:3])}…")
+    if bloki:
+        print(f"{len(bloki)} odpowiedzi na bloki do odebrania · po wykonaniu: "
+              f"sf-kit --org <slug> konsola odpowiedzi --odebrane {' '.join(str(b.get('numer')) for b in bloki[:3])}…")
+    if watki:
+        print(f"\nOdpowiedzi w wątkach bez Twojej reakcji ({len(watki)}) — odebranie = odpowiedź w tym wątku:")
+        for w in watki:
+            print(konsola.wiersz_watku(w))
     return 0
 
 
@@ -2421,13 +2472,17 @@ def polecenie_wpis(args) -> int:
     _ostrzez_o_szkicu(klient, sprawa_id)
     try:
         if args.zalacz:
+            _rodzic_wpisu(klient, sprawa_id, args)          # --w-odpowiedzi + --zalacz = czytelny błąd, nie cichy brak wątku
             # with-attachments zna tylko kłódkę (internal/external); konsola/team = kłódka + PATCH poziomu.
             wynik = klient.wpis_z_plikami(sprawa_id, tresc, args.zalacz,
                                           widocznosc="external" if args.widocznosc == "external" else "internal")
             if args.widocznosc in POZIOMY_PO_FAKCIE:
                 _wyrownaj_widocznosc(klient, sprawa_id, str((wynik or {}).get("id") or ""), args.widocznosc)
         else:
-            wynik = klient.wpis(sprawa_id, tresc, widocznosc=args.widocznosc)
+            wynik = klient.wpis(sprawa_id, tresc, widocznosc=args.widocznosc,
+                                **_watek_kw(klient, sprawa_id, args))
+    except ValueError as blad:
+        return nawyki.blad(args, str(blad), 2)
     except FileNotFoundError as blad:
         return nawyki.blad(args, f"nie udało się dopisać: {blad}", 2)
     except BladAPI as blad:
@@ -2514,6 +2569,27 @@ def _powod_serwera(blad: BladAPI) -> str:
     except (ValueError, AttributeError):
         return ""
     return detail if isinstance(detail, str) else ""
+
+
+def _rodzic_wpisu(klient, sprawa_id: str, args) -> str | None:
+    """0.20 (SF-486 luka 1): `--w-odpowiedzi` → pełny id wpisu-rodzica (wątek). Przyjmuje id, jego początek
+    (≥ 6 znaków) albo link `…#wpis-<uuid>`. Brak opcji = None (zwykły wpis)."""
+    wsk = (getattr(args, "w_odpowiedzi", None) or "").strip()
+    if not wsk:
+        return None
+    if getattr(args, "zalacz", None):
+        raise ValueError("--w-odpowiedzi nie łączy się z --zalacz (trasa z plikami nie zna wątków) — "
+                         "najpierw odpowiedź w wątku, pliki osobnym `sf-kit zalacz`")
+    m = re.search(r"#wpis-([0-9a-f-]{8,36})", wsk)
+    wsk = m.group(1) if m else wsk.lstrip("#")
+    from . import wpisy
+    return wpisy.rozwin_wpis(klient, sprawa_id, wsk)
+
+
+def _watek_kw(klient, sprawa_id: str, args) -> dict:
+    """`{"w_odpowiedzi_do": id}` tylko przy `--w-odpowiedzi` — bez opcji wywołanie `wpis` jak przed 0.20."""
+    r = _rodzic_wpisu(klient, sprawa_id, args)
+    return {"w_odpowiedzi_do": r} if r else {}
 
 
 def _sprawa_i_wpis(klient, args) -> tuple[dict, str] | None:
@@ -2685,8 +2761,8 @@ def polecenie_odpowiedz(args) -> int:
         return _odpowiedz_na_blok(klient, sprawa, args.blok, tresc, args)
     widocznosc = "internal" if args.wewn else "external"
     try:
-        klient.wpis(sprawa_id, tresc, widocznosc=widocznosc)
-    except BladAPI as blad:
+        klient.wpis(sprawa_id, tresc, widocznosc=widocznosc, **_watek_kw(klient, sprawa_id, args))
+    except (BladAPI, ValueError) as blad:
         print(f"Nie udało się odpowiedzieć: {blad}", file=sys.stderr)
         return 1
     co = "Notatka wewnętrzna dodana." if args.wewn else "Odpowiedź wysłana (widoczna na zewnątrz)."
@@ -3803,12 +3879,19 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                     help="co zrobiono — wpis wewnętrzny na sprawie kotwicy bloku (BoxPatch nie ma pola treści)")
     kz.add_argument("--json", action="store_true")
     kz.set_defaults(funkcja=polecenie_konsola_zamknij)
-    ko_ = kn_pod.add_parser("odpowiedzi", help="odpowiedzi człowieka na bloki, jeszcze nieodebrane")
+    ko_ = kn_pod.add_parser("odpowiedzi", help="odpowiedzi człowieka na bloki i w wątkach pod moimi wpisami, "
+                                                "jeszcze nieodebrane")
     ko_.add_argument("--odebrane", nargs="+", default=None, metavar="#N",
-                     help="oznacz odpowiedzi jako odebrane (po wykonaniu dyspozycji)")
+                     help="oznacz odpowiedzi na BLOKI jako odebrane (po wykonaniu dyspozycji); wątek odbiera się "
+                          "odpowiedzią w nim: sf-kit wpis <sprawa> --w-odpowiedzi <wpis>")
     ko_.add_argument("--notka", default=None, metavar="TEKST",
                      help="przy --odebrane: co zrobiono — wpis wewnętrzny na sprawie kotwicy")
     ko_.add_argument("--limit", type=int, default=50)
+    ko_.add_argument("--osoba", nargs="*", default=None, metavar="EMAIL|NAZWA",
+                     help="czyje odpowiedzi w wątkach (domyślnie `konsola_adresat`; etykieta jak na osi, "
+                          "np. d.pakula@advertpro.co „Damian Pakuła”)")
+    ko_.add_argument("--dni", type=int, default=7, help="okno odpowiedzi w wątkach (domyślnie 7 dni)")
+    ko_.add_argument("--bez-watkow", action="store_true", help="tylko odpowiedzi na bloki (jak przed 0.20)")
     ko_.add_argument("--json", action="store_true")
     ko_.set_defaults(funkcja=polecenie_konsola_odpowiedzi)
 
@@ -3858,6 +3941,9 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     wp.add_argument("--widocznosc", choices=["internal", "external", "konsola", "team"], default="internal",
                     help="internal = widzi zespół (domyślnie), external = widzi też klient, "
                          "konsola = notatka floty u klienta (SF-449), team = zespół Organizacji")
+    wp.add_argument("--w-odpowiedzi", dest="w_odpowiedzi", default=None, metavar="WPIS",
+                    help="odpowiedź W WĄTKU pod wpisem: id, jego początek (≥ 6 znaków) albo link …#wpis-<id> "
+                         "(np. pod szkicem, który człowiek zaakceptował); bez --zalacz")
     wp.set_defaults(funkcja=polecenie_wpis)
 
     # SF-184: raport (SITREP i podobne) — dane w blokach, nie HTML; styl renderuje SF.
@@ -3923,6 +4009,8 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     od.add_argument("--opcja", default=None, metavar="KLUCZ",
                     help="z --blok: wybór opcji z bloku `decyzja` raportu sesji (np. B); "
                          "--opis staje się opcjonalnym komentarzem — SF-188")
+    od.add_argument("--w-odpowiedzi", dest="w_odpowiedzi", default=None, metavar="WPIS",
+                    help="odpowiedź W WĄTKU pod wpisem: id, jego początek (≥ 6 znaków) albo link …#wpis-<id>")
     od.set_defaults(funkcja=polecenie_odpowiedz)
 
     tv = pod.add_parser("tresc-wersja", help="[asystent] kolejna wersja treści: załącznik "
@@ -4062,6 +4150,11 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     krn = kr_pod.add_parser("nowy", help="nowy krok (POST /kroki/dzis — numer nadaje SF)")
     krn.add_argument("--opis", default=None, metavar="PLIK", help="sedno kroku (`-` = stdin)")
     krn.add_argument("--tresc", default=None, metavar="TEKST|PLIK|-", help="sedno kroku wprost")
+    krn.add_argument("--tytul", default=None, metavar="TYTUL",
+                     help="tytuł z rozgrywki, np. „KROK V · Rozgrywka 03.11.2026” (bez opcji zostaje tytuł nadany przez SF)")
+    krn.add_argument("--tag", default="Krok", metavar="TAG", help="tag kroku (domyślnie „Krok”; pusty = bez tagu)")
+    krn.add_argument("--obserwujacy", nargs="*", default=[], metavar="EMAIL", help="obserwujący kroku")
+    krn.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK", help="pliki kroku (jeden wpis)")
     krn.add_argument("--json", action="store_true")
     krn.set_defaults(funkcja=polecenie_krok_nowy)
     krz = kr_pod.add_parser("zamknij", help="wpis zamykający + status closed")

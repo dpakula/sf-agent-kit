@@ -593,13 +593,17 @@ class Klient:
         return self._wywolaj("POST", f"tickets/{ticket_id}/bloki-konsoli/{box_id}/odpowiedz",
                              cialo=cialo)
 
-    def wpis(self, ticket_id: str, tresc: str, *, widocznosc: str = "internal") -> dict:
+    def wpis(self, ticket_id: str, tresc: str, *, widocznosc: str = "internal",
+             w_odpowiedzi_do: str | None = None) -> dict:
         """Wpis na sprawie — tak zdajesz sprawozdanie.
 
         `internal` domyślnie i celowo: treści, której klient nie miał zobaczyć, nie da się
         odzobaczyć. `public` zostaje świadomą decyzją wołającego.
+        `w_odpowiedzi_do` (0.20, SF-486 luka 1) = id wpisu, pod którym ten wpis jest odpowiedzią w wątku.
         """
         cialo = {"entry_type": "note", "content": tresc, "visibility": widocznosc}
+        if w_odpowiedzi_do:
+            cialo["w_odpowiedzi_do"] = w_odpowiedzi_do
         if self.na_rzecz:
             cialo["na_rzecz"] = self.na_rzecz
         try:
@@ -864,6 +868,12 @@ class Klient:
         if isinstance(wynik, dict):
             wynik = wynik.get("items") or []
         return [z for z in wynik if isinstance(z, dict)]
+
+    def feed_osoby(self, osoby: list[str], *, od: str, limit: int = 100) -> list[dict]:
+        """`GET /timeline/feed?osoba=…&since=…` — wpisy osoby (autor albo przypisany) w TEJ Organizacji (0.20)."""
+        q = urllib.parse.urlencode([("osoba", o) for o in osoby] + [("since", od), ("limit", limit)])
+        odp = self._wywolaj("GET", f"timeline/feed?{q}")
+        return (odp or {}).get("items") or [] if isinstance(odp, dict) else []
 
     def krok_dzis(self, sedno: str | None) -> dict:
         """`POST /kroki/dzis` — nowy krok rozgrywki: SF nadaje kolejny numer z dzisiejszą datą."""
