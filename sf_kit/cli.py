@@ -945,6 +945,19 @@ def polecenie_zadanie(args) -> int:
     except BladAPI as blad:
         print(f"Nie udało się pobrać zadania: {blad}", file=sys.stderr)
         return 1
+    if getattr(args, "status", None):
+        # 0.20 (SF-486, test czystym agentem): agent zmienia status WŁASNEGO zadania bez demona workera —
+        # in_progress przy podjęciu, completed po wyniku na sprawie, on_hold z powodem w notce.
+        try:
+            klient.ustaw_status(str(z["id"]), args.status, wersja=z.get("version"))
+            if args.notka:
+                klient.komentarz_zadania(str(z["id"]), args.notka)
+        except BladAPI as blad:
+            print(f"Nie zmieniłem statusu zadania: {blad}", file=sys.stderr)
+            return 1
+        print(f"✓ {z.get('external_id') or z.get('id')}: {z.get('status')} → {args.status}"
+              + (" (notka pod zadaniem)" if args.notka else ""))
+        return 0
     print(f"{z.get('external_id') or ''}  {z.get('title') or ''}")
     termin = z.get("deadline")
     print(f"status: {z.get('status')} · priorytet: {z.get('priority')}"
@@ -3726,6 +3739,10 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     tk.set_defaults(funkcja=polecenie_tasks)
     zd = pod.add_parser("zadanie", help="pełna treść jednego zadania: status, termin, sprawa, opis")
     zd.add_argument("zadanie", metavar="ID|EXTERNAL_ID")
+    zd.add_argument("--status", choices=["in_progress", "completed", "on_hold"], default=None,
+                    help="zmień status WŁASNEGO zadania: in_progress = biorę się, completed = wynik jest na sprawie, "
+                         "on_hold = czekam (powód w --notka)")
+    zd.add_argument("--notka", default=None, metavar="TEKST", help="przy --status: jedno zdanie pod zadaniem")
     zd.set_defaults(funkcja=polecenie_zadanie)
     bl = pod.add_parser("blok", help="[agent] jeden blok osi albo katalog rodzajów (SF-7)")
     bl.add_argument("co", nargs="?", default="typy",

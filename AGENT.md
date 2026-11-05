@@ -44,6 +44,61 @@ Sprawdź w `sf-kit whoami` i w konfiguracji (`sf-kit init`), w którym trybie pr
 
 Profil nie nadaje uprawnień — te są po stronie SalesForge. Jeśli polecenie odpowie brakiem uprawnienia, zatrzymaj się i przekaż użytkownikowi, czego brakuje.
 
+### Ściąga: zadanie → komenda → przykład → co zobaczysz (0.20, SF-486)
+
+Zasady wspólne: sprawę wskazujesz **linkiem z `?org=…`** (Organizację Kit weźmie z linku) albo numerem + `--org <slug>`.
+Treść: `--tresc "tekst"` albo `--opis plik.md` (`-` = stdin). Kody wyjścia: `0` zrobione · `1` SF odmówił / częściowo ·
+`2` złe wejście, nic nie wysłane · `3` (krok) główna rzecz jest, czegoś nie dołożono — Kit wypisze co. Każda komenda ma
+`--help`; `--json` = jeden obiekt na stdout. Nie używaj curla do SF — czego nie ma w tej tabeli, zgłoś jako lukę Kita.
+
+**Asystent** (pracujesz z człowiekiem — Michał, Wójt)
+
+| zadanie | komenda | przykład | co zobaczysz |
+|---|---|---|---|
+| sprawdzić klucz i Organizacje | `whoami` | `sf-kit whoami` | konto, Organizacje, uprawnienia klucza |
+| znaleźć sprawy | `sprawy` | `sf-kit --org fm sprawy --tylko-moje` | lista: numer, tytuł, status |
+| przeczytać sprawę z wpisami | `sprawa` | `sf-kit sprawa "<link>" --json` | karta sprawy z wpisami |
+| odpowiedzieć klientowi w sprawie | `odpowiedz` | `sf-kit odpowiedz "<link>" --tresc "Dzień dobry, …"` | „Odpowiedź wysłana (widoczna na zewnątrz).” + link |
+| notatka wewnętrzna | `odpowiedz --wewn` / `wpis` | `sf-kit wpis "<link>" --tresc "Sprawdziłem: …"` | `id wpisu: …` (stderr); domyślnie widzi tylko zespół |
+| odpowiedź **w wątku** pod wpisem | `wpis --w-odpowiedzi` | `sf-kit wpis "<link>" --w-odpowiedzi 40b86129 --tresc "Wysłane."` | wpis pod wskazanym (id, jego początek albo link `#wpis-…`) |
+| dołożyć pliki do sprawy | `zalacz` | `sf-kit zalacz "<link>" raport.pdf zrzut.png --notka "Raport i zrzut"` | „Wysłane pliki: 2” — jeden wpis, jedno powiadomienie |
+| zgłosić nową sprawę z plikiem | `nowa-sprawa` | `sf-kit --org fm nowa-sprawa --tytul "Oferta dla X gotowa" --tresc "…" --zalacz oferta.pdf` | „✓ …” numer i link nowej sprawy |
+| nowa wersja treści (dokument) | `tresc-wersja` | `sf-kit tresc-wersja "<link>" oferta.md --zmiany zmiany.md` | załącznik `oferta-vN.md` + wpis „co się zmieniło” |
+| dodać obserwującego | `obserwujacy --dodaj` | `sf-kit obserwujacy "<link>" --dodaj anna@firma.pl` | „Obserwujący (N): …” |
+| odpowiedzieć na blok decyzji | `odpowiedz --blok` | `sf-kit odpowiedz "<link>" --blok #2440 --opcja A` | odpowiedź przy bloku |
+
+**Worker** (bierzesz zadania z kolejki)
+
+| zadanie | komenda | przykład | co zobaczysz |
+|---|---|---|---|
+| moje zadania | `tasks` | `sf-kit tasks` | lista: `external_id`, tytuł, status, sprawa |
+| treść jednego zadania | `zadanie` | `sf-kit zadanie SF-T-123` | tytuł, status, termin, sprawa, id, opis |
+| biorę się za zadanie | `zadanie --status in_progress` | `sf-kit zadanie SF-T-123 --status in_progress` | „✓ SF-T-123: queued → in_progress” |
+| wynik na sprawie zadania | `wpis` / `raport` | `sf-kit raport "<link sprawy>" wynik.md` | wpis raportu (bloki energia/kpi/status) |
+| zadanie zrobione | `zadanie --status completed` | `sf-kit zadanie SF-T-123 --status completed --notka "Wynik: wpis 1a2b3c"` | „✓ … → completed (notka pod zadaniem)” |
+| czekam na kogoś | `zadanie --status on_hold` | `sf-kit zadanie SF-T-123 --status on_hold --notka "Czekam na dostęp FTP"` | „✓ … → on_hold” |
+| wiadomości do mnie | `inbox` | `sf-kit inbox` → po wykonaniu `sf-kit inbox --odebrane <id> --notka "…"` | wiadomości; odbiór potwierdzasz PO wykonaniu |
+| tło bez człowieka | `worker` | `sf-kit worker --once` | demon: bierze zadanie, uruchamia agenta, raportuje |
+
+**Koordynator** (rozdajesz pracę i rozmawiasz z człowiekiem przez Konsolę A; `--org advertpro-co` = Org konsoli)
+
+| zadanie | komenda | przykład | co zobaczysz |
+|---|---|---|---|
+| blok decyzji dla człowieka z kotwicą | `konsola blok` (= `blok nowy`) | `sf-kit --org advertpro-co konsola blok --rodzaj action --prio high --effort 2min --sprawa "<link>" --tresc "…" --opcja A="Wysyłamy" --opcja B="Poprawiam" --rekomendowana A` | numer bloku `#2456`; dubel (otwarty, ta sama sprawa, < 2 h) = numer istniejącego |
+| blok zastępujący poprzedni | `konsola blok --zastepuje #N` | `… konsola blok … --zastepuje #2440` | nowy numer; `#2440` zamknięty |
+| odpowiedzi człowieka (bloki **i wątki**) | `konsola odpowiedzi` | `sf-kit --org advertpro-co konsola odpowiedzi --osoba d.pakula@advertpro.co "Damian Pakuła"` | bloki z odpowiedzią + „Odpowiedzi w wątkach bez Twojej reakcji” z gotową komendą odpowiedzi |
+| odebrać odpowiedź na blok | `konsola odpowiedzi --odebrane` | `… konsola odpowiedzi --odebrane #2454 --notka "Wdrożone"` | „✓ #2454: odpowiedź odebrana” + notka na sprawie kotwicy |
+| odebrać odpowiedź w wątku | `wpis --w-odpowiedzi` | `sf-kit wpis "<link>" --w-odpowiedzi 40b86129 --tresc "Wysłane Emilowi 15:05"` | wątek znika z `konsola odpowiedzi` |
+| zamknąć blok | `konsola zamknij` | `… konsola zamknij #2422 --odpowiedz "Makiety przyjęte"` | status closed + wpis na sprawie kotwicy |
+| nowa sprawa (koordynator) | `nowa-sprawa` | `sf-kit --org advertpro-co nowa-sprawa --tytul "…" --tresc "…" --prio med --przypisz agata@dpakula.pl --obserwujacy d.pakula@advertpro.co --tag Krok --zalacz plan.md --json` | jeden obiekt: `ticket_id`, numer, url, co weszło |
+| zadanie dla agenta | `zlec` | `sf-kit --org sf zlec --tytul "…" --agent-slug arek-sf --sprawa SF-486 --tresc "…" --dostarcz` | „Zlecone: SF-T-… → arek-sf” + sprawa |
+| odebrać wynik agenta | `odbierz` | `sf-kit --org sf odbierz SF-T-123` | kontrola wyniku na sprawie, potem zamknięcie zadania |
+| nowy krok rozgrywki | `krok nowy` | `sf-kit --org advertpro-co krok nowy --tytul "KROK V · Rozgrywka 03.11.2026" --tresc "Sedno: …" --obserwujacy d.pakula@advertpro.co --zalacz plan.md` | numer + tytuł + link; tag „Krok” domyślnie (`--tag ""` = bez) |
+| tag / obserwujący | `tag nadaj`, `obserwujacy --dodaj` | `sf-kit tag nadaj "<link>" Rozwojowe --typ "Rodzaj pracy" --zamien` | lista nadanych tagów |
+| widoczność wpisu | `wpis --widocznosc` | `sf-kit wpis "<link u klienta>" --widocznosc konsola --tresc "…"` | `konsola` = notatka floty u klienta (klient nie widzi) |
+| status sprawy | `sprawa --status` | `sf-kit sprawa "<link>" --status resolved` | odmowa, gdy w sprawie jest otwarte zadanie (`--mimo-to` świadomie) |
+| poczta (szkic/wysyłka maila z sprawy) | — | **jeszcze nie w Kicie** (SF-504: kontrakt treści txt/md/html) | — |
+
 ### Koordynator: konsola, wiadomości, tagi (SF-486)
 
 - **0.19 (SF-496) — skróty koordynatorki, kody wyjścia:** każda komenda z treścią przyjmuje obok `--opis PLIK|-` także

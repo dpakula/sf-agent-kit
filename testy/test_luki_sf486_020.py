@@ -134,5 +134,29 @@ class TestOdpowiedziWWatkach(unittest.TestCase):
         self.assertEqual(w, [])
 
 
+class TestSciagaSpojnaZParserem(unittest.TestCase):
+    """SF-486 pkt 2: każdy przykład ze „Ściągi” w AGENT.md przechodzi parser Kita (składnia = prawda, nie opis)."""
+
+    def test_przyklady(self):
+        import re
+        import shlex
+        tekst = (Path(__file__).resolve().parents[1] / "AGENT.md").read_text(encoding="utf-8")
+        self.assertIn("### Ściąga:", tekst)
+        sek = tekst.split("### Ściąga:")[1].split("\n### ")[0]
+        p = cli.zbuduj_parser()
+        przyklady = re.findall(r"\| `(sf-kit [^`]+)`", sek)
+        self.assertGreaterEqual(len(przyklady), 25)
+        for cmd in przyklady:
+            cmd = cmd.split(" → ")[0].replace("…", "x")
+            for zastep in ("<link>", "<link sprawy>", "<link u klienta>", "<id>"):
+                cmd = cmd.replace(zastep, "https://sales-forge.pl/tickets/a?org=b")
+            with self.subTest(cmd=cmd):
+                with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+                    try:
+                        p.parse_args(shlex.split(cmd)[1:])
+                    except SystemExit:
+                        self.fail(f"przykład ze ściągi nie przechodzi parsera: {cmd}")
+
+
 if __name__ == "__main__":
     unittest.main()
