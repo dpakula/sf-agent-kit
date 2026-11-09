@@ -501,6 +501,7 @@ def polecenie_readme(args) -> int:
     else:
         print(f"dla ludzi:   {katalog / 'README.md'}")
         print(f"dla agenta:  {katalog / 'AGENT.md'}")
+        print(f"założenia:   {katalog / 'ZALOZENIA.md'}")
     return 0
 
 

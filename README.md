@@ -1,6 +1,6 @@
 # SF Agent Kit
 
-To instrukcja dla ludzi. Instrukcja dla agenta AI jest w pliku [AGENT.md](AGENT.md).
+To instrukcja dla ludzi. Instrukcja dla agenta AI jest w pliku [AGENT.md](AGENT.md). Czym Kit ma być (dla kogo, obietnica, zasady, mapa czytać · pracować · pytać) opisuje [ZALOZENIA.md](ZALOZENIA.md).
 
 ## Dla użytkownika
 
