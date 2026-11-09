@@ -2130,6 +2130,7 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 | `/sf-kit:pin` | `/sf-kit:przypnij` | `sf-kit przypnij` | Przypnij sprawę jako część innej (<sprawa> zawiera <część>) |
 | `/sf-kit:unpin` | `/sf-kit:odepnij` | `sf-kit odepnij` | Odepnij relację między dwiema sprawami |
 | `/sf-kit:report-work` | `/sf-kit:zglos` | `sf-kit zglos` | Zgłoś gotową pracę jako nową sprawę (tytuł, opis, załączniki) |
+| `/sf-kit:feedback` | `/sf-kit:uwaga` | `sf-kit uwaga` | Uwaga do Kita: co nie działa albo czego brakuje → sprawa w SalesForge z wersją, systemem i ostatnim błędem |
 | `/sf-kit:note` | `/sf-kit:wpis` | `sf-kit wpis` | Dopisz postęp do sprawy (domyślnie wewnętrznie, dla zespołu) |
 | `/sf-kit:reply` | `/sf-kit:odpowiedz` | `sf-kit odpowiedz` | Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu |
 | `/sf-kit:attach` | `/sf-kit:zalacz` | `sf-kit zalacz` | Załącz pliki do sprawy |

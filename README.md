@@ -110,6 +110,16 @@ sf-kit aktualizuj
 
 Kit raz na dobę sprawdza, czy jest nowa wersja, i mówi o tym jedną linią.
 
+### Coś nie działa albo czegoś brakuje
+
+```
+sf-kit uwaga "po sf-kit wpis nie widzę numeru wpisu"
+```
+
+Uwaga trafia jako sprawa do zespołu, który rozwija Kita. Kit sam dołącza swoją wersję, system i ostatnie polecenie, które się nie udało, razem z komunikatem błędu. Klucze i hasła wycina. Zrzut ekranu dołączysz przez `--plik zrzut.png`. Jeśli chcesz najpierw zobaczyć, co pójdzie, dodaj `--sucho`: Kit pokaże treść i nic nie wyśle. Gdy wysłanie się nie uda, treść zostaje w pliku i Kit poda jego ścieżkę.
+
+Możesz też po prostu powiedzieć asystentowi: „zgłoś uwagę do Kita: …”.
+
 ### Dobrze wiedzieć
 
 **Klucz.** Klucz agenta widać tylko raz, gdy administrator go wystawia. Administrator przekazuje go menedżerem haseł, nigdy mailem ani czatem. Wpisujesz go sam, w terminalu, przy `sf-kit init`. Kit trzyma go w pęku kluczy na Macu i w Menedżerze poświadczeń na Windows. Jeśli na Macu wyskoczy okno pęku kluczy, kliknij „Zezwalaj zawsze”.

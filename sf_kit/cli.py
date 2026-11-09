@@ -37,6 +37,7 @@ from . import koordynacja
 from . import nawyki
 from . import rotacja as mod_rotacja
 from . import tozsamosc
+from . import uwagi
 from .api import BladAPI, Klient
 
 
@@ -2436,6 +2437,96 @@ def _tagi_nowej_sprawy(klient, wartosci: list[str]) -> tuple[list[tuple[dict, di
     return tagi, kategoria
 
 
+def _katalog_agenta() -> Path | None:
+    """Katalog konfiguracji tego agenta albo None (kilku agentów bez `--agent` — wtedy nie zgadujemy)."""
+    try:
+        return magazyn_klucza.sciezka_konfiguracji()
+    except Exception:                                  # noqa: BLE001 — WieluAgentow i błędy dysku: brak katalogu
+        return None
+
+
+def polecenie_uwaga(args) -> int:
+    """Uwaga do Kita → nowa sprawa w Organizacji SalesForge, z kontekstem maszyny i ostatnim błędem (SF-506).
+
+    Nie `zglos`: tamto jest „gotowa praca” w Organizacji klienta. Uwaga idzie tam, gdzie żyje rozwój
+    Kita, a gdy się nie da (brak klucza, brak członkostwa, brak sieci) — do pliku, żeby nic nie przepadło.
+    """
+    tekst = uwagi.wczytaj_tekst(args.tekst)
+    if not tekst.strip():
+        print("Pusta uwaga. Napisz jednym zdaniem, co nie działa albo czego brakuje:\n"
+              "  sf-kit uwaga \"po sf-kit wpis nie widzę numeru wpisu\"", file=sys.stderr)
+        return 2
+    konf = konfiguracja.wczytaj()
+    kl = magazyn_klucza.wczytaj()
+    katalog = _katalog_agenta()
+    blad = None if (args.bez_bledu or katalog is None) else uwagi.ostatni_blad(katalog)
+    system = uwagi.system_teraz(WERSJA, profil=konf.profil, agent=konf.slug, org=konf.organizacja)
+    tytul = uwagi.tytul(tekst)
+    tresc = uwagi.tresc(tekst, system=system, blad=blad, kontekst=args.kontekst or "", klucz=kl)
+    if args.sucho:
+        print(f"# {tytul}\n\n{tresc}\n\n(--sucho: nic nie wysłano)")
+        return 0
+
+    def nie_doszla(powod: str) -> int:
+        plik = uwagi.zapisz_niewyslana(katalog, tytul, tresc, powod) if katalog else None
+        print(f"Uwaga NIE doszła do SalesForge: {powod}", file=sys.stderr)
+        if plik:
+            print(f"Treść jest zapisana tutaj — nic nie przepadło:\n  {plik}\n"
+                  "Wyślij ją ponownie, gdy przyczyna zniknie, albo przekaż plik osobie, która Ci pomaga.",
+                  file=sys.stderr)
+        return 1
+
+    nazwa_org = uwagi.org_uwag(getattr(args, "org", None))
+    try:
+        klient = _klient_bez_organizacji(konf)
+        org = tozsamosc.wybierz_dla_zapisu(_tozsamosc(klient), wskazana=nazwa_org)
+    except tozsamosc.BrakWyboru:
+        return nie_doszla(f"Twój klucz nie ma dostępu do Organizacji „{nazwa_org}”, w której zbieramy uwagi "
+                          "do Kita. Poproś koordynatora o członkostwo (wystarczy zakładanie spraw).")
+    except SystemExit as wyjscie:                      # brak klucza / konfiguracji / sieci przy GET /me
+        return nie_doszla(str(wyjscie.code or "brak klucza albo konfiguracji"))
+    klient.organizacja = org.uuid
+    try:
+        odp = klient.zaloz_sprawe(tytul=tytul, opis=tresc, kategoria=uwagi.KATEGORIA_BLAD if blad else uwagi.KATEGORIA_UWAGA,
+                                  priorytet="medium",
+                                  obserwatorzy=konf.obserwatorzy_domyslni or None)
+    except BladAPI as b:
+        return nie_doszla(str(b))
+    sprawa_id = str(odp.get("ticket_id") or odp.get("id") or "")
+    numer = asystent.numer_sprawy(odp) or ""
+    if katalog and blad:
+        uwagi.usun_blad(katalog)                       # wysłany błąd nie pojedzie drugi raz z następną uwagą
+    dane = {"ok": True, "ticket_id": sprawa_id, "numer": numer, "org": org.slug,
+            "url": asystent.adres_sprawy(sprawa_id, baza=konf.adres), "z_bledem": bool(blad), "ostrzezenia": []}
+
+    try:
+        typy = konsola.typy_wszystkie(klient)
+        for nazwa, typ in ((uwagi.TAG_PROJEKTU, "project"),
+                           (uwagi.TAG_BLAD if blad else uwagi.TAG_FEEDBACK, "ticket_category")):
+            tag, typ_tagu = konsola.znajdz_tag(typy, nazwa, typ=typ)
+            konsola.nadaj_tag(klient, sprawa_id, tag, typ_tagu)
+    except (ValueError, BladAPI) as b:                 # sprawa JUŻ jest — tag to dodatek
+        dane["ostrzezenia"].append(f"tagi: {b}")
+    if args.plik:
+        try:
+            klient.wpis_z_plikami(sprawa_id, "Pliki do tej uwagi.", args.plik)
+            dane["zalaczniki"] = len(args.plik)
+        except (BladAPI, OSError) as b:
+            dane["ostrzezenia"].append(f"załączniki: {b} — dołóż: sf-kit --org {org.slug} zalacz "
+                                       f"{numer or sprawa_id} <plik…>")
+
+    if getattr(args, "json", False):
+        print(json.dumps(dane, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Dziękujemy — uwaga zapisana jako {numer or sprawa_id}" + (" (z ostatnim błędem)" if blad else "") + ".")
+    print(f"  {dane['url']}")
+    for o in dane["ostrzezenia"]:
+        print(f"  uwaga techniczna: {o}", file=sys.stderr)
+    print("Odpowiedź pojawi się na tej sprawie; dopisać coś możesz poleceniem:\n"
+          f"  sf-kit --org {org.slug} wpis {numer or sprawa_id} --tresc \"…\"")
+    return 0
+
+
 def polecenie_wpis(args) -> int:
     """Wpis na istniejącej sprawie — postęp, kolejna wersja, odpowiedź.
 
@@ -3818,6 +3909,16 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     _parser_nowej_sprawy("zglos", "[asystent] zgłoś gotową pracę jako nową sprawę")
     _parser_nowej_sprawy("nowa-sprawa", "[asystent] nowa sprawa z gotową pracą (SF-51)")
 
+    uw = pod.add_parser("uwaga", help="[wszyscy] uwaga do Kita: co nie działa / czego brakuje → sprawa "
+                                      "w SalesForge z wersją, systemem i ostatnim błędem (SF-506)")
+    uw.add_argument("tekst", metavar="TEKST|-", help="co nie działa albo czego brakuje (`-` = ze standardowego wejścia)")
+    uw.add_argument("--plik", nargs="*", default=[], metavar="PLIK", help="zrzut ekranu, log — dołączone jednym wpisem")
+    uw.add_argument("--kontekst", default=None, metavar="TEKST", help="co robiłeś, gdy to się stało (jednym zdaniem)")
+    uw.add_argument("--bez-bledu", action="store_true", help="nie dołączaj ostatniego nieudanego polecenia")
+    uw.add_argument("--sucho", action="store_true", help="pokaż, co pójdzie, i NIC nie wysyłaj")
+    uw.add_argument("--json", action="store_true", help="wynik jako JSON (ticket_id, numer, url)")
+    uw.set_defaults(funkcja=polecenie_uwaga)
+
     ib = pod.add_parser("inbox", help="[agent] moje wiadomości — pokaż i potwierdź odbiór")
     ib.add_argument("--limit", type=int, default=skrzynka.LIMIT_TAKTU,
                     help=f"ile wziąć w tym takcie (domyślnie {skrzynka.LIMIT_TAKTU})")
@@ -4309,6 +4410,43 @@ def _wykonaj(parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
             return 2
         except Exception:                      # noqa: BLE001 — patrz komentarz wyżej
             pass
+    # SF-506: końcówka stderr i kod nieudanego polecenia → `ostatni-blad.json` dla `sf-kit uwaga`.
+    # Bez `uwaga` (nie nadpisuje błędu, o którym właśnie piszemy) i bez `mcp` (stdio protokołu).
+    lustro = None
+    if args.polecenie not in ("uwaga", "mcp"):
+        lustro = uwagi.Lustro(sys.stderr)
+        sys.stderr = lustro
+    kod = 1
+    try:
+        kod = _uruchom(args)
+        return kod
+    except BaseException as wyjatek:
+        kod = getattr(wyjatek, "code", None) if isinstance(wyjatek, SystemExit) else type(wyjatek).__name__
+        if isinstance(kod, str) and lustro is not None:
+            lustro.zapamietaj(kod + "\n")                # Python wypisze go sam, już po przywróceniu stderr
+            kod = 1
+        elif lustro is not None and not isinstance(wyjatek, (SystemExit, KeyboardInterrupt)):
+            import traceback
+            lustro.write("".join(traceback.format_exception_only(type(wyjatek), wyjatek)))
+        raise
+    finally:
+        if lustro is not None:
+            sys.stderr = lustro._cel
+            if kod not in (0, None, "0"):
+                katalog = _katalog_agenta()
+                if katalog is not None:
+                    uwagi.zapisz_blad(katalog, argv=list(argv or []), kod=kod, stderr=lustro.koncowka(),
+                                      wersja=WERSJA, klucz=_klucz_po_cichu())
+
+
+def _klucz_po_cichu() -> str | None:
+    try:
+        return magazyn_klucza.wczytaj()
+    except Exception:                                  # noqa: BLE001 — czyszczenie bez klucza i tak łapie wzorce
+        return None
+
+
+def _uruchom(args) -> int:
     try:
         return args.funkcja(args)
     except magazyn_klucza.WieluAgentow as blad:

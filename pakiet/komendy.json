@@ -124,6 +124,25 @@
       "mcp": true
     },
     {
+      "id": "feedback",
+      "aliasy": [
+        "uwaga"
+      ],
+      "cli": "uwaga",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Uwaga do Kita: co nie działa albo czego brakuje → sprawa w SalesForge z wersją, systemem i ostatnim błędem",
+        "en": "Kit feedback with version, system and last error"
+      },
+      "argumenty": "\"co nie działa\" [--plik ZRZUT…] [--kontekst \"co robiłem\"] [--bez-bledu] [--sucho]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic",
+      "tylko_odczyt": false,
+      "mcp": true
+    },
+    {
       "id": "note",
       "aliasy": [
         "wpis"

@@ -1,5 +1,5 @@
 <!-- sf-kit:codex:start — sekcję zapisuje `sf-kit init --codex`; zmiany w niej nadpisze -->
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.1; nie edytuj ręcznie -->
 
 ## SalesForge przez SF Kit
 Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nigdy surowym `curl` z kluczem. Uprawnienia ma klucz; odmowę (403) przekaż człowiekowi, nie obchodź jej.
@@ -17,6 +17,7 @@ Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nig
 | `$sf-pin` | `$sf-przypnij` | `sf-kit przypnij` | Przypnij sprawę jako część innej (<sprawa> zawiera <część>) |
 | `$sf-unpin` | `$sf-odepnij` | `sf-kit odepnij` | Odepnij relację między dwiema sprawami |
 | `$sf-report-work` | `$sf-zglos` | `sf-kit zglos` | Zgłoś gotową pracę jako nową sprawę (tytuł, opis, załączniki) |
+| `$sf-feedback` | `$sf-uwaga` | `sf-kit uwaga` | Uwaga do Kita: co nie działa albo czego brakuje → sprawa w SalesForge z wersją, systemem i ostatnim błędem |
 | `$sf-note` | `$sf-wpis` | `sf-kit wpis` | Dopisz postęp do sprawy (domyślnie wewnętrznie, dla zespołu) |
 | `$sf-reply` | `$sf-odpowiedz` | `sf-kit odpowiedz` | Odpowiedz w sprawie — UWAGA: domyślnie widzi to klient; --wewn = notatka zespołu |
 | `$sf-attach` | `$sf-zalacz` | `sf-kit zalacz` | Załącz pliki do sprawy |

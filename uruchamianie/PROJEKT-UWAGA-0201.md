@@ -1,6 +1,6 @@
 # `sf-kit uwaga` → Kit 0.20.1 (SF-506, punkt 1) — projekt przed kodem
 
-Stan na 09.11 14:4x: projekt gotowy, kod NIE zaczęty (przerwa na OWOP 1141, polecenie Agaty).
+Stan: WYKONANE 09.11 (Kit 0.20.1, `WYDANIE-0.20.1.md`). Zmiana względem projektu: kategoria `kit-uwaga` odrzucona przez SF (422) → `bug`/`feedback` + prefiks tytułu.
 
 ## Polecenie
 

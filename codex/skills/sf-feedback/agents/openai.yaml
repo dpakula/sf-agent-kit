@@ -1,0 +1,3 @@
+# wygenerowano z pakiet/komendy.json — komendę uruchamia człowiek ($nazwa), model sam jej nie wywołuje
+policy:
+  allow_implicit_invocation: false

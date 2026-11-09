@@ -3,7 +3,7 @@ name: "sf-os"
 description: "Oś czasu sprawy — to samo co /skill:sf-timeline"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.1; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit os $ARGUMENTS`
 
