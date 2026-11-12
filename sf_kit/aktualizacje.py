@@ -336,19 +336,19 @@ class Repo:
         katalog = Path(__file__).resolve().parents[1]
         probe = subprocess.run(["git", "-C", str(katalog), "rev-parse",
                                 "--is-inside-work-tree"],
-                               capture_output=True, text=True)
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True)
         if probe.returncode != 0 or probe.stdout.strip() != "true":
             return None
         top = subprocess.run(["git", "-C", str(katalog), "rev-parse",
                               "--show-toplevel"],
-                             capture_output=True, text=True)
+                             stdin=subprocess.DEVNULL, capture_output=True, text=True)
         if top.returncode != 0 or not top.stdout.strip():
             return None
         return cls(Path(top.stdout.strip().splitlines()[0]))
 
     def _git(self, *argumenty: str) -> subprocess.CompletedProcess:
         return subprocess.run(["git", "-C", str(self.katalog), *argumenty],
-                              capture_output=True, text=True)
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True)
 
     def _git_albo_blad(self, czynnosc: str, *argumenty: str) -> str:
         wynik = self._git(*argumenty)

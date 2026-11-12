@@ -30,7 +30,7 @@ DOMYSLNY_LIMIT_ZADANIA_S = 1800
 class Konfiguracja:
     """Ustawienia Kitu. Pola bez wartości domyślnych są wymagane przy `init`."""
 
-    adres: str = "https://sf.dpakula.pl"
+    adres: str = "https://sales-forge.pl"
     #: DOMYŚLNA Organizacja — wygoda, nie wymóg (v0.4). Pusta znaczy „pytaj SF i wymagaj --org,
     #: gdy jest z czego wybierać". Konfiguracja z 0.3 miała tu wpisaną Organizację i to dalej
     #: działa: to, co było wpisane, jest po prostu domyślne.

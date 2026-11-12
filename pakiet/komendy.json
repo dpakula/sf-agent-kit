@@ -47,6 +47,25 @@
       "mcp": true
     },
     {
+      "id": "leads",
+      "aliasy": [
+        "leady"
+      ],
+      "cli": "leady",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Zakładka Leady: lista albo karta leada ze stanem przekazania do CRM",
+        "en": "Leads: list or lead card with CRM handoff state"
+      },
+      "argumenty": "[numer|link] [--szukaj TEKST]",
+      "skille": [
+        "praca-w-sf"
+      ],
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
+    },
+    {
       "id": "relations",
       "aliasy": [
         "relacje"
@@ -327,6 +346,23 @@
       "konczy_sie": "nic",
       "tylko_odczyt": false,
       "mcp": false
+    },
+    {
+      "id": "help",
+      "aliasy": [
+        "pomoc"
+      ],
+      "cli": "pomoc",
+      "rola": "wszyscy",
+      "opis": {
+        "pl": "Przegląd Kita (role, polecenia, 5 zasad) albo szczegóły polecenia / tematu",
+        "en": "Kit overview or details of a command / topic"
+      },
+      "argumenty": "[polecenie|temat] [--tematy]",
+      "skille": [],
+      "konczy_sie": "nic",
+      "tylko_odczyt": true,
+      "mcp": true
     },
     {
       "id": "update",

@@ -1,5 +1,5 @@
 <!-- sf-kit:kimi:start — sekcję zapisuje `sf-kit init --kimi`; zmiany w niej nadpisze -->
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.2; nie edytuj ręcznie -->
 
 ## SalesForge przez SF Kit
 Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nigdy surowym `curl` z kluczem. Uprawnienia ma klucz; odmowę (403) przekaż człowiekowi, nie obchodź jej.
@@ -13,6 +13,7 @@ Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nig
 |---|---|---|---|
 | `/skill:sf-cases` | `/skill:sf-sprawy` | `sf-kit sprawy` | Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka) |
 | `/skill:sf-case` | `/skill:sf-sprawa` | `sf-kit sprawa` | Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” |
+| `/skill:sf-leads` | `/skill:sf-leady` | `sf-kit leady` | Zakładka Leady: lista albo karta leada ze stanem przekazania do CRM |
 | `/skill:sf-relations` | `/skill:sf-relacje` | `sf-kit relacje` | Relacje sprawy: co zawiera i czego jest częścią (sprawa w sprawie) |
 | `/skill:sf-pin` | `/skill:sf-przypnij` | `sf-kit przypnij` | Przypnij sprawę jako część innej (<sprawa> zawiera <część>) |
 | `/skill:sf-unpin` | `/skill:sf-odepnij` | `sf-kit odepnij` | Odepnij relację między dwiema sprawami |
@@ -28,6 +29,7 @@ Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nig
 | `/skill:sf-timeline` | `/skill:sf-os` | `sf-kit os` | Oś czasu sprawy |
 | `/skill:sf-status` | — | `sf-kit whoami` | Kim jestem w SF: konto, klucz, Organizacje, uprawnienia |
 | `/skill:sf-settings` | `/skill:sf-ustawienia` | `sf-kit ustawienia` | Ustawienia: lokalne i w SF (poziom powiadomień), ze źródłem wartości; --czlowiek dla asystenta |
+| `/skill:sf-help` | `/skill:sf-pomoc` | `sf-kit pomoc` | Przegląd Kita (role, polecenia, 5 zasad) albo szczegóły polecenia / tematu |
 | `/skill:sf-update` | `/skill:sf-aktualizuj` | `sf-kit update` | Zaktualizuj Kita do wydania wskazanego przez SF |
 
 <!-- sf-kit:kimi:end -->

@@ -4,6 +4,8 @@ Instrukcja dla ludzi (instalacja, pierwsze kroki) jest w [README.md](README.md).
 
 ## Dla agenta
 
+> **Najpierw przegląd: `sf-kit pomoc`** (≤ 80 linii, generowany z poleceń Kita: role, każde polecenie jednym zdaniem, pięć zasad). Ten sam przegląd `sf-kit start` wkleja do `CLAUDE.md` / `AGENTS.md`. Szczegóły na żądanie: `sf-kit pomoc <polecenie>` (pełne opcje + gdzie o nim tu czytać), `sf-kit pomoc "<temat>"` (sekcja tego pliku), `sf-kit pomoc --tematy` (spis). Tego pliku nie musisz czytać w całości.
+
 ### Start
 
 **Start.** Uruchom `sf-kit whoami`. Sprawdź, czy wynik wskazuje Organizację użytkownika i czy klucz ma uprawnienia potrzebne do zadania. Jeśli czegoś brakuje, zatrzymaj się i zgłoś to użytkownikowi, wskazując brakujące uprawnienie; nie próbuj go obchodzić.
@@ -23,6 +25,16 @@ Instrukcja dla ludzi (instalacja, pierwsze kroki) jest w [README.md](README.md).
 **Asystent i jego człowiek.** Kit asystenta wie, dla kogo pracuje: `sf-kit ustawienia pracuje_dla anna@firma.pl` (Kit sprawdza w SF, że to członek tej Organizacji). Od tej chwili `sf-kit sprawy` odpowiada na „co na mnie czeka?”: sprawy przypisane do człowieka i do Ciebie, przy każdej oznaczenie `[człowiek]` / `[ja]` (`--tylko-moje`, `--tylko-czlowieka`, `--wszystkie` = cała Organizacja). Twoje wpisy dostają podpis „asystent dla …”. **Powiązanie nie daje uprawnień:** widzisz i robisz tyle, ile pozwala Twój klucz; sprawy człowieka poza Twoim zasięgiem Kit pokazuje liczbą, nie treścią.
 
 **Podpis.** `sf-kit whoami` mówi, czyim podpisem pójdą Twoje wpisy (linia `podpis:`). Na **kluczu osobistym** człowieka SalesForge podpisuje wpis jego imieniem — każdą wysyłaną treść kończ wtedy osobną linią `(przez asystenta)`. Jako **agent** tego dopisku nie dodajesz: wpis i tak niesie nazwę agenta.
+
+**Wiadomość to nie zlecenie.** `sf-kit wpis --do <slug>` wysyła wiadomość do **skrzynki** agenta (`sf-kit inbox`). **Nie budzi jego sesji** i nie jest zleceniem: agent zobaczy ją dopiero przy najbliższym `inbox`. Pracę zlecasz przez `sf-kit zlec … --dostarcz` (koordynator) albo kickoffem floty.
+
+**Zadanie zamykasz, sprawy nie.** Gdy wynik jest wpisem na sprawie: `sf-kit zadanie <id> --status completed`. Sprawa zostaje otwarta, bo może mieć kolejne etapy. Rozwiązuje ją koordynator albo człowiek (`sf-kit sprawa <s> --status resolved`). Gdy ma otwarte zadania, Kit odmówi i wypisze je razem z poleceniami domknięcia.
+
+**Leady.** Sprawy rodzaju Lead nie pojawiają się w `sf-kit sprawy`, bo SF trzyma je w zakładce Leady. `sf-kit leady` pokazuje listę, `sf-kit leady <numer>` kartę (osoba, źródło, zgody, stan przekazania do CRM). `sprawa <numer leada>` też go znajdzie.
+
+**Kategoria nowej sprawy.** `--tag` przyjmuje tag z taksonomii (`sf-kit tag lista`) albo kategorię sprawy tej Organizacji (domyślnie bug, feature, question, feedback, other; wielkość liter i polskie nazwy bez znaczenia, np. `--tag Błąd` = `bug`). Nieznaną wartość Kit odrzuca z listą dozwolonych, zanim cokolwiek wyśle.
+
+**Treść ze standardowego wejścia.** `--opis -` / `--tresc -` czyta treść z potoku albo heredoca (`<<'EOF'`). Gdy nic nie przyjdzie w ciągu 10 s (narzędzie agenta zostawia stdin otwarte i puste), Kit kończy się kodem 2 i niczego nie wysyła. Limit ustawia zmienna `SF_KIT_STDIN_CZEKAJ` (sekundy).
 
 **Organizacja.** Podawaj ją przy każdym zapisie jawnie: `sf-kit --org <slug> <polecenie>` (opcja stoi przed poleceniem) albo link do sprawy z `?org=`. Bez tego Kit odmówi (od v0.13.0) — nie obchodź odmowy, zapytaj użytkownika, o którą Organizację chodzi.
 
@@ -131,7 +143,7 @@ Treść: `--tresc "tekst"` albo `--opis plik.md` (`-` = stdin). Kody wyjścia: `
 
 ### Gdy coś nie działa
 
-Zgłoś problem wpisem na sprawie, przy której pracujesz. Gdy klucz jeszcze nie działa, wskaż użytkownikowi formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania; odpowiedź przychodzi na podany adres). Uprawnienia nadaje i klucze wystawia **administrator SalesForge** — do niego kieruj prośby o dostęp.
+Zgłoś problem wpisem na sprawie, przy której pracujesz. Gdy klucz jeszcze nie działa, wskaż użytkownikowi formularz pomocy: **https://sales-forge.pl/pomoc** (bez logowania; odpowiedź przychodzi na podany adres). Uprawnienia nadaje i klucze wystawia **administrator SalesForge** — do niego kieruj prośby o dostęp.
 
 Poza tym plikiem jest katalog [`uruchamianie/`](uruchamianie/README.md) — gotowce na uruchomienie workera w tle.
 
@@ -172,7 +184,7 @@ obowiązuje wszystko, co ten dokument mówi o Linuksie.
 
 | dane | przykład | uwaga |
 |---|---|---|
-| adres SalesForge | `https://sf.dpakula.pl` | Kit ma ten adres wpisany jako domyślny — potwierdź go mimo to |
+| adres SalesForge | `https://sales-forge.pl` | Kit ma ten adres wpisany jako domyślny — potwierdź go mimo to |
 | slug agenta | `claude-jkowalski` | po nim rozpoznawane są zadania agenta. Od tej wersji `init` bierze go **WYŁĄCZNIE** z SF (`GET /me`) — nie pytamy o niego człowieka |
 | **klucz API** | `sk_live_…` | **osobnym kanałem, nie mailem** — to hasło do konta |
 
@@ -251,7 +263,7 @@ Spodziewany wynik:
 agent:        claude-jkowalski   profil: worker
 ustawienia:   ~/.config/sf-kit/claude-jkowalski/config.json
 klucz:        sk_live_…a7f2
-adres:        https://sf.dpakula.pl
+adres:        https://sales-forge.pl
 konto:        Codex (FORmarketing) · agent
 klucz w SF:   sk_live_a1b2 · scope user
 
@@ -424,7 +436,7 @@ Polecenie pyta o klucz **bez pokazywania go na ekranie** i zapisuje:
 **Zmienna środowiskowa `SF_KIT_KEY` — dla CI i kontenerów, gdzie nie ma kogo zapytać.** Kit szuka
 klucza w tej kolejności: **`SF_KIT_KEY` → pęk kluczy systemu → plik `credentials`**. Gdy zmienna jest
 ustawiona, wygrywa z kluczem zapisanym przez `init`, a `init` nie jest potrzebny: adres to domyślnie
-`https://sf.dpakula.pl`, Organizację podajesz przez `--org <slug>`, nazwę agenta Kit bierze z SalesForge.
+`https://sales-forge.pl`, Organizację podajesz przez `--org <slug>`, nazwę agenta Kit bierze z SalesForge.
 Wartość ustawia **człowiek**, w ustawieniach środowiska (sekrety CI, zmienne środowiska chmurowego
 Claude Code) — nigdy agent i nigdy w rozmowie.
 
@@ -810,6 +822,7 @@ Kit odmawia na wejściu i mówi, gdzie to uprawnienie masz.
 
 ```bash
 sf-kit flota                      # kto może dostać zadanie
+sf-kit flota wersje [--ponizej]   # wersje Kita we flocie: agent, wersja, kiedy widziany, poniżej wymaganej (0.20.2)
 sf-kit flota rejestr agents.json [--pokaz]   # migawka rejestru floty do SF (v0.10)
 sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md
 sf-kit kolejka [--agent-slug kodeks] [--status in_progress]
@@ -988,7 +1001,7 @@ porównuje trasy, nazwy pól i pola wymagane, i **wypisuje różnicę w obie str
 przyjmuje, Kit odrzuci" jest groźniejsze niż odwrotność, bo blokuje pracę).
 
 Docelowo kontrakt ma być czytany z serwera, nie z katalogu. Dziś się nie da:
-`https://sf.dpakula.pl/openapi.json` oddaje **HTTP 200 i stronę frontu** — nginx nie przepuszcza
+`https://sales-forge.pl/openapi.json` oddaje **HTTP 200 i stronę frontu** — nginx nie przepuszcza
 tej ścieżki do backendu, choć sam dokument istnieje i jest poprawny. Do czasu przepuszczenia tej
 ścieżki `--sprawdz` mówi to wprost, zamiast udawać, że sprawdził.
 
@@ -1057,7 +1070,7 @@ cichu.
 **4. Podaj człowiekowi numer i adres.** Kit wypisuje oba. To jest jedyne, co człowiek
 ma potem powiedzieć albo wkleić komuś innemu — powiedz mu to wprost:
 
-> „Zgłoszone jako **FM-12**: https://sf.dpakula.pl/tickets/… . Od tej chwili pytania
+> „Zgłoszone jako **FM-12**: https://sales-forge.pl/tickets/… . Od tej chwili pytania
 > i uwagi do tej makiety idą wpisami na tej sprawie — dopisuję je stąd, wystarczy,
 > że powiesz."
 
@@ -1122,7 +1135,7 @@ jawnej Organizacji** i **prowadzoną rozmowę prowadzisz w jej sprawie, nie obok
 **Odpowiadaj w sprawie, którą prowadzisz.** Wklejasz link — i tyle:
 
 ```bash
-sf-kit odpowiedz "https://sf.dpakula.pl/tickets/<id>?org=advertpro-co" --opis odpowiedz.md
+sf-kit odpowiedz "https://sales-forge.pl/tickets/<id>?org=advertpro-co" --opis odpowiedz.md
 sf-kit odpowiedz "…ten sam link…" --opis notatka.md --wewn      # notatka wewnętrzna
 ```
 
@@ -1305,6 +1318,7 @@ pokazuje, nic nie zostaje zapisane; popraw plik i wyślij ponownie. Wykresy i di
 
 ```bash
 sf-kit flota                                    # kto w tej Organizacji może dostać zadanie
+sf-kit flota wersje [--ponizej]                 # kto na jakiej wersji Kita (SF zapisuje ją z każdego polecenia)
 sf-kit flota rejestr agents.json [--pokaz]      # migawka rejestru floty → SF (dashboard)
 sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md \
             [--priorytet low|medium|high|urgent] [--termin 2026-09-20T18:00:00Z]
@@ -1665,6 +1679,8 @@ wprost i wygrywa ze wszystkim. Przydaje się w kontenerze i przy uruchamianiu w 
 
 #### Aktualizacje Kita
 
+**Oficjalna droga: `sf-kit update`** (decyzja Damiana 12.11.2026). Po podmianie kodu Kit sam odświeża przegląd w `CLAUDE.md` / `AGENTS.md` katalogów, w których był `sf-kit start`. Koordynator sprawdza całą flotę poleceniem `sf-kit --org <slug> flota wersje`: SF zapisuje wersję z nagłówka każdego żądania, więc nie trzeba niczego wpisywać ręcznie.
+
 Kit **sam sprawdza raz na dobę**, czy wyszła nowa wersja (wynik pamięta w katalogu
 konfiguracji, `aktualizacje.json` obok `config.json`). Gdy jest nowsza wersja, przy
 pierwszym poleceniu tego dnia dostajesz na stderr jedną linię:
@@ -1821,7 +1837,7 @@ otworzy edycję (Enter zostawia dotychczasowe wartości). Można też poprawić 
 
 ```json
 {
-  "adres": "https://sf.dpakula.pl",
+  "adres": "https://sales-forge.pl",
   "organizacja": "289cef06-…",
   "slug": "claude-jkowalski",
   "profil": "worker",
@@ -1939,7 +1955,7 @@ Co ogranicza nadal:
 - **Agent bez sluga jest niezlecalny.** `flota` **pokazuje** takiego agenta z adnotacją, zamiast
   go ukryć — ukryty wygląda jak nieistniejący i nikt nie wie, że jest co naprawić. Na produkcji
   jest dziś jeden taki.
-- **Kontraktu nie da się dziś przeczytać z serwera.** `https://sf.dpakula.pl/openapi.json`
+- **Kontraktu nie da się dziś przeczytać z serwera.** `https://sales-forge.pl/openapi.json`
   oddaje **HTTP 200 i stronę frontu** — nginx nie przepuszcza tej ścieżki do backendu, choć sam
   dokument istnieje (widać go z maszyny, pod `127.0.0.1:8010`). Katalog operacji siedzi więc
   w `sf_kit/kontrakt.py` i jest kopią kształtu z drugiej strony; `sf-kit kontrakt --sprawdz`
@@ -2069,9 +2085,9 @@ z brakiem uprawnień.
 Sprawy w Organizacji `advertpro-co` (dostęp wymaga konta):
 
 - **`GET /me` dla klucza API + filtr zadań po slugu** —
-  [`7664e9b9-ce5e-4aa7-b96a-29993aec5e7f`](https://sf.dpakula.pl/tickets/7664e9b9-ce5e-4aa7-b96a-29993aec5e7f)
+  [`7664e9b9-ce5e-4aa7-b96a-29993aec5e7f`](https://sales-forge.pl/tickets/7664e9b9-ce5e-4aa7-b96a-29993aec5e7f)
 - **Ważność klucza widoczna dla posiadacza (30 dni, rotacja, powiadomienia)** —
-  [`d2e243a3-ccf0-4ab9-852e-a5858dc8bd21`](https://sf.dpakula.pl/tickets/d2e243a3-ccf0-4ab9-852e-a5858dc8bd21)
+  [`d2e243a3-ccf0-4ab9-852e-a5858dc8bd21`](https://sales-forge.pl/tickets/d2e243a3-ccf0-4ab9-852e-a5858dc8bd21)
 
 ---
 
@@ -2106,7 +2122,7 @@ w tym systemie — jej identyfikator podaje administrator i nie musi mieć nic w
 z ADVERTpro.
 
 Pytania i usterki: wpis na sprawie, przy której pracujesz. Gdy Kit jeszcze nie działa —
-formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
+formularz pomocy: **https://sales-forge.pl/pomoc** (bez logowania i bez klucza).
 
 ## Polecenia w Claude Code (plugin `sf-kit`)
 
@@ -2126,6 +2142,7 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 |---|---|---|---|
 | `/sf-kit:cases` | `/sf-kit:sprawy` | `sf-kit sprawy` | Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka) |
 | `/sf-kit:case` | `/sf-kit:sprawa` | `sf-kit sprawa` | Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” |
+| `/sf-kit:leads` | `/sf-kit:leady` | `sf-kit leady` | Zakładka Leady: lista albo karta leada ze stanem przekazania do CRM |
 | `/sf-kit:relations` | `/sf-kit:relacje` | `sf-kit relacje` | Relacje sprawy: co zawiera i czego jest częścią (sprawa w sprawie) |
 | `/sf-kit:pin` | `/sf-kit:przypnij` | `sf-kit przypnij` | Przypnij sprawę jako część innej (<sprawa> zawiera <część>) |
 | `/sf-kit:unpin` | `/sf-kit:odepnij` | `sf-kit odepnij` | Odepnij relację między dwiema sprawami |
@@ -2141,6 +2158,7 @@ formularz pomocy: **https://sf.dpakula.pl/pomoc** (bez logowania i bez klucza).
 | `/sf-kit:timeline` | `/sf-kit:os` | `sf-kit os` | Oś czasu sprawy |
 | `/sf-kit:status` | — | `sf-kit whoami` | Kim jestem w SF: konto, klucz, Organizacje, uprawnienia |
 | `/sf-kit:settings` | `/sf-kit:ustawienia` | `sf-kit ustawienia` | Ustawienia: lokalne i w SF (poziom powiadomień), ze źródłem wartości; --czlowiek dla asystenta |
+| `/sf-kit:help` | `/sf-kit:pomoc` | `sf-kit pomoc` | Przegląd Kita (role, polecenia, 5 zasad) albo szczegóły polecenia / tematu |
 | `/sf-kit:update` | `/sf-kit:aktualizuj` | `sf-kit update` | Zaktualizuj Kita do wydania wskazanego przez SF |
 
 <!-- sf-kit:polecenia:end -->

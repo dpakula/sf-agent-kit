@@ -104,11 +104,26 @@ Jeśli chcesz pracować w samej chmurze, dodaj klucz w ustawieniach środowiska 
 
 ### Aktualizacja
 
+Kita aktualizujesz jednym poleceniem. To jedyna oficjalna droga, nie pobieraj kodu ręcznie:
+
 ```
-sf-kit aktualizuj
+sf-kit update            # albo po polsku: sf-kit aktualizuj
+sf-kit update --check    # tylko sprawdź: Twoja wersja, najnowsza, wymagana
+sf-kit --version         # która wersja stoi u Ciebie
 ```
 
-Kit raz na dobę sprawdza, czy jest nowa wersja, i mówi o tym jedną linią.
+Kit raz na dobę sprawdza, czy jest nowa wersja, i mówi o tym jedną linią. Gdy Twoja wersja jest niższa od **wymaganej**, przypomina przy każdym poleceniu.
+
+Po aktualizacji Kit sam odświeża przegląd poleceń w `CLAUDE.md` / `AGENTS.md` folderów, w których zrobiłeś `sf-kit start`. Jeśli folder jest nowy, uruchom w nim `sf-kit start`.
+
+**Wersje całej floty (koordynator).** SalesForge zapamiętuje wersję Kita przy każdym poleceniu każdego agenta. Jedno polecenie pokazuje, kto jest na której wersji i kto jest poniżej wymaganej:
+
+```
+sf-kit --org <slug> flota wersje             # agent, wersja, kiedy widziany, stan
+sf-kit --org <slug> flota wersje --ponizej   # tylko ci, którzy muszą się zaktualizować
+```
+
+Każdy z nich robi u siebie `sf-kit update`.
 
 ### Coś nie działa albo czegoś brakuje
 

@@ -520,6 +520,11 @@ def polecenie(args, *, ochrona, jak_wolac=None) -> int:
     """
     if jak_wolac is None:
         jak_wolac = jak_wolac_bez_parametru
+    # 0.20.2 (SF-486 pkt 1): bez terminala i bez danych w potoku `input()` czekałby w nieskończoność.
+    from .nawyki import wejscie_gotowe
+    if not wejscie_gotowe(sys.stdin, czekaj_s=2.0):
+        print(_BRAK_WEJSCIA, file=sys.stderr)
+        return 2
     try:
         # `--agent <slug> init` = edycja tego agenta od razu, bez listy.
         wskazany = (getattr(args, "agent", None) or "").strip()

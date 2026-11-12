@@ -1,5 +1,7 @@
 """`sf-kit start` — przygotuj bieżący katalog do pracy z asystentem (ADVERTPR-987, 0.15.1).
 
+v1.2.0 (12.11.2026) - APro Agents / arek · Kit 0.20.2 (SF-486 pkt 18): w sekcji przegląd Kita generowany z parsera,
+    nagłówek zależny od profilu (asystent / agent), zapamiętane katalogi → `start --odswiez` po `update`
 v1.1.0 (09.10.2026) - APro Agents / borys-sf · instrukcja dla agenta = AGENT.md (SF-282)
 v1.0.0 (30.09.2026) - APro Agents / borys-sf
 
@@ -39,7 +41,39 @@ PLIKI_INSTRUKCJI = ("CLAUDE.md", "AGENTS.md")
 
 
 def instrukcja(*, org_slug: str, org_nazwa: str, readme: Path, agent: str | None,
-               kim_pisze: str | None = None, podpis: str | None = None) -> str:
+               kim_pisze: str | None = None, podpis: str | None = None,
+               profil: str | None = None, przeglad: str = "") -> str:
+    """Sekcja Kita: nagłówek zależny od profilu + przegląd Kita (poziom 1, z parsera)."""
+    if profil in (None, "asystent"):
+        tekst = _instrukcja_asystenta(org_slug=org_slug, org_nazwa=org_nazwa, readme=readme, agent=agent,
+                                      kim_pisze=kim_pisze, podpis=podpis)
+    else:
+        tekst = _instrukcja_agenta(org_slug=org_slug, org_nazwa=org_nazwa, agent=agent, profil=profil,
+                                   kim_pisze=kim_pisze, podpis=podpis)
+    if przeglad:
+        tekst = tekst.replace(ZNACZNIK_KONIEC, "\n" + przeglad.rstrip("\n") + "\n" + ZNACZNIK_KONIEC)
+    return tekst
+
+
+def _instrukcja_agenta(*, org_slug: str, org_nazwa: str, agent: str | None, profil: str,
+                       kim_pisze: str | None, podpis: str | None) -> str:
+    """Agent floty (worker / koordynator): bez tabeli „człowiek mówi”, za to z przeglądem całego Kita."""
+    k = "sf-kit" + (f" --agent {agent}" if agent else "") + f" --org {org_slug}"
+    kto = f"- **Podpis:** {kim_pisze}. {podpis}\n" if kim_pisze and podpis else ""
+    return f"""{ZNACZNIK_START}
+# Praca w SalesForge (SF Agent Kit, profil: {profil})
+
+W SalesForge działasz WYŁĄCZNIE poleceniem `sf-kit`: nie wołasz API ręcznie i nie wchodzisz na stronę SF.
+Kontekst zadania (sprawa, wpisy, załączniki) czytasz Kitem: `{k} sprawa <link|numer> --wszystkie`.
+
+- **Organizacja domyślna:** {org_nazwa} (`--org {org_slug}`). Pracujesz w Organizacji z linku sprawy.
+{kto}- **Na starcie:** `{k} whoami` (kim jesteś, uprawnienia), potem `{k} tasks` (Twoje zadania).
+{ZNACZNIK_KONIEC}
+"""
+
+
+def _instrukcja_asystenta(*, org_slug: str, org_nazwa: str, readme: Path, agent: str | None,
+                          kim_pisze: str | None = None, podpis: str | None = None) -> str:
     """Treść sekcji — dla Claude Code, Codexa i Kimi ta sama.
 
     `kim_pisze` i `podpis` liczy `tozsamosc` z `GET /me` (0.15.3): na kluczu osobistym SF
@@ -53,8 +87,8 @@ Jesteś asystentem człowieka, który z Tobą rozmawia. W SalesForge działasz W
 `sf-kit` — nie wchodzisz na stronę SF i nie wołasz API ręcznie.
 
 - **Organizacja:** {org_nazwa} — w każdym poleceniu podawaj `--org {org_slug}` (przed nazwą polecenia).
-{kto}- **Pełna instrukcja:** `sf-kit readme --tresc` (instrukcja dla agenta; plik: `{readme}`). Gdy nie wiesz,
-  jak coś zrobić — przeczytaj ją tym poleceniem, nie zgaduj. Czytaj ją poleceniem, nie z pliku:
+{kto}- **Pełna instrukcja:** `sf-kit pomoc <polecenie|temat>` (szczegóły), `sf-kit readme --tresc` (całość; plik: `{readme}`).
+  Gdy nie wiesz, jak coś zrobić — przeczytaj ją tym poleceniem, nie zgaduj. Czytaj ją poleceniem, nie z pliku:
   plik leży poza tym katalogiem i Claude Code pytałby człowieka o zgodę na odczyt.
 - **Na początku rozmowy** uruchom `{k} whoami` i powiedz człowiekowi zwykłym językiem, kim jesteś w SF i co możesz.
 
@@ -146,13 +180,56 @@ def dopisz_regule(istniejacy: str | None) -> tuple[str, bool]:
     return json.dumps(dane, ensure_ascii=False, indent=2) + "\n", True
 
 
+PLIK_KATALOGOW = "start-katalogi.json"
+
+
+def zapamietaj_katalog(katalog_konfiguracji: Path | None, katalog: Path) -> None:
+    """Katalog, w którym zrobiono `start` → lista obok konfiguracji agenta; `update` odświeży w nich przegląd."""
+    if katalog_konfiguracji is None:
+        return
+    import tempfile
+    # Katalog tymczasowy (testy, próby) znika sam — nie ma czego odświeżać, a lista nie ma rosnąć śmieciami.
+    tmp = Path(tempfile.gettempdir()).resolve()
+    if katalog.resolve() == tmp or tmp in katalog.resolve().parents:
+        return
+    plik = katalog_konfiguracji / PLIK_KATALOGOW
+    lista = [k for k in zapamietane_katalogi(katalog_konfiguracji) if Path(k).is_dir()]
+    if str(katalog) not in lista:
+        lista.append(str(katalog))
+        try:
+            plik.write_text(json.dumps(lista, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+
+def zapamietane_katalogi(katalog_konfiguracji: Path | None) -> list[str]:
+    if katalog_konfiguracji is None:
+        return []
+    try:
+        dane = json.loads((katalog_konfiguracji / PLIK_KATALOGOW).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [str(x) for x in dane if isinstance(x, str)] if isinstance(dane, list) else []
+
+
+def ma_sekcje(katalog: Path) -> bool:
+    """Czy w katalogu jest nasza sekcja (odświeżamy tylko tam, gdzie człowiek jej nie usunął)."""
+    for nazwa in PLIKI_INSTRUKCJI:
+        try:
+            if ZNACZNIK_START in (katalog / nazwa).read_text(encoding="utf-8"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def przygotuj(katalog: Path, *, org_slug: str, org_nazwa: str, readme: Path,
               agent: str | None, kim_pisze: str | None = None,
-              podpis: str | None = None) -> list[str]:
+              podpis: str | None = None, profil: str | None = None, przeglad: str = "") -> list[str]:
     """Zapisz pliki w `katalog`. Zwraca linie raportu dla człowieka (co zrobiono)."""
     raport: list[str] = []
     sekcja = instrukcja(org_slug=org_slug, org_nazwa=org_nazwa, readme=readme, agent=agent,
-                        kim_pisze=kim_pisze, podpis=podpis)
+                        kim_pisze=kim_pisze, podpis=podpis, profil=profil, przeglad=przeglad)
     for nazwa in PLIKI_INSTRUKCJI:
         plik = katalog / nazwa
         stary = plik.read_text(encoding="utf-8") if plik.exists() else None

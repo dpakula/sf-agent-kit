@@ -26,6 +26,47 @@ from pathlib import Path
 
 #: Rozszerzenia, po których `--tresc X` uznajemy za ścieżkę (nie tekst), gdy pliku nie ma.
 ROZSZERZENIA_TRESCI = (".md", ".txt", ".html", ".htm", ".json", ".csv", ".yml", ".yaml")
+#: Kategorie sprawy, które SF przyjmuje (enum `ticketcategory`; 422 „Dozwolone: bug, feature, feedback, other, question”).
+KATEGORIE_SPRAWY = ("bug", "feature", "question", "feedback", "other")
+#: Polskie nazwy, którymi ludzie i agenci podają kategorię (0.20.2, SF-486 pkt 3).
+SYNONIMY_KATEGORII = {"blad": "bug", "błąd": "bug", "usterka": "bug", "funkcja": "feature", "nowa-funkcja": "feature",
+                      "pytanie": "question", "uwaga": "feedback", "opinia": "feedback", "inne": "other", "inna": "other"}
+
+
+TYP_KATEGORII = "ticket_category"
+
+
+def kategorie_z_taksonomii(typy: list[dict]) -> dict[str, str]:
+    """Kategorie TEJ Organizacji (typ systemowy `ticket_category`): {nazwa albo wartość małymi literami → wartość}."""
+    mapa: dict[str, str] = {}
+    for t in typy or []:
+        if t.get("slug") != TYP_KATEGORII:
+            continue
+        for tag in t.get("tags") or []:
+            wartosc = str(tag.get("value") or "").strip()
+            if wartosc:
+                mapa[wartosc.lower()] = wartosc
+                if tag.get("name"):
+                    mapa[str(tag["name"]).strip().lower()] = wartosc
+    return mapa
+
+
+def kategoria_sprawy(wartosc: str, dozwolone: dict[str, str] | None = None) -> str:
+    """`Bug` → `bug`, `Pytanie` → `question` (SF-486 pkt 3). Nieznana = ZleWejscie z listą dozwolonych PRZED wysłaniem.
+
+    Kategorie są taksonomią Organizacji (`ticket_category`); bez niej (stary SF, brak prawa) — pięć domyślnych."""
+    mapa = dict(dozwolone or {}) or {k: k for k in KATEGORIE_SPRAWY}
+    w = (wartosc or "").strip().lower()
+    if w in mapa:
+        return mapa[w]
+    w = SYNONIMY_KATEGORII.get(w, w)
+    if w in mapa:
+        return mapa[w]
+    lista = sorted(set(mapa.values()))
+    raise ZleWejscie(f"„{wartosc}” nie jest tagiem tej Organizacji ani kategorią sprawy. Kategorie: "
+                     f"{', '.join(lista)}; tagi: sf-kit tag lista — nic nie wysłałem")
+
+
 #: Priorytety skrótowe koordynatorki → priorytet sprawy SF.
 PRIORYTETY_SPRAWY = {"low": "low", "med": "medium", "medium": "medium", "high": "high", "urgent": "urgent"}
 #: Rodzaje sprawy (SF-361). SF przyjmuje dowolny napis 2–20 znaków; spoza listy — ostrzeżenie, nie odmowa.
@@ -44,6 +85,57 @@ def wyglada_na_sciezke(wartosc: str) -> bool:
     if not w or any(z.isspace() for z in w):
         return False
     return "/" in w or w.startswith("~") or w.lower().endswith(ROZSZERZENIA_TRESCI)
+
+
+#: Ile sekund czekać na PIERWSZE dane ze standardowego wejścia, gdy nie jest terminalem (0.20.2, SF-486 pkt 1).
+ZMIENNA_CZEKAJ_STDIN = "SF_KIT_STDIN_CZEKAJ"
+CZEKAJ_STDIN_S = 10.0
+
+
+def wejscie_gotowe(stdin=None, czekaj_s: float | None = None) -> bool:
+    """Czy czytanie ze stdin się skończy: terminal (człowiek pisze), dane/EOF w potoku albo atrapa bez deskryptora.
+
+    0.20.2 (SF-486 pkt 1): agent uruchamia Kita z narzędzia, którego stdin jest OTWARTYM, pustym potokiem —
+    `read()` czekał wtedy w nieskończoność („Kit wisi bez < /dev/null”). Bez terminala czekamy na pierwsze
+    bajty (albo EOF) najwyżej `czekaj_s` sekund; potem wołający kończy kodem 2 zamiast wisieć.
+    """
+    stdin = stdin or sys.stdin
+    if stdin is None:
+        return False
+    try:
+        if stdin.isatty():
+            return True
+        fd = stdin.fileno()
+    except (AttributeError, OSError, ValueError):
+        return True                      # StringIO w testach, podmieniony strumień: read() nie zawiśnie
+    if os.name == "nt":                  # select na Windows nie zna potoków — zostaje zachowanie jak dotąd
+        return True
+    if czekaj_s is None:
+        try:
+            czekaj_s = float(os.environ.get(ZMIENNA_CZEKAJ_STDIN) or CZEKAJ_STDIN_S)
+        except ValueError:
+            czekaj_s = CZEKAJ_STDIN_S
+    import select
+    try:
+        gotowe, _, _ = select.select([fd], [], [], max(0.0, czekaj_s))
+    except (OSError, ValueError):
+        return True
+    return bool(gotowe)
+
+
+def czytaj_stdin(stdin=None, rola: str = "treść") -> str:
+    """`-` = treść ze standardowego wejścia — bez wiszenia, gdy nikt jej nie podaje (SF-486 pkt 1)."""
+    stdin = stdin or sys.stdin
+    try:
+        terminal = stdin.isatty()
+    except (AttributeError, ValueError):
+        terminal = False
+    if terminal:
+        print(f"Wpisz albo wklej {rola} i zakończ Ctrl-D (Windows: Ctrl-Z, Enter).", file=sys.stderr)
+    elif not wejscie_gotowe(stdin):
+        raise ZleWejscie(f"`-` = {rola} ze standardowego wejścia, a nic na nie nie przyszło — nic nie wysłałem. "
+                         "Podaj treść potokiem (`… | sf-kit …` albo `<<'EOF'`), plikiem albo --tresc \"…\"")
+    return stdin.read()
 
 
 def _plik(wartosc: str, rola: str) -> str:
@@ -65,10 +157,10 @@ def tresc(*, opis: str | None = None, tresc_arg: str | None = None, rola: str = 
         raise ZleWejscie("podaj --opis ALBO --tresc, nie oba")
     stdin = stdin or sys.stdin
     if opis:
-        wynik = stdin.read() if opis == "-" else _plik(opis, rola)
+        wynik = czytaj_stdin(stdin) if opis == "-" else _plik(opis, rola)
     elif tresc_arg is not None:
         if tresc_arg == "-":
-            wynik = stdin.read()
+            wynik = czytaj_stdin(stdin)
         elif Path(tresc_arg).expanduser().is_file():
             wynik = Path(tresc_arg).expanduser().read_text(encoding="utf-8")
         elif wyglada_na_sciezke(tresc_arg):

@@ -260,7 +260,7 @@ def _wlacz_ochrone_repozytorium() -> None:
         return
     try:
         wynik = subprocess.run(["bash", str(instalator)], cwd=str(instalator.parent.parent),
-                               capture_output=True, text=True, timeout=15)
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.SubprocessError) as blad:
         print(f"\nUWAGA: nie udało się włączyć ochrony przed zapisaniem klucza w repozytorium "
               f"({blad}). Włącz ją ręcznie: ./hooks/install.sh", file=sys.stderr)
@@ -379,10 +379,10 @@ def polecenie_update(args) -> int:
     # kod jest już podmieniony i zgodny z SF, to osobna sprawa.
     skrypt = Path(__file__).resolve().parents[1] / "sf-kit"
     wersja = subprocess.run([sys.executable, str(skrypt), "--version"],
-                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace")
     print(f"\n{wersja.stdout.strip() or wersja.stderr.strip() or '(nie udało się odczytać wersji)'}")
     kto = subprocess.run([sys.executable, str(skrypt), "whoami"],
-                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+                         stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if kto.returncode == 0:
         print("\nwhoami na nowej wersji: klucz działa.")
     else:
@@ -391,9 +391,16 @@ def polecenie_update(args) -> int:
 
     # SF-201: plugin Claude Code nadąża za Kitem — odświeżamy go NOWYM kodem (stary proces
     # mógł nie znać `sf-kit plugin`). Niezainstalowany plugin = cisza.
+    # 0.20.2 (SF-486 pkt 18): przegląd Kita w CLAUDE.md / AGENTS.md katalogów pracy — NOWYM kodem, bo lista
+    # poleceń pochodzi z parsera nowej wersji.
+    odsw = subprocess.run([sys.executable, str(skrypt), *(["--agent", args.agent] if getattr(args, "agent", None) else []),
+                           "start", "--odswiez"], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+    if odsw.stdout.strip():
+        print(f"\n{odsw.stdout.strip()}")
     for pakiet_cli in ("plugin", "codex", "kimi", "gemini"):
         plug = subprocess.run([sys.executable, str(skrypt), pakiet_cli, "--odswiez"],
-                              capture_output=True, text=True, encoding="utf-8", errors="replace")
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if plug.returncode == 0 and "nie jest zainstalowany" not in plug.stdout:
             print(f"\n{plug.stdout.strip()}")
 
@@ -420,14 +427,14 @@ def _waznosc_klucza(toz: tozsamosc.Tozsamosc) -> str:
     return f"{wygasa} (za {dni} {'dzień' if dni == 1 else 'dni'})"
 
 
-def _licznik(wynik) -> str:
+def _licznik(wynik, co: str = "Twoje w kolejce") -> str:
     """Jedno zdanie o liczbach, używane przez `whoami` i `tasks`.
 
     Dwie liczby, obie nazwane: ile zadań jest MOICH i ile pozycji kolejki Organizacji przy tym
     przejrzano. Jedna liczba bez nazwy („zadania: 524") znaczyła całą kolejkę i regularnie
     była brana za własną — Codex musiał to człowiekowi tłumaczyć na głos.
     """
-    return (f"Twoje w kolejce: {len(wynik)} · "
+    return (f"{co}: {len(wynik)} · "
             f"przejrzano zadań Organizacji: {wynik.przejrzano}"
             + (f" z {wynik.wszystkich}" if wynik.urwane else ""))
 
@@ -505,12 +512,48 @@ def polecenie_readme(args) -> int:
     return 0
 
 
+def _przeglad_dla(profil: str | None) -> str:
+    from . import przeglad
+    return przeglad.przeglad(zbuduj_parser(), profil=profil, wersja=WERSJA)
+
+
+def _start_odswiez(args) -> int:
+    """`start --odswiez` (woła go `update` nowym kodem): przegląd Kita w każdym katalogu, w którym był `start`.
+
+    Tylko tam, gdzie sekcja wciąż jest (człowiek mógł ją usunąć — wtedy nie wracamy z nią na siłę).
+    Organizacja i nagłówek z ponownego `GET /me`; brak sieci = cisza i kod 0 (aktualizacja i tak się udała).
+    """
+    from . import instalacja, start
+
+    katalogi = [Path(k) for k in start.zapamietane_katalogi(_katalog_agenta())]
+    katalogi = [k for k in katalogi if k.is_dir() and start.ma_sekcje(k)]
+    if not katalogi:
+        print("Przegląd Kita: brak zapamiętanych katalogów pracy. W katalogu pracy agenta uruchom `sf-kit start`.")
+        return 0
+    try:
+        konf = konfiguracja.wczytaj()
+        _, org, toz = _klient_organizacja_tozsamosc(konf, args)
+    except (SystemExit, Exception) as blad:                 # noqa: BLE001 — odświeżenie nie może wywrócić update
+        print(f"Przegląd Kita NIE odświeżony ({blad}). Uruchom `sf-kit start` w: "
+              + ", ".join(str(k) for k in katalogi))
+        return 0
+    for k in katalogi:
+        start.przygotuj(k, org_slug=org.slug, org_nazwa=org.nazwa or org.slug,
+                        readme=instalacja.katalog_tego_kodu() / "AGENT.md", agent=getattr(args, "agent", None),
+                        kim_pisze=tozsamosc.kim_pisze(toz), podpis=tozsamosc.regula_podpisu(toz),
+                        profil=konf.profil, przeglad=_przeglad_dla(konf.profil))
+        print(f"Przegląd Kita {WERSJA} odświeżony: {k}")
+    return 0
+
+
 def polecenie_start(args) -> int:
     """`sf-kit start` — katalog pracy gotowy dla asystenta: CLAUDE.md, AGENTS.md i reguła
     uprawnień Claude Code (ADVERTPR-987, 0.15.1). Logika plików w `start`."""
     from . import instalacja
     from . import start
 
+    if getattr(args, "odswiez", False):
+        return _start_odswiez(args)
     katalog = Path(args.katalog or ".").expanduser().resolve()
     if not katalog.is_dir():
         print(f"Nie ma katalogu {katalog}.", file=sys.stderr)
@@ -530,10 +573,13 @@ def polecenie_start(args) -> int:
         raport = start.przygotuj(katalog, org_slug=org.slug, org_nazwa=org.nazwa or org.slug,
                                  readme=readme, agent=getattr(args, "agent", None),
                                  kim_pisze=tozsamosc.kim_pisze(toz),
-                                 podpis=tozsamosc.regula_podpisu(toz))
+                                 podpis=tozsamosc.regula_podpisu(toz),
+                                 profil=getattr(konf, "profil", None),
+                                 przeglad=_przeglad_dla(getattr(konf, "profil", None)))
     except OSError as blad:
         print(f"Nie udało się zapisać plików w {katalog}: {blad}", file=sys.stderr)
         return 1
+    start.zapamietaj_katalog(_katalog_agenta(), katalog)
     print(f"Katalog {katalog} przygotowany dla asystenta (Organizacja: {org.nazwa or org.slug}, "
           f"--org {org.slug}):")
     print("\n".join(raport))
@@ -972,25 +1018,40 @@ def polecenie_zadanie(args) -> int:
     return 0
 
 
+#: 0.20.2 (SF-486 pkt 19, test odbioru): czysty agent nie widział WŁASNEGO zadania w toku („w kolejce: 0”)
+#: i szukał jego id w `sprawa --json`. `tasks` pokazuje więc wszystko, co jest jeszcze moje do zrobienia.
+STATUSY_MOICH_ZADAN = ("queued", "in_progress", "on_hold")
+
+
 def polecenie_tasks(args) -> int:
-    """Moje zadania w kolejce."""
+    """Moje zadania: w kolejce, w toku i wstrzymane (`--status` = jeden z nich)."""
     konf = konfiguracja.wczytaj()
     klient = _klient(konf, args)
+    statusy = (args.status,) if getattr(args, "status", None) else STATUSY_MOICH_ZADAN
+    from .api import WynikSzukania
+
+    wynik = WynikSzukania()
     try:
-        wynik = klient.moje_zadania(slug=konf.slug)
+        for st in statusy:
+            czesc = klient.moje_zadania(slug=konf.slug) if st == "queued" else klient.moje_zadania(slug=konf.slug, status=st)
+            for z in czesc:
+                z.setdefault("status", st)
+                wynik.zadania.append(z)
+            wynik.przejrzano += int(getattr(czesc, "przejrzano", 0) or 0)
+            wynik.wszystkich += int(getattr(czesc, "wszystkich", 0) or 0)
     except BladAPI as blad:
         print(f"Nie udało się pobrać zadań: {blad}", file=sys.stderr)
         return 1
 
     if not wynik:
-        print(f'Brak zadań dla agenta „{konf.slug}”. {_licznik(wynik)}')
+        print(f'Brak zadań dla agenta „{konf.slug}” ({", ".join(statusy)}). {_licznik(wynik, "Twoje zadania")}')
         if wynik.urwane:
             print("UWAGA: przeglądanie urwał bezpiecznik stron — to NIE jest pewne „brak zadań”.")
         return 0
-    print(f"{_licznik(wynik)}\n")
+    print(f"{_licznik(wynik, 'Twoje zadania')}\n")
     for z in wynik:
         sprawa = z.get("ticket_ref") or z.get("ticket_id")
-        print(f"  {z.get('external_id')}")
+        print(f"  {z.get('external_id')}  [{z.get('status')}]")
         print(f"    {z.get('title')}")
         if getattr(args, "pelne", False):
             # 0.15.4 (JULIAPAK-13): asystent widział sam tytuł i zgadywał resztę. Treść zadania
@@ -1060,6 +1121,88 @@ def polecenie_flota(args) -> int:
     if bez_sluga:
         print(f"\n{len(bez_sluga)} członkostw agenta bez sluga — takiego agenta widać, ale nie "
               f"da się do niego zlecić. To błąd konfiguracji po stronie administratora.")
+    return 0
+
+
+def polecenie_flota_wersje(args) -> int:
+    """0.20.2 (SF-486, pomiar wersji): kto we flocie na jakiej wersji Kita — z `GET /agents`, bez ręcznego rejestru.
+
+    SF zapisuje wersję z `User-Agent: sf-agent-kit/X.Y.Z` każdego żądania (ADVERTPR-960, Redis 45 dni) i oddaje ją
+    przy agencie: `kit_version`, `kit_seen_at`, `kit_outdated` (< najnowszej), `kit_below_min` (< wymaganej).
+    """
+    konf = konfiguracja.wczytaj()
+    klient, org = _koordynator(konf, args)
+    try:
+        agenci = klient.agenci()
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać listy agentów: {blad}", file=sys.stderr)
+        return 1
+    wiersze = []
+    for a in agenci:
+        wiersze.append({
+            "agent": a.get("agent_slug") or a.get("slug") or a.get("email") or a.get("name") or "?",
+            "email": a.get("email"), "wersja": a.get("kit_version"), "widziany": a.get("kit_seen_at"),
+            "nieaktualna": a.get("kit_outdated"), "ponizej_wymaganej": a.get("kit_below_min")})
+    if args.ponizej:
+        wiersze = [w for w in wiersze if w["nieaktualna"] or w["ponizej_wymaganej"] or not w["wersja"]]
+    wiersze.sort(key=lambda w: (not w["ponizej_wymaganej"], not w["nieaktualna"], str(w["agent"])))
+    if args.json:
+        print(json.dumps(wiersze, ensure_ascii=False, indent=2, default=str))
+        return 0
+    if not wiersze:
+        print(f"W „{org.slug}” wszyscy agenci są na najnowszej wersji Kita." if args.ponizej
+              else f"W „{org.slug}” nie ma zarejestrowanych agentów.")
+        return 0
+    print(f"Wersje Kita we flocie „{org.slug}” (Twój Kit: {WERSJA}):\n")
+    print(f"  {'agent':<26} {'wersja':<9} {'widziany':<17} stan")
+    for w in wiersze:
+        stan = ("PONIŻEJ WYMAGANEJ" if w["ponizej_wymaganej"] else "nieaktualna" if w["nieaktualna"]
+                else "aktualna" if w["wersja"] else "nie widziany od 45 dni (albo Kit < 0.13)")
+        print(f"  {str(w['agent'])[:26]:<26} {w['wersja'] or '—':<9} {(w['widziany'] or '—')[:16].replace('T', ' '):<17} {stan}")
+    do_akt = sum(1 for w in wiersze if w["nieaktualna"] or w["ponizej_wymaganej"])
+    if do_akt:
+        print(f"\n{do_akt} do aktualizacji: na każdej instancji `sf-kit update`, potem `sf-kit start` w katalogu pracy.")
+    return 0
+
+
+def polecenie_pomoc(args) -> int:
+    """0.20.2 (SF-486 pkt 18): `pomoc` = przegląd (poziom 1); `pomoc <polecenie|temat>` = szczegóły (poziom 2)."""
+    from . import instalacja, przeglad
+
+    parser = zbuduj_parser()
+    agent_md = przeglad.czytaj_agent_md(instalacja.katalog_tego_kodu() / "AGENT.md")
+    if args.tematy:
+        print("Tematy AGENT.md (sf-kit pomoc \"<fragment nagłówka>\"):\n")
+        print("\n".join(przeglad.tematy(agent_md)))
+        return 0
+    if not args.co:
+        rola = args.rola
+        if rola is None:
+            try:
+                rola = konfiguracja.wczytaj_jesli_jest().profil
+            except Exception:                          # noqa: BLE001 — bez konfiguracji: pełny przegląd
+                rola = None
+        print(przeglad.przeglad(parser, profil=None if rola == "wszystkie" else rola, wersja=WERSJA), end="")
+        return 0
+    zapytanie = " ".join(args.co)
+    tekst = przeglad.pomoc_polecenia(parser, args.co[0]) if len(args.co) == 1 else None
+    if tekst:
+        print(tekst)
+        gdzie = przeglad.sekcje_z_poleceniem(agent_md, args.co[0])
+        if gdzie:
+            print(f"Więcej w AGENT.md (sf-kit pomoc \"<temat>\"):")
+            for t in gdzie[:12]:
+                print(f"  - {t}")
+        return 0
+    trafione = przeglad.temat(agent_md, zapytanie)
+    if not trafione:
+        print(f"Nie ma polecenia ani tematu „{zapytanie}”. Polecenia: sf-kit pomoc; tematy: sf-kit pomoc --tematy",
+              file=sys.stderr)
+        return 2
+    for tytul, tresc in trafione[:3]:
+        print(tresc + "\n")
+    if len(trafione) > 3:
+        print("Pasuje też: " + "; ".join(t for t, _ in trafione[3:]))
     return 0
 
 
@@ -2043,11 +2186,23 @@ def _termin_po_ludzku(wartosc: str, *, dzis=None) -> str:
 _WZORZEC_ADRESU = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def _dodaj_obserwujacych(klient: Klient, sprawa_id: str, adresy: list[str]) -> list[str]:
-    """Dodaj obserwujących po adresie; wypisz wynik każdego. Zwraca adresy, których NIE dodano."""
+def _dodaj_obserwujacych(klient: Klient, sprawa_id: str, adresy: list[str], *, wlasny: str | None = None) -> list[str]:
+    """Dodaj obserwujących po adresie; wypisz wynik każdego. Zwraca adresy, których NIE dodano.
+
+    0.20.2 (SF-486 pkt 4): autor sprawy obserwuje ją od założenia — SF odpowiada wtedy 409 „already exists”,
+    a Kit liczył to jako porażkę („dołóż brakujących”). Własne konto pomijamy Z KOMUNIKATEM, a 409 = już obserwuje.
+    """
     nieudane = []
+    if wlasny is None:
+        try:
+            wlasny = tozsamosc.z_odpowiedzi(klient.kim_jestem()).konto_email
+        except Exception:                              # noqa: BLE001 — bez /me po prostu nie pomijamy
+            wlasny = None
     for adres in adresy:
         adres = adres.strip()
+        if wlasny and adres.lower() == wlasny.lower():
+            print(f"  ✓ {adres}: to Twoje konto — jako autor obserwujesz tę sprawę od założenia, pomijam")
+            continue
         if not _WZORZEC_ADRESU.match(adres):
             print(f"  ✗ {adres}: to nie jest adres e-mail — SF dodaje obserwujących po adresie",
                   file=sys.stderr)
@@ -2057,6 +2212,9 @@ def _dodaj_obserwujacych(klient: Klient, sprawa_id: str, adresy: list[str]) -> l
             klient.dodaj_obserwujacego(sprawa_id, adres)
             print(f"  ✓ obserwuje: {adres}")
         except BladAPI as blad:
+            if getattr(blad, "kod", None) == 409:
+                print(f"  ✓ {adres}: już obserwuje")
+                continue
             print(f"  ✗ {adres}: {blad}", file=sys.stderr)
             nieudane.append(adres)
     return nieudane
@@ -2425,16 +2583,21 @@ def _tagi_nowej_sprawy(klient, wartosci: list[str]) -> tuple[list[tuple[dict, di
     except BladAPI:
         typy = []                                     # bez taksonomii (stary SF / brak prawa) — wszystko kategorią
     tagi, kategoria = [], None
+    kategorie = nawyki.kategorie_z_taksonomii(typy)
+    typy_bez_kategorii = [t for t in typy if t.get("slug") != nawyki.TYP_KATEGORII]
     for w in wartosci:
         try:
-            tagi.append(konsola.znajdz_tag(typy, w))
+            tagi.append(konsola.znajdz_tag(typy_bez_kategorii, w))
         except ValueError as blad:
             if "kilku tagów" in str(blad):
                 raise nawyki.ZleWejscie(str(blad)) from None
-            if kategoria and kategoria != w:
+            # 0.20.2 (SF-486 pkt 3): `--tag Bug` szło jako kategoria „Bug” i SF odpowiadał 422 — normalizujemy
+            # wielkość liter i polskie nazwy, a nieznaną wartość odrzucamy z listą dozwolonych przed wysłaniem.
+            w_kat = nawyki.kategoria_sprawy(w, kategorie)
+            if kategoria and kategoria != w_kat:
                 raise nawyki.ZleWejscie(f"„{w}” nie jest tagiem, a kategorię już mam („{kategoria}”) — "
                                         "lista tagów: sf-kit tag lista") from None
-            kategoria = w
+            kategoria = w_kat
     return tagi, kategoria
 
 
@@ -2452,7 +2615,11 @@ def polecenie_uwaga(args) -> int:
     Nie `zglos`: tamto jest „gotowa praca” w Organizacji klienta. Uwaga idzie tam, gdzie żyje rozwój
     Kita, a gdy się nie da (brak klucza, brak członkostwa, brak sieci) — do pliku, żeby nic nie przepadło.
     """
-    tekst = uwagi.wczytaj_tekst(args.tekst)
+    try:
+        tekst = uwagi.wczytaj_tekst(args.tekst)
+    except nawyki.ZleWejscie as blad:
+        print(f"Błąd: {blad}", file=sys.stderr)
+        return 2
     if not tekst.strip():
         print("Pusta uwaga. Napisz jednym zdaniem, co nie działa albo czego brakuje:\n"
               "  sf-kit uwaga \"po sf-kit wpis nie widzę numeru wpisu\"", file=sys.stderr)
@@ -3206,12 +3373,15 @@ def polecenie_sprawa(args) -> int:
     except BladAPI as blad:
         print(f"Nie udało się pobrać sprawy: {blad}", file=sys.stderr)
         return 1
-    poprzedni = kontekst.ILE_WPISOW
+    poprzedni = (kontekst.ILE_WPISOW, kontekst.LIMIT_WPISU, kontekst.LIMIT_OPISU)
     try:
-        kontekst.ILE_WPISOW = 10_000 if args.wszystkie else poprzedni
+        kontekst.ILE_WPISOW = 10_000 if args.wszystkie else poprzedni[0]
+        # 0.20.2 (SF-486 pkt 19): `sprawa` to droga DOCZYTANIA — treść wpisów i opisu w całości. Obcięcie zostaje
+        # tylko w kontekście doklejanym na starcie zadania (tam wskazuje to polecenie).
+        kontekst.LIMIT_WPISU = kontekst.LIMIT_OPISU = 10 ** 9
         print(kontekst._tekst(karta, kontekst.Pakiet(), Path.cwd()))
     finally:
-        kontekst.ILE_WPISOW = poprzedni
+        kontekst.ILE_WPISOW, kontekst.LIMIT_WPISU, kontekst.LIMIT_OPISU = poprzedni
     zal = [(z.get("id"), z.get("original_filename")) for e in karta.get("entries") or []
            for z in e.get("attachments") or [] if z.get("filename")]
     if zal:
@@ -3219,6 +3389,67 @@ def polecenie_sprawa(args) -> int:
         for zid, nazwa in zal:
             print(f"  {zid}  {nazwa}")
     _pokaz_do_ciebie(klient, konf, str(wskazana.get("id")), getattr(args, "org", None))
+    return 0
+
+
+def _osoba_leada(osoba) -> str:
+    if not isinstance(osoba, dict):
+        return ""
+    return " · ".join(str(osoba.get(k)) for k in ("nazwa", "imie_nazwisko", "email", "telefon") if osoba.get(k))
+
+
+def polecenie_leady(args) -> int:
+    """0.20.2 (SF-486 pkt 2): zakładka Leady z terminala — lista albo karta jednego leada ze stanem przekazania.
+
+    Domyślna lista spraw SF chowa rodzaj Lead, więc `sprawy`/`sprawa` ich nie widziały. Tu: `GET /tickets?widok=leady`
+    (dokładnie to, co pokazuje zakładka) i `GET /tickets/{id}/lead` (karta: osoba, źródło, zgody, przekazanie do CRM).
+    """
+    konf = konfiguracja.wczytaj()
+    if args.lead and flow.sprawa_z_linku(args.lead) and not getattr(args, "org", None):
+        args.org = flow.organizacja_z_linku(args.lead) or None
+    klient = _klient(konf, args)
+    try:
+        if not args.lead:
+            lista = klient.sprawy(limit=args.limit, widok="leady", szukaj=args.szukaj)
+            if args.json:
+                print(json.dumps(lista, ensure_ascii=False, indent=2, default=str))
+                return 0
+            if not lista:
+                print("Brak leadów w tej Organizacji (zakładka Leady jest pusta).")
+                return 0
+            for s in lista:
+                print(f"{asystent.numer_sprawy(s) or s.get('id')}\t{s.get('status') or ''}\t"
+                      f"{(s.get('created_at') or '')[:10]}\t{(s.get('title') or '')[:70]}\t{_osoba_leada(s.get('osoba'))}")
+            print(f"\n{len(lista)} leadów. Karta jednego (osoba, źródło, przekazanie do CRM): sf-kit leady <numer>")
+            return 0
+        wskazana, _ = _sprawa_dla_zapisu(klient, args.lead)
+        karta = klient.lead(str(wskazana.get("id")))
+    except ValueError as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać leada: {blad}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(karta, ensure_ascii=False, indent=2, default=str))
+        return 0
+    przek = karta.get("przekazanie") or {}
+    zrodlo = karta.get("zrodlo") or {}
+    print(f"Lead {karta.get('numer') or karta.get('ticket_id')}: {karta.get('tytul') or ''}")
+    print(f"Status: {karta.get('status')} · priorytet: {karta.get('priorytet')} · utworzony: {karta.get('created_at')}")
+    if karta.get("osoba"):
+        print(f"Osoba: {_osoba_leada(karta.get('osoba'))}")
+    print(f"Źródło: {zrodlo.get('wartosc') or '?'} · integracja: {zrodlo.get('integracja') or '?'}"
+          + (f" · strona: {zrodlo.get('url_strony')}" if zrodlo.get("url_strony") else ""))
+    zgody = karta.get("zgody")
+    if zgody is not None:
+        print(f"Zgody: {len(zgody)}" + ("" if zgody else " (formularz nie przesłał zgód)"))
+    print(f"Przekazanie do CRM: {przek.get('stan') or 'brak'}")
+    for w in przek.get("wysylki") or []:
+        print(f"  {w.get('crm')}: {w.get('status')} · próby {w.get('proby')}/{w.get('maks_prob')}"
+              + (f" · id w CRM {w.get('zewn_id')}" if w.get("zewn_id") else "")
+              + (f" · błąd: {w.get('blad')}" if w.get("blad") else ""))
+    print(f"\nOś i wpisy: sf-kit sprawa {karta.get('numer') or karta.get('ticket_id')}")
     return 0
 
 
@@ -3764,7 +3995,7 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                              "(domyślna jest wygodą, nie regułą)")
     pod = parser.add_subparsers(dest="polecenie", required=True)
 
-    ini = pod.add_parser("init", help="zapisz klucz i ustawienia; --claude = także plugin Claude Code")
+    ini = pod.add_parser("init", help="[wszyscy] zapisz klucz i ustawienia; --claude = także plugin Claude Code")
     ini.add_argument("--claude", action="store_true",
                      help="zainstaluj plugin `sf-kit` w Claude Code (zakres użytkownika: każdy katalog)")
     ini.add_argument("--codex", action="store_true",
@@ -3774,30 +4005,30 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                      help="zainstaluj pakiet dla Kimi Code (sekcja w ~/.kimi-code/AGENTS.md + skille w ~/.kimi-code/skills)")
     ini.add_argument("--gemini", action="store_true",
                      help="zainstaluj rozszerzenie dla Gemini CLI (~/.gemini/extensions/sf-kit)")
-    pod.add_parser("mcp", help="serwer MCP (stdio) — uruchamia go Claude Code/Codex, nie człowiek"
+    pod.add_parser("mcp", help="[wewnętrzne] serwer MCP (stdio) — uruchamia go Claude Code/Codex, nie człowiek"
                    ).set_defaults(funkcja=polecenie_mcp)
-    gm = pod.add_parser("gemini", help="rozszerzenie Gemini CLI: stan, --zainstaluj, --odswiez")
+    gm = pod.add_parser("gemini", help="[wszyscy] rozszerzenie Gemini CLI: stan, --zainstaluj, --odswiez")
     gmg = gm.add_mutually_exclusive_group()
     gmg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --gemini`")
     gmg.add_argument("--odswiez", action="store_true", help="odśwież zainstalowane rozszerzenie (robi to też `update`)")
     gm.set_defaults(funkcja=polecenie_gemini)
-    km = pod.add_parser("kimi", help="pakiet Kimi Code: stan, --zainstaluj, --odswiez")
+    km = pod.add_parser("kimi", help="[wszyscy] pakiet Kimi Code: stan, --zainstaluj, --odswiez")
     kmg = km.add_mutually_exclusive_group()
     kmg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --kimi`")
     kmg.add_argument("--odswiez", action="store_true", help="odśwież zainstalowany pakiet (robi to też `update`)")
     km.set_defaults(funkcja=polecenie_kimi)
-    cx = pod.add_parser("codex", help="pakiet Codex CLI: stan, --zainstaluj, --odswiez")
+    cx = pod.add_parser("codex", help="[wszyscy] pakiet Codex CLI: stan, --zainstaluj, --odswiez")
     cxg = cx.add_mutually_exclusive_group()
     cxg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --codex`")
     cxg.add_argument("--odswiez", action="store_true", help="odśwież zainstalowany pakiet (robi to też `update`)")
     cx.set_defaults(funkcja=polecenie_codex)
-    pl = pod.add_parser("plugin", help="plugin Claude Code `sf-kit`: stan, --zainstaluj, --odswiez")
+    pl = pod.add_parser("plugin", help="[wszyscy] plugin Claude Code `sf-kit`: stan, --zainstaluj, --odswiez")
     plg = pl.add_mutually_exclusive_group()
     plg.add_argument("--zainstaluj", action="store_true", help="to samo co `sf-kit init --claude`")
     plg.add_argument("--odswiez", action="store_true", help="odśwież zainstalowany plugin (robi to też `update`)")
     pl.set_defaults(funkcja=polecenie_plugin)
-    pod.add_parser("whoami", help="sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
-    up = pod.add_parser("update", help="zaktualizuj Kita do wydania wskazanego przez SF "
+    pod.add_parser("whoami", help="[wszyscy] sprawdź, czy klucz działa").set_defaults(funkcja=polecenie_whoami)
+    up = pod.add_parser("update", help="[wszyscy] zaktualizuj Kita do wydania wskazanego przez SF "
                                         "(raz na dobę sam powie, że jest nowa wersja)")
     up.add_argument("--check", action="store_true",
                     help="tylko pokaż wersje, nie ruszaj kodu")
@@ -3806,30 +4037,43 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                          "(cofnięcie wersji — używaj świadomie)")
     up.set_defaults(funkcja=polecenie_update)
     # ADVERTPR-987: polska nazwa tego samego polecenia — ta trafia na slajd i do scenariuszy.
-    ak = pod.add_parser("aktualizuj", help="to samo co `update`: zaktualizuj Kita do wydania "
+    ak = pod.add_parser("aktualizuj", help="[wszyscy] to samo co `update`: zaktualizuj Kita do wydania "
                                            "wskazanego przez SF")
     ak.add_argument("--check", action="store_true", help="tylko pokaż wersje, nie ruszaj kodu")
     ak.add_argument("--force", action="store_true",
                     help="pozwól przejść na wydanie starsze od zainstalowanego")
     ak.set_defaults(funkcja=polecenie_update)
-    rd = pod.add_parser("readme", help="gdzie leżą instrukcje Kita (README.md dla ludzi, "
+    rd = pod.add_parser("readme", help="[wszyscy] gdzie leżą instrukcje Kita (README.md dla ludzi, "
                                           "AGENT.md dla agenta)")
     rd.add_argument("--tresc", action="store_true", help="wypisz treść AGENT.md zamiast ścieżek")
     rd.set_defaults(funkcja=polecenie_readme)
-    ins = pod.add_parser("instaluj", help="(woła instalator) zainstaluj ten rozpakowany Kit "
+    # 0.20.2 (SF-486 pkt 18): instrukcja dwupoziomowa — przegląd z parsera i szczegóły na żądanie.
+    pm = pod.add_parser("pomoc", help="[wszyscy] przegląd Kita (role, polecenia, 5 zasad) albo szczegóły: "
+                                      "pomoc <polecenie|temat>")
+    pm.add_argument("co", nargs="*", default=[], metavar="POLECENIE|TEMAT",
+                    help="polecenie (pełna pomoc + gdzie o nim w AGENT.md) albo fragment nagłówka AGENT.md")
+    pm.add_argument("--rola", choices=["asystent", "worker", "koordynator", "wszystkie"], default=None,
+                    help="przegląd dla roli (domyślnie: profil z konfiguracji agenta)")
+    pm.add_argument("--tematy", action="store_true", help="spis tematów AGENT.md")
+    pm.set_defaults(funkcja=polecenie_pomoc)
+    ins = pod.add_parser("instaluj", help="[wewnętrzne] (woła instalator) zainstaluj ten rozpakowany Kit "
                                           "w katalogu użytkownika")
     ins.add_argument("--commit", default=None, help=argparse.SUPPRESS)
     ins.add_argument("--ref", default=None, help=argparse.SUPPRESS)
     ins.set_defaults(funkcja=polecenie_instaluj)
-    stp = pod.add_parser("start", help="przygotuj ten katalog dla asystenta: CLAUDE.md, "
-                                        "AGENTS.md i zgoda Claude Code na polecenia Kita")
+    stp = pod.add_parser("start", help="[wszyscy] przygotuj ten katalog dla asystenta: CLAUDE.md i AGENTS.md "
+                                        "z przeglądem Kita, zgoda Claude Code na polecenia Kita")
     stp.add_argument("--katalog", default=None, metavar="ŚCIEŻKA",
                      help="który katalog (domyślnie bieżący)")
+    stp.add_argument("--odswiez", action="store_true",
+                     help="odśwież przegląd Kita we wszystkich katalogach, w których był `start` (robi to `update`)")
     stp.set_defaults(funkcja=polecenie_start)
-    tk = pod.add_parser("tasks", help="pokaż moje zadania")
+    tk = pod.add_parser("tasks", help="[wykonawca] pokaż moje zadania")
     tk.add_argument("--pelne", action="store_true", help="z treścią każdego zadania (body_md)")
+    tk.add_argument("--status", choices=list(STATUSY_MOICH_ZADAN), default=None,
+                    help="tylko ten status (domyślnie: w kolejce, w toku i wstrzymane)")
     tk.set_defaults(funkcja=polecenie_tasks)
-    zd = pod.add_parser("zadanie", help="pełna treść jednego zadania: status, termin, sprawa, opis")
+    zd = pod.add_parser("zadanie", help="[wykonawca] pełna treść jednego zadania: status, termin, sprawa, opis")
     zd.add_argument("zadanie", metavar="ID|EXTERNAL_ID")
     zd.add_argument("--status", choices=["in_progress", "completed", "on_hold"], default=None,
                     help="zmień status WŁASNEGO zadania: in_progress = biorę się, completed = wynik jest na sprawie, "
@@ -3859,8 +4103,8 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     osc.add_argument("--limit", type=int, default=50, help="ile wpisów na stronę (domyślnie 50)")
     osc.add_argument("--json", action="store_true", help="surowa odpowiedź serwera")
     osc.set_defaults(funkcja=polecenie_os)
-    pod.add_parser("heartbeat", help="czy worker tego agenta żyje").set_defaults(funkcja=polecenie_heartbeat)
-    pod.add_parser("rotate", help="wymień sekret klucza przed wygaśnięciem (okno 7 dni)"
+    pod.add_parser("heartbeat", help="[worker] czy worker tego agenta żyje").set_defaults(funkcja=polecenie_heartbeat)
+    pod.add_parser("rotate", help="[wszyscy] wymień sekret klucza przed wygaśnięciem (okno 7 dni)"
                    ).set_defaults(funkcja=polecenie_rotate)
     us = pod.add_parser("usluga",
                         help="[worker] usługa workera: systemd (Linux) albo launchd (macOS)")
@@ -3883,7 +4127,7 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         p.add_argument("--tresc", default=None, metavar="TEKST|PLIK|-", help="opis wprost zamiast --opis")
         p.add_argument("--tag", action="append", default=[], metavar="TAG",
                        help="tag sprawy (nazwa z `sf-kit tag lista`; powtarzalne). Nazwa spoza taksonomii = "
-                            "kategoria sprawy jak dotąd (np. makieta)")
+                            "kategoria sprawy: bug, feature, question, feedback, other (wielkość liter bez znaczenia)")
         p.add_argument("--zalacz", nargs="*", default=[], metavar="PLIK",
                        help="pliki do dołączenia (idą JEDNYM wpisem)")
         p.add_argument("--priorytet", "--prio", default="medium",
@@ -3907,8 +4151,8 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         p.set_defaults(funkcja=polecenie_nowa_sprawa)
         return p
 
-    _parser_nowej_sprawy("zglos", "[asystent] zgłoś gotową pracę jako nową sprawę")
     _parser_nowej_sprawy("nowa-sprawa", "[asystent] nowa sprawa z gotową pracą (SF-51)")
+    _parser_nowej_sprawy("zglos", "[asystent] zgłoś gotową pracę jako nową sprawę")
 
     uw = pod.add_parser("uwaga", help="[wszyscy] uwaga do Kita: co nie działa / czego brakuje → sprawa "
                                       "w SalesForge z wersją, systemem i ostatnim błędem (SF-506)")
@@ -4043,8 +4287,9 @@ def zbuduj_parser() -> argparse.ArgumentParser:
 
     wp = pod.add_parser("wpis", help="[asystent] dopisz postęp albo odpowiedź do sprawy")
     wp.add_argument("--do", dest="do", default=None, metavar="SLUG",
-                    help="wyślij to TAKŻE jako wiadomość do sesji agenta (bez --sprawa: "
-                         "samodzielna wiadomość)")
+                    help="wyślij to TAKŻE jako wiadomość do skrzynki agenta (bez sprawy: samodzielna wiadomość). "
+                         "To NIE jest zlecenie i NIE budzi sesji agenta — agent zobaczy ją przy `sf-kit inbox`. "
+                         "Zlecenie: sf-kit zlec --dostarcz")
     # `nargs="?"`, bo `--do <slug>` BEZ sprawy jest udokumentowaną drogą („samodzielna
     # wiadomość") i `polecenie_wpis` obsługuje ją od v0.5.1 — tylko parser jej nie przepuszczał.
     # Pomoc obiecywała coś, co kończyło się `error: the following arguments are required`.
@@ -4213,13 +4458,19 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     sa.add_argument("--mimo-to", action="store_true", dest="mimo_to",
                     help="rozwiąż mimo otwartych zadań / tagu blokującego (świadomie)")
     sa.set_defaults(funkcja=polecenie_sprawa)
+    ld = pod.add_parser("leady", help="[wykonawca] zakładka Leady: lista albo karta leada ze stanem przekazania do CRM")
+    ld.add_argument("lead", nargs="?", default=None, help="numer, uuid albo link leada; bez tego — lista")
+    ld.add_argument("--szukaj", default=None, metavar="TEKST", help="zawęź listę (numer, tytuł, kontakt)")
+    ld.add_argument("--limit", type=int, default=50)
+    ld.add_argument("--json", action="store_true")
+    ld.set_defaults(funkcja=polecenie_leady)
     za = pod.add_parser("zalacznik", help="[wykonawca] pobierz jeden załącznik do pliku (SF-38)")
     za.add_argument("id", help="identyfikator załącznika (z `sf-kit sprawa`)")
     za.add_argument("--do", help="ścieżka pliku docelowego (domyślnie zalacznik-<id>)")
     za.set_defaults(funkcja=polecenie_zalacznik)
 
     # ── profil KOORDYNATOR ────────────────────────────────────────────────────
-    fl = pod.add_parser("flota", help="[koordynator] agenci tej Organizacji; "
+    fl = pod.add_parser("flota", help="[koordynator] agenci tej Organizacji; `flota wersje` — wersje Kita; "
                                       "`flota rejestr PLIK` — migawka rejestru do SF")
     fl.set_defaults(funkcja=polecenie_flota)
     # Podpolecenie OPCJONALNE: gołe `sf-kit flota` ma działać jak dotąd.
@@ -4229,6 +4480,11 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     fr.add_argument("--pokaz", action="store_true",
                     help="pokaż, co poszłoby do SF, i NIC nie wysyłaj")
     fr.set_defaults(funkcja=polecenie_flota_rejestr)
+    fw = fl_pod.add_parser("wersje", help="wersje Kita we flocie: agent, wersja, kiedy widziany, poniżej wymaganej")
+    fw.add_argument("--poniżej", "--ponizej", dest="ponizej", action="store_true",
+                    help="tylko agenci poniżej najnowszej albo wymaganej wersji")
+    fw.add_argument("--json", action="store_true")
+    fw.set_defaults(funkcja=polecenie_flota_wersje)
 
     zl = pod.add_parser("zlec", help="[koordynator] zleć zadanie agentowi (zawsze na sprawie)")
     zl.add_argument("--tytul", required=True, help="jednym zdaniem: co ma powstać")
@@ -4359,7 +4615,7 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     kw.set_defaults(funkcja=polecenie_klucz_wystaw)
 
     st = pod.add_parser("status", aliases=["postac"],
-                        help="ekran statusu: mana, energia, presja, zdrowie z rozbiciem i podpowiedziami "
+                        help="[wszyscy] ekran statusu: mana, energia, presja, zdrowie z rozbiciem i podpowiedziami "
                              "(--kolejka: dawny widok koordynatora)")
     st.add_argument("--kto", default=None, metavar="damian|agata|<agent>",
                     help="czyj ekran (domyślnie: widok status line Agaty — presja i HP Damiana)")

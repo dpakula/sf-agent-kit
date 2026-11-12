@@ -97,7 +97,7 @@ def _wpis_tekstem(wpis: dict) -> str:
     poziom = wpis.get("visibility") or ("internal" if wpis.get("is_internal") else "public")
     tresc = (wpis.get("content") or "").strip()
     if len(tresc) > LIMIT_WPISU:
-        tresc = tresc[:LIMIT_WPISU] + f" […obcięte — {len(wpis['content'])} znaków, `sf-kit sprawa`]"
+        tresc = tresc[:LIMIT_WPISU] + f" […obcięte — {len(wpis['content'])} znaków; całość: `sf-kit sprawa <numer> --wszystkie`]"
     zal = [z.get("original_filename") for z in (wpis.get("attachments") or [])]
     ogon = f"\n  (załączniki: {', '.join(n for n in zal if n)})" if zal else ""
     return f"- {kiedy} UTC · {autor} · {wpis.get('entry_type')} · {poziom}\n  {tresc or '(bez treści)'}{ogon}"
@@ -108,7 +108,7 @@ def _tekst(sprawa: dict, pakiet: Pakiet, katalog_roboczy: Path) -> str:
              if sprawa.get("ticket_number") else sprawa.get("id"))
     opis = (sprawa.get("description") or "").strip()
     if len(opis) > LIMIT_OPISU:
-        opis = opis[:LIMIT_OPISU] + " […obcięte — całość: `sf-kit sprawa`]"
+        opis = opis[:LIMIT_OPISU] + " […obcięte — całość: `sf-kit sprawa <numer>`]"
     wpisy = [e for e in sorted(sprawa.get("entries") or [], key=lambda e: e.get("created_at") or "")
              if e.get("entry_type") in ("message", "note", "attachment", "created")]
     starsze = max(0, len(wpisy) - ILE_WPISOW)

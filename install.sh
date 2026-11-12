@@ -14,7 +14,7 @@
 # SF_KIT_REF — inne wydanie niż domyślne: tag, gałąź albo SHA (codeload rozwiązuje każde); przy wydaniu podbijamy niżej.
 set -eu
 
-REF="${SF_KIT_REF:-v0.20.1}"
+REF="${SF_KIT_REF:-v0.20.2}"
 ADRES="https://codeload.github.com/dpakula/sf-agent-kit/zip/${REF}"
 REPO="https://github.com/dpakula/sf-agent-kit.git"
 

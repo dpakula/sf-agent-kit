@@ -284,7 +284,7 @@ def wybierz_dla_zapisu(toz: Tozsamosc, *, wskazana: str = "", z_linku: str = "")
         "Podaj ją jedną z dwóch dróg:\n"
         "  --org <slug>          np. --org advertpro-co\n"
         "  pełny link do sprawy z parametrem ?org=…\n"
-        "    np. https://sf.dpakula.pl/tickets/<id>?org=advertpro-co"
+        "    np. https://sales-forge.pl/tickets/<id>?org=advertpro-co"
     )
 
 

@@ -383,7 +383,7 @@ def _wczytaj_keychain() -> tuple[str | None, str]:
     """`(klucz, powód)`. Powód mówi, CZEGO zabrakło — patrz stałe wyżej."""
     wynik = subprocess.run(
         ["security", "find-generic-password", "-a", konto_w_peku(), "-s", USLUGA, "-w"],
-        text=True, capture_output=True,
+        text=True, stdin=subprocess.DEVNULL, capture_output=True,
     )
     if wynik.returncode == 0:
         klucz = wynik.stdout.strip()
@@ -563,5 +563,5 @@ def usun_z_peku(konto: str) -> bool:
         return False
     wynik = subprocess.run(
         ["security", "delete-generic-password", "-a", konto, "-s", USLUGA],
-        capture_output=True, text=True)
+        stdin=subprocess.DEVNULL, capture_output=True, text=True)
     return wynik.returncode == 0

@@ -64,14 +64,24 @@ def znajdz_sprawe(klient, wskazanie: str) -> dict:
             f"albo jej identyfikator.")
 
     prefiks, numer = trafienie.group(1), int(trafienie.group(2))
-    kandydaci = [
-        # `szukaj=numer` zawęża po stronie SF (dopasowuje też numer) — bez tego szukaliśmy
-        # w 25 ostatnich sprawach i starsze „nie istniały" (ADVERTPR-782, 24.09).
-        s for s in klient.sprawy(limit=200, szukaj=str(numer))
-        if s.get("ticket_number") == numer
-        and (prefiks is None
-             or (s.get("ticket_prefix") or "").lower() == prefiks.lower())
-    ]
+
+    def _pasuje(lista: list[dict]) -> list[dict]:
+        return [s for s in lista
+                if s.get("ticket_number") == numer
+                and (prefiks is None or (s.get("ticket_prefix") or "").lower() == prefiks.lower())]
+
+    # `szukaj=numer` zawęża po stronie SF (dopasowuje też numer) — bez tego szukaliśmy
+    # w 25 ostatnich sprawach i starsze „nie istniały" (ADVERTPR-782, 24.09).
+    kandydaci = _pasuje(klient.sprawy(limit=200, szukaj=str(numer)))
+    if not kandydaci:
+        # 0.20.2 (SF-486 pkt 2): domyślna lista SF chowa sprawy rodzaju Lead — „nie znalazłem FIX-40”,
+        # choć lead jest. Drugie pytanie: ten sam numer w widoku Leady.
+        try:
+            kandydaci = _pasuje(klient.sprawy(limit=200, szukaj=str(numer), widok="leady"))
+        except TypeError:                       # atrapa klienta bez `widok` (starsze testy)
+            kandydaci = []
+        except Exception:                       # noqa: BLE001 — brak widoku Leady w Org = zwykłe „nie znalazłem”
+            kandydaci = []
     if not kandydaci:
         raise ValueError(
             f"nie znalazłem sprawy „{wskazanie}” w tej Organizacji. "

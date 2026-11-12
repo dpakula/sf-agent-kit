@@ -250,7 +250,7 @@ class TestKomendy(unittest.TestCase):
         klient.czlonek.return_value = {"user_id": "u-damian"}
         klient.zaloz_sprawe.return_value = {"ticket_id": SPRAWA, "ticket_number": 497, "ticket_prefix": "SF"}
         typy = [{"id": "t1", "name": "Krok", "is_multi": True, "tags": [{"id": "g1", "name": "Krok"}]}]
-        a = argparse.Namespace(tytul="Kit 0.20", opis=None, tresc="Opis wprost", tag=["Krok", "makieta"],
+        a = argparse.Namespace(tytul="Kit 0.20", opis=None, tresc="Opis wprost", tag=["Krok", "Bug"],
                                zalacz=[], priorytet="med", termin=None, rodzaj=None,
                                obserwujacy=["a@b.pl,c@d.pl"], szkic=False, kontekst="", przypisz="d@advertpro.co",
                                json=True)
@@ -263,7 +263,7 @@ class TestKomendy(unittest.TestCase):
         self.assertEqual(kod, 0, err)
         kw = klient.zaloz_sprawe.call_args.kwargs
         self.assertEqual((kw["priorytet"], kw["przypisany"], kw["kategoria"], kw["opis"]),
-                         ("medium", "u-damian", "makieta", "Opis wprost"))
+                         ("medium", "u-damian", "bug", "Opis wprost"))   # 0.20.2: kategoria małymi literami (SF-486 pkt 3)
         nt.assert_called_once()
         do.assert_called_once_with(klient, SPRAWA, ["a@b.pl", "c@d.pl"])
         d = json.loads(out)

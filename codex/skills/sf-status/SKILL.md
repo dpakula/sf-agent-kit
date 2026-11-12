@@ -2,7 +2,7 @@
 name: "sf-status"
 description: "Kim jestem w SF: konto, klucz, Organizacje, uprawnienia"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.2; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit whoami …` (argumenty z prośby człowieka)
 

@@ -3,7 +3,7 @@ name: "sf-zadania"
 description: "Moje zadania — to samo co /skill:sf-tasks"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.2; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit tasks $ARGUMENTS`
 

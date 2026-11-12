@@ -1,5 +1,5 @@
 <!-- sf-kit:codex:start — sekcję zapisuje `sf-kit init --codex`; zmiany w niej nadpisze -->
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.2; nie edytuj ręcznie -->
 
 ## SalesForge przez SF Kit
 Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nigdy surowym `curl` z kluczem. Uprawnienia ma klucz; odmowę (403) przekaż człowiekowi, nie obchodź jej.
@@ -13,6 +13,7 @@ Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nig
 |---|---|---|---|
 | `$sf-cases` | `$sf-sprawy` | `sf-kit sprawy` | Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka) |
 | `$sf-case` | `$sf-sprawa` | `sf-kit sprawa` | Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” |
+| `$sf-leads` | `$sf-leady` | `sf-kit leady` | Zakładka Leady: lista albo karta leada ze stanem przekazania do CRM |
 | `$sf-relations` | `$sf-relacje` | `sf-kit relacje` | Relacje sprawy: co zawiera i czego jest częścią (sprawa w sprawie) |
 | `$sf-pin` | `$sf-przypnij` | `sf-kit przypnij` | Przypnij sprawę jako część innej (<sprawa> zawiera <część>) |
 | `$sf-unpin` | `$sf-odepnij` | `sf-kit odepnij` | Odepnij relację między dwiema sprawami |
@@ -28,6 +29,7 @@ Pracujesz w SalesForge (SF) WYŁĄCZNIE poleceniami `sf-kit` w terminalu — nig
 | `$sf-timeline` | `$sf-os` | `sf-kit os` | Oś czasu sprawy |
 | `$sf-status` | — | `sf-kit whoami` | Kim jestem w SF: konto, klucz, Organizacje, uprawnienia |
 | `$sf-settings` | `$sf-ustawienia` | `sf-kit ustawienia` | Ustawienia: lokalne i w SF (poziom powiadomień), ze źródłem wartości; --czlowiek dla asystenta |
+| `$sf-help` | `$sf-pomoc` | `sf-kit pomoc` | Przegląd Kita (role, polecenia, 5 zasad) albo szczegóły polecenia / tematu |
 | `$sf-update` | `$sf-aktualizuj` | `sf-kit update` | Zaktualizuj Kita do wydania wskazanego przez SF |
 
 <!-- sf-kit:codex:end -->

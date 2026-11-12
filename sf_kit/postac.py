@@ -107,7 +107,7 @@ def dom_i_manifest(wskazniki: Path, kto: str | None) -> tuple[Path, Path]:
 
 def pobierz(wskazniki: Path, dom: Path, manifest: Path, *, limit_s: int = 30) -> dict:
     wynik = subprocess.run([sys.executable, str(wskazniki), "--json", "--dom", str(dom), "--manifest", str(manifest)],
-                           capture_output=True, text=True, timeout=limit_s)
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=limit_s)
     if wynik.returncode != 0:
         raise BrakWskaznikow(f"wskazniki.py zakończył się błędem:\n{wynik.stderr.strip()[-800:]}")
     try:

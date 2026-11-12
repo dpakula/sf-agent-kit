@@ -122,7 +122,7 @@ def alarm(tytul: str, tresc: str) -> bool:
         return False
     try:
         subprocess.run([str(binarka), "-u", "-p", "aproagents", "-t", tytul, tresc],
-                       capture_output=True, timeout=6, check=False)
+                       stdin=subprocess.DEVNULL, capture_output=True, timeout=6, check=False)
         return True
     except (OSError, subprocess.SubprocessError):
         return False

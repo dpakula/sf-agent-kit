@@ -464,7 +464,7 @@ class Klient:
             return [], None, False
         return list(odp.get("items") or [])[:limit], odp.get("poza_zasiegiem"), True
 
-    def sprawy(self, *, limit: int = 50, szukaj: str | None = None) -> list[dict]:
+    def sprawy(self, *, limit: int = 50, szukaj: str | None = None, widok: str | None = None) -> list[dict]:
         """Sprawy widoczne dla tego klucza w jego Organizacji — do `limit`, strona po stronie.
 
         `GET /tickets` stronicuje przez `page`/`per_page` (≤ 100) i NIE ZNA `limit`: do 0.11
@@ -479,6 +479,9 @@ class Klient:
             parametry = {"page": strona, "per_page": min(self.SPRAW_NA_STRONE, limit)}
             if szukaj:
                 parametry["search"] = szukaj
+            if widok:
+                # 0.20.2 (SF-486 pkt 2): `widok=leady` — domyślna lista NIE pokazuje spraw rodzaju Lead.
+                parametry["widok"] = widok
             odp = self._wywolaj("GET", f"tickets?{urllib.parse.urlencode(parametry)}")
             if isinstance(odp, dict):
                 pozycje = odp.get("items") or odp.get("pozycje") or []
@@ -490,6 +493,11 @@ class Klient:
                 break
             strona += 1
         return wynik[:limit]
+
+    def lead(self, ticket_id: str) -> dict:
+        """`GET /tickets/{id}/lead` (SF-488) — karta leada: osoba, formularz, źródło, zgody, stan przekazania do CRM."""
+        odp = self._wywolaj("GET", f"tickets/{ticket_id}/lead")
+        return odp if isinstance(odp, dict) else {}
 
     def wpis_z_plikami(self, ticket_id: str, tresc: str | None, pliki: list,
                        *, widocznosc: str = "internal") -> dict:

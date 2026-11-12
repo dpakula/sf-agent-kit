@@ -55,6 +55,27 @@ def przeszkody_rozwiazania(klient: Klient, ticket_id: str, *, poza_zadaniem: str
     return powody
 
 
+def _jak_domknac(klient: Klient, ticket_id: str) -> str:
+    """0.20.2 (SF-486 pkt 6): odmowa mówi, KTÓRE zadania są otwarte i jakim poleceniem każde domknąć."""
+    try:
+        otwarte = [z for z in klient.zadania_sprawy(ticket_id) if z.get("status") in OTWARTE_ZADANIA]
+    except Exception:                                  # noqa: BLE001 — powód odmowy już jest wyżej
+        return ""
+    if not otwarte:
+        return ""
+    linie = ["", "Otwarte zadania tej sprawy:"]
+    for z in otwarte:
+        zid = str(z.get("external_id") or z.get("id") or "?")
+        kto = z.get("assigned_agent_slug") or z.get("assignee_name") or "?"
+        linie.append(f"  {zid}  [{z.get('status')}]  {kto}  {(z.get('title') or '')[:70]}")
+    pierwsze = str(otwarte[0].get("external_id") or otwarte[0].get("id"))
+    linie += ["Jak domknąć:",
+              f"  wykonawca, gdy wynik jest na sprawie:  sf-kit zadanie {pierwsze} --status completed",
+              f"  koordynator po sprawdzeniu wyniku:     sf-kit odbierz {pierwsze}",
+              "  porzucone (kilka naraz):               sf-kit odbierz <id> <id> --hurt --notka \"dlaczego\""]
+    return "\n".join(linie)
+
+
 def zmien_status(klient: Klient, sprawa: dict, status: str, *, mimo_to: bool = False) -> str:
     """Zmień status sprawy (idempotentnie). → opis wyniku. `ValueError` przy odmowie z powodem."""
     if status not in STATUSY_SPRAWY:
@@ -66,7 +87,7 @@ def zmien_status(klient: Klient, sprawa: dict, status: str, *, mimo_to: bool = F
         powody = przeszkody_rozwiazania(klient, str(sprawa["id"]))
         if powody:
             raise ValueError(f"nie zmieniam na „{status}”: " + "; ".join(powody)
-                             + " — świadomie: --mimo-to")
+                             + " — świadomie: --mimo-to" + _jak_domknac(klient, str(sprawa["id"])))
     klient.zmien_sprawe(str(sprawa["id"]), {"status": status})
     return f"status sprawy: {obecny or '?'} → {status}"
 

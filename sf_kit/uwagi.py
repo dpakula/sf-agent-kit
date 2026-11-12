@@ -230,5 +230,6 @@ def org_uwag(wskazana: str | None) -> str:
 def wczytaj_tekst(wartosc: str, stdin=None) -> str:
     """Treść uwagi: tekst wprost albo `-` = standardowe wejście."""
     if wartosc == "-":
-        return (stdin or sys.stdin).read()
+        from .nawyki import czytaj_stdin
+        return czytaj_stdin(stdin, "treść uwagi")
     return wartosc
