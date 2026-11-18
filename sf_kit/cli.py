@@ -1645,6 +1645,28 @@ def _id_na_osi(klient: Klient, sprawa_id: str, entry_id: str, *, stron: int = 5)
     raise ValueError(f"wpisu {entry_id} nie ma na osi sprawy (sprawdź id: `sf-kit os <sprawa>`)")
 
 
+#: Nazwy poziomu z Kita → nazwa, którą oddaje SF (`external` = wpis dla klienta = `public`).
+_POZIOM_W_SF = {"external": "public"}
+
+
+def rozjazd_poziomu(prosba: str, odpowiedz) -> str | None:
+    """SF-551: komunikat, gdy SF zapisał INNY poziom niż ten, o który Kit prosił (`None` = zgodnie albo SF nie powiedział).
+
+    Do 0.20.2 Kit drukował „✓ … → internal” z WŁASNEGO argumentu, a serwer zostawiał `konsola` — reguła SF-449 cz. 5
+    (decyzja Damiana 01.11, SECO-259): wpis konta floty w Organizacji klienta, który nie jest publiczny, ma zawsze
+    `konsola`. Prawdę mówi odpowiedź serwera (`visibility`), więc to ją czytamy.
+    """
+    zapisany = (odpowiedz or {}).get("visibility") if isinstance(odpowiedz, dict) else None
+    if not zapisany or zapisany == _POZIOM_W_SF.get(prosba, prosba):
+        return None
+    tekst = f"SF zapisał poziom „{zapisany}”, nie „{prosba}”."
+    if zapisany == "konsola":
+        tekst += (" W Organizacji klienta wpis konta floty, który nie jest publiczny, zawsze dostaje „konsola” "
+                  "(reguła serwera SF-449 cz. 5). „konsola” widzi flota oraz właściciel Organizacji i admin z grantem "
+                  "console:view; zwykły członek Organizacji — nie.")
+    return tekst
+
+
 def _wyrownaj_widocznosc(klient: Klient, sprawa_id: str, entry_id: str, poziom: str) -> None:
     if not entry_id:
         print(f"UWAGA: SF nie oddał id wpisu — poziomu „{poziom}” nie ustawiłem (wpis JEST, z kłódką).",
@@ -1653,7 +1675,10 @@ def _wyrownaj_widocznosc(klient: Klient, sprawa_id: str, entry_id: str, poziom: 
     try:
         tid, obecny = _id_na_osi(klient, sprawa_id, entry_id)
         if obecny != poziom:
-            klient.zmien_widocznosc(tid, poziom, powod="sf-kit wpis --zalacz (with-attachments zna tylko kłódkę)")
+            rozjazd = rozjazd_poziomu(poziom, klient.zmien_widocznosc(
+                tid, poziom, powod="sf-kit wpis --zalacz (with-attachments zna tylko kłódkę)"))
+            if rozjazd:
+                print(f"UWAGA: {rozjazd}", file=sys.stderr)
     except (ValueError, BladAPI) as blad:
         print(f"UWAGA: wpis JEST, ale poziomu „{poziom}” nie ustawiłem: {blad}", file=sys.stderr)
 
@@ -1669,10 +1694,17 @@ def polecenie_wpis_widocznosc(args) -> int:
         if obecny == args.poziom:
             print(f"Wpis ma już poziom „{obecny}” — nic nie zmieniam.")
             return 0
-        klient.zmien_widocznosc(tid, args.poziom, powod=args.powod)
+        odpowiedz = klient.zmien_widocznosc(tid, args.poziom, powod=args.powod)
     except (ValueError, BladAPI) as blad:
         print(f"Nie zmieniłem widoczności: {blad}", file=sys.stderr)
         return 1
+    rozjazd = rozjazd_poziomu(args.poziom, odpowiedz)
+    if rozjazd:
+        # SF-551: wynik inny niż prośba to NIE sukces — kod 3 (jak częściowe wykonanie w innych poleceniach).
+        zapisany = odpowiedz.get("visibility")
+        print(f"✗ widoczność wpisu: {obecny} → {zapisany}" + (" (bez zmiany)" if zapisany == obecny else ""))
+        print(f"UWAGA: {rozjazd}", file=sys.stderr)
+        return 3
     print(f"✓ widoczność wpisu: {obecny} → {args.poziom}")
     return 0
 
@@ -2761,6 +2793,11 @@ def polecenie_wpis(args) -> int:
         return nawyki.blad(args, f"nie udało się dopisać: {blad}", 1)
     if isinstance(wynik, dict) and wynik.get("id"):
         print(f"id wpisu: {wynik['id']}", file=sys.stderr)
+    if not args.zalacz:
+        # SF-551: wpis JEST zapisany — rozjazd poziomu to ostrzeżenie, nie porażka (kod 0), ale powiedziany wprost.
+        rozjazd = rozjazd_poziomu(args.widocznosc, wynik)
+        if rozjazd:
+            print(f"UWAGA: {rozjazd}", file=sys.stderr)
     if getattr(args, "json", False):
         if args.do:
             _wyslij_wiadomosc(klient, args.do, tresc or "(wpis z załącznikami)")
