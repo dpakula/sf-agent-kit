@@ -813,8 +813,37 @@ def _blok_jeden(args, wskazanie: str) -> int:
     if blok.get("z_rdzenia") is False:
         print("\n  (wpis bez lustra w rdzeniu — pola `sedno` i `stan` będą puste do etapu E5)")
     tresc = (blok.get("tresc") or "").strip()
+    pelna = _pelna_tresc_bloku(klient, blok)
+    if pelna is not None:
+        tresc = pelna
+    elif len(tresc) >= TRESC_BLOKU_Z_RDZENIA:
+        tresc += (f"\n\n  (rdzeń oddaje najwyżej {TRESC_BLOKU_Z_RDZENIA} znaków treści — "
+                  "pełnej nie udało się dociągnąć z dziennika sprawy)")
     print(f"\n{tresc}\n" if tresc else "\n  (bez treści)\n")
     return 0
+
+
+#: `GET /blocks/{id}` ucina `tresc` do 400 znaków po stronie SF (pomiar 23.11, ADVERTPR-1395:
+#: wpis 5290 znaków → 400). Pełna treść wpisu sprawy jest w dzienniku: `GET …/entries/{natywny_id}`.
+TRESC_BLOKU_Z_RDZENIA = 400
+
+
+def _pelna_tresc_bloku(klient, blok: dict) -> str | None:
+    """Pełna treść bloku-wpisu sprawy z dziennika, gdy rdzeń mógł ją uciąć. `None` = zostaje rdzeń.
+
+    Tylko kotwica `ticket` z `natywny_id`: innych rodzajów dziennik sprawy nie zna. Ta sama reguła
+    widoczności po stronie SF (`dziennik()`), więc nie czytamy niczego ponad to, co rdzeń wydał.
+    """
+    if len((blok.get("tresc") or "").strip()) < TRESC_BLOKU_Z_RDZENIA:
+        return None
+    if blok.get("kotwica_typ") != "ticket" or not blok.get("kotwica_id") or not blok.get("natywny_id"):
+        return None
+    try:
+        wpis = klient.wpis_sprawy(str(blok["kotwica_id"]), str(blok["natywny_id"]))
+    except BladAPI:
+        return None
+    tresc = (wpis.get("content") or "").strip()
+    return tresc or None
 
 
 def _detal_serwera(blad) -> str:
@@ -3357,6 +3386,13 @@ def polecenie_sprawa(args) -> int:
     try:
         wskazana, _ = _sprawa_dla_zapisu(klient, args.sprawa)
         karta = klient.sprawa(str(wskazana.get("id")))
+        if not getattr(args, "tylko_id", False):
+            # 0.20.3 (ADVERTPR-1395): karta oddaje 200 NAJSTARSZYCH wpisów; na większej sprawie
+            # dociągamy dziennik, inaczej „ostatnie wpisy” i `--json` kończą się dniami wcześniej.
+            razem = kontekst.uzupelnij_dziennik(klient, karta)
+            if razem is not None:
+                print(f"(sprawa ma {razem} wpisów — karta SF oddaje 200 najstarszych, "
+                      f"resztę Kit dociągnął z dziennika)", file=sys.stderr)
         if getattr(args, "tylko_id", False):
             # 0.19 (SF-496 pkt 10): koordynatorka 12× dziennie szukała uuid po numerze curlem.
             dane = {"id": str(karta.get("id") or wskazana.get("id")), "numer": asystent.numer_sprawy(karta),
@@ -4704,6 +4740,7 @@ def _klucz_po_cichu() -> str | None:
 
 
 def _uruchom(args) -> int:
+    flow.rozwin_link_numeru(args)
     try:
         return args.funkcja(args)
     except magazyn_klucza.WieluAgentow as blad:
