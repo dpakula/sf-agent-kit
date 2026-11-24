@@ -138,9 +138,18 @@ def czytaj_stdin(stdin=None, rola: str = "treść") -> str:
     return stdin.read()
 
 
+def _jest_plikiem(wartosc: str) -> bool:
+    """`Path.is_file()` bez wyjątku: napis dłuższy niż limit nazwy (255 B, ENAMETOOLONG) albo z bajtem zerowym to
+    na pewno nie plik, tylko tekst (SF-576: `wpis --tresc "<~400 znaków>"` kończył się tracebackiem OSError)."""
+    try:
+        return Path(wartosc).expanduser().is_file()
+    except (OSError, ValueError):
+        return False
+
+
 def _plik(wartosc: str, rola: str) -> str:
     plik = Path(wartosc).expanduser()
-    if not plik.is_file():
+    if not _jest_plikiem(wartosc):
         raise ZleWejscie(f"nie ma pliku {rola}: {plik} — nic nie wysłałem (tekst wprost: --tresc \"…\")")
     return plik.read_text(encoding="utf-8")
 
@@ -161,7 +170,7 @@ def tresc(*, opis: str | None = None, tresc_arg: str | None = None, rola: str = 
     elif tresc_arg is not None:
         if tresc_arg == "-":
             wynik = czytaj_stdin(stdin)
-        elif Path(tresc_arg).expanduser().is_file():
+        elif _jest_plikiem(tresc_arg):
             wynik = Path(tresc_arg).expanduser().read_text(encoding="utf-8")
         elif wyglada_na_sciezke(tresc_arg):
             raise ZleWejscie(f"--tresc „{tresc_arg}” wygląda na plik, a go nie ma — nic nie wysłałem")
