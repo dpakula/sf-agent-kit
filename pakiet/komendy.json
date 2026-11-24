@@ -38,7 +38,7 @@
         "pl": "Karta sprawy: opis, wpisy, załączniki, „Do Ciebie”",
         "en": "Case card"
       },
-      "argumenty": "<numer|link> [--wszystkie]",
+      "argumenty": "<numer|link> [--wszystkie|--ostatnie N] [--wpis <id>]",
       "skille": [
         "praca-w-sf"
       ],

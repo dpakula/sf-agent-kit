@@ -130,6 +130,26 @@ def uzupelnij_dziennik(klient, sprawa: dict) -> int | None:
     return razem if isinstance(razem, int) else len(pelne)
 
 
+def tresci_z_dziennika(klient, sprawa_id: str) -> dict[str, str]:
+    """`{id wpisu: pełna treść}` z dziennika sprawy (`GET …/entries`, strony po 200).
+
+    0.21.2 (ADVERTPR-1440): oś (`GET /timeline/…`) i rdzeń bloków (`GET /blocks/{id}`) ucinają
+    treść do 400 znaków po stronie SF; dziennik oddaje ją w całości. Jeden przebieg po
+    dzienniku zamiast zapytania na każdy długi wpis (na ADVERTPR-1420: 3 strony zamiast 53).
+    """
+    tresci: dict[str, str] = {}
+    for strona in range(MAX_STRON_DZIENNIKA):
+        odp = klient.wpisy_sprawy(sprawa_id, limit=WPISOW_W_KARCIE,
+                                  offset=strona * WPISOW_W_KARCIE) or {}
+        pozycje = odp.get("pozycje") or []
+        for p in pozycje:
+            if isinstance(p, dict) and p.get("id") and p.get("content") is not None:
+                tresci[str(p["id"])] = str(p["content"])
+        if len(pozycje) < WPISOW_W_KARCIE:
+            break
+    return tresci
+
+
 def _wpis_tekstem(wpis: dict) -> str:
     autor = wpis.get("author_name") or wpis.get("author_email") or "?"
     kiedy = (wpis.get("created_at") or "")[:16].replace("T", " ")
@@ -160,7 +180,7 @@ def _tekst(sprawa: dict, pakiet: Pakiet, katalog_roboczy: Path) -> str:
         f"Status: {sprawa.get('status')} · priorytet: {sprawa.get('priority')}",
         "", "Opis sprawy:", opis or "(brak opisu)", "",
         f"Ostatnie wpisy ({len(wpisy) - starsze} z {len(wpisy)}"
-        + (f"; starsze: `sf-kit sprawa {sprawa.get('id')}`" if starsze else "") + "):",
+        + (f"; starsze: `sf-kit sprawa {sprawa.get('id')} --wszystkie`" if starsze else "") + "):",
         *[_wpis_tekstem(e) for e in wpisy[starsze:]],
     ]
     if pakiet.pliki:
@@ -171,6 +191,7 @@ def _tekst(sprawa: dict, pakiet: Pakiet, katalog_roboczy: Path) -> str:
                   *[f"- {p}" for p in pakiet.pominiete]]
     linie += ["", "Doczytanie w trakcie pracy (odczyt w zakresie tego zadania, bez klucza w prompcie):",
               f"- `sf-kit sprawa {sprawa.get('id')}` — pełna karta sprawy",
+              f"- `sf-kit sprawa {sprawa.get('id')} --wpis <id z nawiasu>` — jeden wpis w całości",
               "- `sf-kit zalacznik <id> --do <plik>` — pojedynczy załącznik",
               "--- KONIEC KONTEKSTU SPRAWY ---"]
     return "\n".join(linie)

@@ -1497,6 +1497,8 @@ Wykonawca doczytuje w trakcie pracy **bez klucza w prompcie**:
 ```bash
 sf-kit sprawa ADVERTPR-927 [--wszystkie]     # karta sprawy tym samym formatem + id załączników
                                              # + „Do Ciebie”: otwarte bloki konsoli do Ciebie (SF-182, 0.15.7)
+sf-kit sprawa ADVERTPR-927 --ostatnie 40     # 40 najnowszych wpisów (z --json też przycina; 0.21.2)
+sf-kit sprawa ADVERTPR-927 --wpis 02a63ba8   # JEDEN wpis w całości — id albo skrót z nawiasu [02a63ba8] (0.21.2)
 sf-kit zalacznik <id> --do inbox/plik.pdf     # jeden załącznik
 ```
 
@@ -1780,7 +1782,8 @@ kończą się rozmową „widzę osiem, a ty pięć", której nie da się rozstr
 sf-kit os SF-7                       # pełna oś, wiersz po wierszu (domyślnie)
 sf-kit os SF-7 --zwinieta            # ciągi zmian technicznych zwinięte w wiersze-grupy
 sf-kit os SF-7 --rozwin 296dad5c     # rozwiń JEDNĄ grupę (identyfikator z nawiasu)
-sf-kit os SF-7 --limit 100 --json    # surowa odpowiedź dla skryptu
+sf-kit os SF-7 --limit 100 --json    # surowa odpowiedź dla skryptu (treść >400 zn. z dziennika, 0.21.2)
+sf-kit os SF-7 --wszystkie           # cała oś od najnowszych; limit >200 Kit bierze stronami (0.21.2)
 ```
 
 Zwinięta oś wygląda tak (fragment prawdziwej sprawy SF-7):

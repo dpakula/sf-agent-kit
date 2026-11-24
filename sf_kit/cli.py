@@ -783,7 +783,11 @@ def _blok_jeden(args, wskazanie: str) -> int:
         print(f"Nie udało się pobrać bloku: {blad}", file=sys.stderr)
         return 1
 
+    pelna = _pelna_tresc_bloku(klient, blok)
     if getattr(args, "json", False):
+        # 0.21.2 (ADVERTPR-1440): `--json` drukował `tresc` z rdzenia, uciętą do 400 znaków.
+        if pelna is not None:
+            blok = {**blok, "tresc": pelna, "tresc_z_dziennika": True}
         print(json.dumps(blok, ensure_ascii=False, indent=2))
         return 0
 
@@ -813,7 +817,6 @@ def _blok_jeden(args, wskazanie: str) -> int:
     if blok.get("z_rdzenia") is False:
         print("\n  (wpis bez lustra w rdzeniu — pola `sedno` i `stan` będą puste do etapu E5)")
     tresc = (blok.get("tresc") or "").strip()
-    pelna = _pelna_tresc_bloku(klient, blok)
     if pelna is not None:
         tresc = pelna
     elif len(tresc) >= TRESC_BLOKU_Z_RDZENIA:
@@ -918,6 +921,10 @@ def polecenie_os(args) -> int:
               file=sys.stderr)
         return 2
 
+    if args.limit < 1 and not getattr(args, "wszystkie", False):
+        print("`--limit` to liczba wierszy osi — co najmniej 1.", file=sys.stderr)
+        return 2
+
     konf = konfiguracja.wczytaj()
     klient = _klient(konf, args)
 
@@ -931,13 +938,15 @@ def polecenie_os(args) -> int:
     # a odmawianie jej byłoby uczeniem człowieka składni zamiast zrozumienia go.
     pelna = not (args.zwinieta or args.rozwin)
     rozwin = (args.rozwin or "").strip()
+    limit = None if getattr(args, "wszystkie", False) else args.limit
     try:
         if rozwin and not asystent.WZORZEC_UUID.match(rozwin):
-            rozwin = _pelny_id_grupy(klient, sprawa, rozwin, limit=args.limit)
+            rozwin = _pelny_id_grupy(klient, sprawa, rozwin, limit=min(args.limit, OS_NA_STRONE))
             if rozwin is None:
                 return 2
-        strona = klient.os_obiektu("ticket", str(sprawa["id"]), pelna=pelna,
-                                   rozwin=rozwin, limit=args.limit)
+        strona = _os_stronami(klient, str(sprawa["id"]), pelna=pelna, rozwin=rozwin, limit=limit)
+        if args.json:
+            _os_pelne_tresci(klient, str(sprawa["id"]), strona.get("entries") or [])
     except BladAPI as blad:
         print(f"Nie udało się pobrać osi: {blad}", file=sys.stderr)
         return 1
@@ -977,12 +986,71 @@ def polecenie_os(args) -> int:
     # (`razem` jest w dzienniku sprawy, nie tutaj), a liczba policzona z długości listy
     # mówiłaby o stronie, nie o osi — i po zwinięciu kłamałaby podwójnie.
     if strona.get("next_cursor"):
-        print(f"To nie koniec osi — jest następna strona (limit {args.limit}).")
+        if getattr(args, "wszystkie", False):
+            print(f"To nie koniec osi — Kit zatrzymał się na {OS_MAX_STRON} stronach po {OS_NA_STRONE}.")
+        else:
+            print(f"To nie koniec osi — starsze wiersze dalej (limit {args.limit}; "
+                  "całość: `--wszystkie`, większy `--limit` Kit pobierze stronami).")
 
     if not pelna and not os_czasu.serwer_zwija(pozycje):
         print("\nUWAGA: pełna oś, serwer nie zwija — to API jest starsze niż E4a i zignorowało\n"
               "`--zwinieta`. Widzisz KOMPLET wierszy, nie wynik zwinięcia.")
     return 0
+
+
+#: `GET /timeline/{typ}/{id}` przyjmuje `limit` ≤ 200 (większy = 422). Dalej — kursorem.
+OS_NA_STRONE = 200
+#: Sufit stron przy `--wszystkie` (po 200) — 10 000 wierszy osi, tyle co dziennik w `kontekst`.
+OS_MAX_STRON = 50
+
+
+def _os_stronami(klient, sprawa_id: str, *, pelna: bool, rozwin: str, limit: int | None) -> dict:
+    """Oś od najnowszych, `limit` wierszy (`None` = do końca), stronami po ≤ 200 przez `next_cursor`.
+
+    0.21.2 (ADVERTPR-1440): `os --limit 500` kończyło się 422 z API, a jedna strona 200 nie
+    sięgała początku długiej sprawy (1420: 473 wpisy). Zwracamy kształt jednej strony serwera:
+    `entries` sklejone, `next_cursor` ostatniej strony (pusty = to był koniec osi).
+    """
+    wynik: dict = {}
+    pozycje: list = []
+    kursor = ""
+    for _ in range(OS_MAX_STRON):
+        ile = OS_NA_STRONE if limit is None else min(OS_NA_STRONE, limit - len(pozycje))
+        strona = klient.os_obiektu("ticket", sprawa_id, pelna=pelna, rozwin=rozwin,
+                                   limit=ile, kursor=kursor)
+        if not wynik:
+            wynik = dict(strona)
+        pozycje += strona.get("entries") or []
+        kursor = strona.get("next_cursor") or ""
+        if not kursor or (limit is not None and len(pozycje) >= limit):
+            break
+    wynik["entries"] = pozycje
+    wynik["next_cursor"] = kursor or None
+    return wynik
+
+
+def _os_pelne_tresci(klient, sprawa_id: str, pozycje: list) -> None:
+    """Podmień uciętą (≥ 400 zn.) treść wierszy osi na pełną z dziennika sprawy — w miejscu.
+
+    Oś niesie treść z lustra rdzenia, ucinaną przez SF do 400 znaków (pomiar 24.11 na 1420:
+    53 z 200 wierszy po 400). Dziennik czytamy tylko, gdy jest co podmieniać; podmieniony
+    wiersz dostaje `tresc_z_dziennika: true`, żeby skrypt wiedział, skąd treść.
+    """
+    from . import kontekst
+
+    ciete = [p for p in pozycje if isinstance(p, dict) and p.get("native_entry_id")
+             and len(p.get("content") or "") >= TRESC_BLOKU_Z_RDZENIA]
+    if not ciete:
+        return
+    try:
+        tresci = kontekst.tresci_z_dziennika(klient, sprawa_id)
+    except BladAPI:
+        return                                     # uzupełnienie to dodatek — oś zostaje, jaka przyszła
+    for p in ciete:
+        pelna = tresci.get(str(p["native_entry_id"]))
+        if pelna is not None:
+            p["content"] = pelna
+            p["tresc_z_dziennika"] = True
 
 
 def _drukuj_tresc_zadania(z: dict, *, wciecie: str = "") -> None:
@@ -3623,6 +3691,8 @@ def polecenie_sprawa(args) -> int:
     if getattr(args, "status", None) or getattr(args, "kind", None):
         return _sprawa_zmien(konf, args)
     klient = _klient(konf, args)
+    if getattr(args, "wpis", None):
+        return _sprawa_jeden_wpis(klient, args)
     try:
         wskazana, _ = _sprawa_dla_zapisu(klient, args.sprawa)
         karta = klient.sprawa(str(wskazana.get("id")))
@@ -3640,7 +3710,12 @@ def polecenie_sprawa(args) -> int:
             print(nawyki.wynik_json(dane) if getattr(args, "json", False)
                   else f"{dane['id']}\t{dane['numer'] or ''}\t{dane['org'] or ''}")
             return 0
+        ostatnie = getattr(args, "ostatnie", None)
         if getattr(args, "json", False):
+            if ostatnie and not args.wszystkie:
+                # 0.21.2 (ADVERTPR-1440): `--json --ostatnie N` = N najnowszych, chronologicznie.
+                wpisy_ = sorted(karta.get("entries") or [], key=lambda e: e.get("created_at") or "")
+                karta["entries"] = wpisy_[-ostatnie:]
             print(json.dumps(karta, ensure_ascii=False, indent=2, default=str))
             return 0
     except ValueError as blad:
@@ -3651,7 +3726,7 @@ def polecenie_sprawa(args) -> int:
         return 1
     poprzedni = (kontekst.ILE_WPISOW, kontekst.LIMIT_WPISU, kontekst.LIMIT_OPISU)
     try:
-        kontekst.ILE_WPISOW = 10_000 if args.wszystkie else poprzedni[0]
+        kontekst.ILE_WPISOW = 10_000 if args.wszystkie else (ostatnie or poprzedni[0])
         # 0.20.2 (SF-486 pkt 19): `sprawa` to droga DOCZYTANIA — treść wpisów i opisu w całości. Obcięcie zostaje
         # tylko w kontekście doklejanym na starcie zadania (tam wskazuje to polecenie).
         kontekst.LIMIT_WPISU = kontekst.LIMIT_OPISU = 10 ** 9
@@ -3665,6 +3740,55 @@ def polecenie_sprawa(args) -> int:
         for zid, nazwa in zal:
             print(f"  {zid}  {nazwa}")
     _pokaz_do_ciebie(klient, konf, str(wskazana.get("id")), getattr(args, "org", None))
+    return 0
+
+
+def _dodatnia(tekst: str) -> int:
+    """Typ argparse: liczba całkowita ≥ 1 (zero wpisów to nie prośba, tylko literówka)."""
+    try:
+        n = int(tekst)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"„{tekst}” to nie liczba") from None
+    if n < 1:
+        raise argparse.ArgumentTypeError("co najmniej 1")
+    return n
+
+
+def _sprawa_jeden_wpis(klient, args) -> int:
+    """`sf-kit sprawa <sprawa> --wpis <id|skrót>` — JEDEN wpis w całości (0.21.2, ADVERTPR-1440).
+
+    Na długiej sprawie (1420: 473 wpisy) szukanie jednego meldunku w `--wszystkie` to setki
+    ekranów, a oś i `blok` ucinają treść do 400 znaków. `GET …/entries/{id}` oddaje wpis
+    w całości; skrót z nawiasu `[02a63ba8]` rozwija `wpisy.rozwin_wpis` (ta sama droga co
+    `wpis-wersje`). Widoczność rozstrzyga SF jak przy każdym odczycie.
+    """
+    from . import wpisy
+
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+        wpis_id = wpisy.rozwin_wpis(klient, str(sprawa["id"]), args.wpis)
+        wpis = klient.wpis_sprawy(str(sprawa["id"]), wpis_id)
+    except ValueError as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    except BladAPI as blad:
+        print(f"Nie udało się pobrać wpisu {args.wpis}: {_powod_serwera(blad) or blad}", file=sys.stderr)
+        return 1
+    if getattr(args, "json", False):
+        print(json.dumps(wpis, ensure_ascii=False, indent=2, default=str))
+        return 0
+    autor = wpis.get("author_name") or wpis.get("author_email") or "?"
+    kiedy = (wpis.get("created_at") or "")[:16].replace("T", " ")
+    poziom = wpis.get("visibility") or ("internal" if wpis.get("is_internal") else "external")
+    print(f"Wpis {wpis_id} · {asystent.numer_sprawy(sprawa) or sprawa['id']}\n"
+          f"{kiedy} UTC · {autor} · {wpis.get('entry_type')} · {poziom} · "
+          f"{len(wpis.get('content') or '')} znaków\n")
+    print((wpis.get("content") or "(bez treści)").rstrip())
+    zal = [(z.get("id"), z.get("original_filename")) for z in wpis.get("attachments") or []]
+    if zal:
+        print("\nZałączniki (pobranie: `sf-kit zalacznik <id> --do <plik>`):")
+        for zid, nazwa in zal:
+            print(f"  {zid}  {nazwa}")
     return 0
 
 
@@ -4376,8 +4500,11 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                               help="zwiń ciągi zmian technicznych w wiersze-grupy")
     osc.add_argument("--rozwin", default=None, metavar="ID",
                      help="rozwiń TĘ grupę (identyfikator z nawiasu); działa ze `--zwinieta`")
-    osc.add_argument("--limit", type=int, default=50, help="ile wpisów na stronę (domyślnie 50)")
-    osc.add_argument("--json", action="store_true", help="surowa odpowiedź serwera")
+    osc.add_argument("--limit", type=int, default=50,
+                     help="ile wierszy od najnowszych (domyślnie 50; >200 Kit pobiera stronami)")
+    osc.add_argument("--wszystkie", action="store_true", help="cała oś, stronami po 200 do końca")
+    osc.add_argument("--json", action="store_true",
+                     help="odpowiedź serwera; treść ucięta przez oś (400 zn.) uzupełniona z dziennika")
     osc.set_defaults(funkcja=polecenie_os)
     pod.add_parser("heartbeat", help="[worker] czy worker tego agenta żyje").set_defaults(funkcja=polecenie_heartbeat)
     pod.add_parser("rotate", help="[wszyscy] wymień sekret klucza przed wygaśnięciem (okno 7 dni)"
@@ -4723,7 +4850,12 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     sp.set_defaults(funkcja=polecenie_sprawy)
     sa = pod.add_parser("sprawa", help="[wykonawca] karta sprawy: opis, wpisy, załączniki (SF-38)")
     sa.add_argument("sprawa", help="numer (ADVERTPR-927), identyfikator albo link do sprawy z ?org=…")
-    sa.add_argument("--wszystkie", action="store_true", help="wszystkie wpisy, nie ostatnie 15")
+    ile_sa = sa.add_mutually_exclusive_group()
+    ile_sa.add_argument("--wszystkie", action="store_true", help="wszystkie wpisy, nie ostatnie 15")
+    ile_sa.add_argument("--ostatnie", type=_dodatnia, default=None, metavar="N",
+                        help="N najnowszych wpisów (domyślnie 15; z --json przycina wszystkie rodzaje wpisów)")
+    sa.add_argument("--wpis", default=None, metavar="ID",
+                    help="JEDEN wpis w całości: id albo skrót z nawiasu [02a63ba8]")
     sa.add_argument("--json", action="store_true", help="[koordynator] karta sprawy z wpisami jako JSON")
     sa.add_argument("--status", default=None, choices=list(koordynacja.STATUSY_SPRAWY),
                     help="[koordynator] zmień status (resolved/closed sprawdza otwarte zadania i tagi „czeka na…”)")
