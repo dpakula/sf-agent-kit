@@ -98,7 +98,11 @@ def _kiedy(wartosc) -> str:
 
 def historia_do_pokazania(wpis: dict, wersje: list[dict], *, skrot: int = 160) -> str:
     """Bieżąca treść + wersje od najnowszej. Treść skracana do `skrot` znaków (0 = całość)."""
-    def _tnij(t) -> str:
+    def _tnij(t, wciecie: str = "  ") -> str:
+        if not skrot:
+            # 0.20.3 (ADVERTPR-1395): `--pelne` zachowuje akapity i listy — spłaszczony
+            # meldunek z 38 wierszy był nie do czytania. Wcięcie trzyma go pod etykietą.
+            return ("\n" + wciecie).join(str(t or "").strip().splitlines())
         plaska = " ".join(str(t or "").split())
         return plaska if not skrot or len(plaska) <= skrot else plaska[: skrot - 1] + "…"
 
@@ -119,5 +123,5 @@ def historia_do_pokazania(wpis: dict, wersje: list[dict], *, skrot: int = 160) -
         powod = f" · powód: {v['reason']}" if v.get("reason") else ""
         linie.append(f"  v{nr}{opis} — zastąpiona {_kiedy(v.get('created_at'))} przez "
                      f"{v.get('author_name') or '?'}{powod}")
-        linie.append(f"      {_tnij(v.get('content'))}")
+        linie.append(f"      {_tnij(v.get('content'), '      ')}")
     return "\n".join(linie)

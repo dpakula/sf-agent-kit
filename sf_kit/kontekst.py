@@ -91,6 +91,45 @@ def _pobierz(klient, sprawa: dict, cel: Path, pakiet: Pakiet) -> None:
             pakiet.pominiete.append(f"{nazwa} ({type(blad).__name__}: {blad})")
 
 
+#: Ile wpisów oddaje karta sprawy (`GET /tickets/{id}`, `TicketOut.entries`) — 200 NAJSTARSZYCH.
+#: Tyle samo mieści jedna strona dziennika (`GET …/entries`, `MAX_NA_STRONE`).
+WPISOW_W_KARCIE = 200
+#: Sufit stron dziennika przy dociąganiu (po 200) — 10 000 wpisów; dalej mówimy, że ucięliśmy.
+MAX_STRON_DZIENNIKA = 50
+
+
+def uzupelnij_dziennik(klient, sprawa: dict) -> int | None:
+    """Podmień `sprawa["entries"]` na PEŁNY dziennik, gdy karta oddała tylko 200 najstarszych.
+
+    ADVERTPR-1395 (20.11): na sprawie z 243 wpisami karta kończyła się na 19.11, więc „Ostatnie
+    wpisy” w kontekście zadania i w `sf-kit sprawa` były ostatnimi z PIERWSZYCH 200 — a świeży
+    wpis z 20.11 nie istniał dla agenta w żadnym poleceniu. Dziennik (`GET …/entries`) ma
+    `razem` i stronicowanie, i ten sam kształt wpisu co karta (nadzbiór pól).
+
+    Oddaje `razem` z dziennika, gdy dociągał, albo `None`, gdy nie było potrzeby lub odczyt
+    padł — wtedy karta zostaje, jaka była (kontekst jest dodatkiem, nie warunkiem).
+    """
+    if len(sprawa.get("entries") or []) < WPISOW_W_KARCIE:
+        return None
+    pelne: list[dict] = []
+    razem = None
+    try:
+        for strona in range(MAX_STRON_DZIENNIKA):
+            odp = klient.wpisy_sprawy(str(sprawa.get("id")), limit=WPISOW_W_KARCIE,
+                                      offset=strona * WPISOW_W_KARCIE) or {}
+            pozycje = [p for p in odp.get("pozycje") or [] if isinstance(p, dict) and p.get("typ") != "grupa"]
+            razem = odp.get("razem", razem)
+            pelne += pozycje
+            if len(odp.get("pozycje") or []) < WPISOW_W_KARCIE:
+                break
+    except Exception:                              # noqa: BLE001 — patrz docstring
+        return None
+    if len(pelne) <= len(sprawa.get("entries") or []):
+        return None
+    sprawa["entries"] = pelne
+    return razem if isinstance(razem, int) else len(pelne)
+
+
 def _wpis_tekstem(wpis: dict) -> str:
     autor = wpis.get("author_name") or wpis.get("author_email") or "?"
     kiedy = (wpis.get("created_at") or "")[:16].replace("T", " ")
@@ -100,7 +139,10 @@ def _wpis_tekstem(wpis: dict) -> str:
         tresc = tresc[:LIMIT_WPISU] + f" […obcięte — {len(wpis['content'])} znaków; całość: `sf-kit sprawa <numer> --wszystkie`]"
     zal = [z.get("original_filename") for z in (wpis.get("attachments") or [])]
     ogon = f"\n  (załączniki: {', '.join(n for n in zal if n)})" if zal else ""
-    return f"- {kiedy} UTC · {autor} · {wpis.get('entry_type')} · {poziom}\n  {tresc or '(bez treści)'}{ogon}"
+    # 0.20.3 (ADVERTPR-1395): skrót id wpisu w nagłówku — po nim `wpis-wersje <sprawa> <id> --pelne`.
+    ident = f" · [{str(wpis.get('id'))[:8]}]" if wpis.get("id") else ""
+    return (f"- {kiedy} UTC · {autor} · {wpis.get('entry_type')} · {poziom}{ident}\n"
+            f"  {tresc or '(bez treści)'}{ogon}")
 
 
 def _tekst(sprawa: dict, pakiet: Pakiet, katalog_roboczy: Path) -> str:
@@ -154,6 +196,7 @@ def przygotuj(klient, zadanie: dict, *, katalog_roboczy: str | Path) -> Pakiet:
         pakiet.tekst = ("--- KONTEKST SPRAWY ---\nNie udało się pobrać sprawy "
                         f"({blad}). Masz tylko treść zadania.\n--- KONIEC KONTEKSTU SPRAWY ---")
         return pakiet
+    uzupelnij_dziennik(klient, sprawa)
     cel.mkdir(parents=True, exist_ok=True)
     _pobierz(klient, sprawa, cel, pakiet)
     pakiet.tekst = _tekst(sprawa, pakiet, katalog_roboczy)

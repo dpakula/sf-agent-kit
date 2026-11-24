@@ -43,6 +43,12 @@ _UUID = ("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
 #: query opcjonalne. Nie kotwiczymy na sf.dpakula.pl — testy i staging mają swoje hosty.
 WZORZEC_LINKU = re.compile(rf"https?://[^\s/?#]+/tickets/(?P<id>{_UUID})(?P<query>[?][^\s#]*)?")
 
+#: 0.20.3 (ADVERTPR-1395): link „po numerze”, który SF wydaje w powiadomieniach i na ekranie
+#: sprawy: `/tickets/numer/SECO-329?org=…`. Niesie numer, nie identyfikator — numer rozwiązuje
+#: `asystent.znajdz_sprawe` w Organizacji z `?org=` (slug albo uuid, `Organizacja.pasuje`).
+WZORZEC_LINKU_NUMERU = re.compile(
+    r"https?://[^\s/?#]+/tickets/numer/(?P<numer>[A-Za-z][A-Za-z0-9]*-\d+)/?(?P<query>[?][^\s#]*)?")
+
 #: `nazwa.md` → (`nazwa`, `.md`). Koncówka z kropką, bo tak sklejamy nazwę wersji z powrotem.
 WZORZEC_WERSJI = re.compile(r"^(?P<bazowa>.+)-v(?P<n>\d+)(?P<koncowka>(?:\.[A-Za-z0-9]+)*)$")
 
@@ -66,12 +72,38 @@ def sprawa_z_linku(tekst: str) -> str | None:
 def organizacja_z_linku(tekst: str) -> str | None:
     """`?org=<slug>` z linku do sprawy. Link bez parametru daje `None` — to nie błąd,
     tylko informacja „jawności trzeba szukać gdzie indziej" (flaga --org)."""
-    trafienie = WZORZEC_LINKU.search(tekst or "")
+    trafienie = WZORZEC_LINKU.search(tekst or "") or WZORZEC_LINKU_NUMERU.search(tekst or "")
     if not trafienie:
         return None
     query = parse_qs(urlparse("https://x" + (trafienie.group("query") or "")).query)
     wartosci = query.get("org") or []
     return wartosci[0].strip() or None if wartosci else None
+
+
+def numer_z_linku(tekst: str) -> str | None:
+    """`SECO-329` z linku `/tickets/numer/SECO-329?org=…` — albo `None`, gdy to nie ten link."""
+    trafienie = WZORZEC_LINKU_NUMERU.fullmatch((tekst or "").strip())
+    return trafienie.group("numer") if trafienie else None
+
+
+def rozwin_link_numeru(args, pola: tuple[str, ...] = ("sprawa", "lead")) -> None:
+    """Link po numerze w argumencie polecenia → sam numer + `--org` z linku (gdy nie podano).
+
+    Jedno miejsce przed KAŻDYM poleceniem zamiast poprawek w trzydziestu: polecenia znają numer
+    (`FM-12`) i link z uuid, a link po numerze przechodził przez nie jako „nie rozumiem”
+    (ADVERTPR-1395, 20.11). Organizacja z linku działa jak jawne `--org` — dokładnie tak,
+    jak `?org=` w linku z uuid; jawne `--org` ma pierwszeństwo.
+    """
+    for pole in pola:
+        wartosc = getattr(args, pole, None)
+        numer = numer_z_linku(wartosc) if isinstance(wartosc, str) else None
+        if not numer:
+            continue
+        if not getattr(args, "org", None):
+            org = organizacja_z_linku(wartosc)
+            if org and hasattr(args, "org"):
+                args.org = org
+        setattr(args, pole, numer)
 
 
 def czy_szkic(sprawa: dict) -> bool:
