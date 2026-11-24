@@ -2,7 +2,7 @@
 name: "sf-update"
 description: "Zaktualizuj Kita do wydania wskazanego przez SF"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.2; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit update …` (argumenty z prośby człowieka; składnia: `[--check]`)
 

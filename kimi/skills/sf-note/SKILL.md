@@ -3,7 +3,7 @@ name: "sf-note"
 description: "Dopisz postęp do sprawy (domyślnie wewnętrznie, dla zespołu)"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.2; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit wpis $ARGUMENTS`
 

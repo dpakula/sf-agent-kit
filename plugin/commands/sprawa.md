@@ -1,10 +1,10 @@
 ---
 description: "Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” — to samo co /sf-kit:case"
-argument-hint: "<numer|link> [--wszystkie]"
+argument-hint: "<numer|link> [--wszystkie|--ostatnie N] [--wpis <id>]"
 allowed-tools: "Bash(sf-kit:*), PowerShell(sf-kit *)"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.2; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit sprawa $ARGUMENTS`
 

@@ -3,7 +3,7 @@ name: "sf-leady"
 description: "Zakładka Leady: lista albo karta leada ze stanem przekazania do CRM — to samo co /skill:sf-leads"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.2; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit leady $ARGUMENTS`
 

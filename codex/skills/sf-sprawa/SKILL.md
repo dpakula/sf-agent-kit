@@ -2,9 +2,9 @@
 name: "sf-sprawa"
 description: "Karta sprawy: opis, wpisy, załączniki, „Do Ciebie” — to samo co $sf-case"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.1; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.2; nie edytuj ręcznie -->
 
-Uruchom w terminalu: `sf-kit sprawa …` (argumenty z prośby człowieka; składnia: `<numer|link> [--wszystkie]`)
+Uruchom w terminalu: `sf-kit sprawa …` (argumenty z prośby człowieka; składnia: `<numer|link> [--wszystkie|--ostatnie N] [--wpis <id>]`)
 
 - Gdy człowiek nie podał wszystkiego, czego polecenie wymaga, zapytaj go jednym zdaniem — nie zgaduj numeru sprawy ani adresu.
 - Gdy masz kilka Organizacji, dodaj `--org <slug>` (sprawdzisz w `sf-kit whoami`).
