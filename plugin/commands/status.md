@@ -3,7 +3,7 @@ description: "Kim jestem w SF: konto, klucz, Organizacje, uprawnienia"
 allowed-tools: "Bash(sf-kit:*), PowerShell(sf-kit *)"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.2; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.22.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit whoami $ARGUMENTS`
 

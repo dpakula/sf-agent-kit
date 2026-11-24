@@ -44,6 +44,10 @@ class ZlyWpis(ValueError):
     """Wskazanie wpisu nie prowadzi do jednego wpisu. Komunikat jest gotowy do pokazania."""
 
 
+class BrakWpisu(ZlyWpis):
+    """Skrót nie trafia w żaden wpis dziennika (w odróżnieniu od skrótu wieloznacznego)."""
+
+
 def czy_pelny_uuid(wskazanie: str) -> bool:
     """Czy wskazanie jest pełnym identyfikatorem wpisu. Tego NIE rozwijamy lokalnie —
     pełny identyfikator (np. zgoda z innej sprawy tej Organizacji) przechodzi do serwera
@@ -69,7 +73,7 @@ def rozwin_wpis(klient, sprawa_id: str, wskazanie: str) -> str:
             break
     trafienia = list(dict.fromkeys(trafienia))
     if not trafienia:
-        raise ZlyWpis(f"na tej sprawie nie ma wpisu zaczynającego się od „{wskazanie}” "
+        raise BrakWpisu(f"na tej sprawie nie ma wpisu zaczynającego się od „{wskazanie}” "
                       f"(albo nie masz do niego dostępu — poziom widoczności).")
     if len(trafienia) > 1:
         raise ZlyWpis(f"„{wskazanie}” pasuje do {len(trafienia)} wpisów "

@@ -1118,6 +1118,8 @@ def polecenie_zadanie(args) -> int:
 #: 0.20.2 (SF-486 pkt 19, test odbioru): czysty agent nie widział WŁASNEGO zadania w toku („w kolejce: 0”)
 #: i szukał jego id w `sprawa --json`. `tasks` pokazuje więc wszystko, co jest jeszcze moje do zrobienia.
 STATUSY_MOICH_ZADAN = ("queued", "in_progress", "on_hold")
+#: Wszystkie statusy zadania w SF — do filtra `zadania --status` (0.22).
+STATUSY_ZADAN_SF = ("pending", "queued", "in_progress", "on_hold", "completed", "failed", "cancelled")
 
 
 def polecenie_tasks(args) -> int:
@@ -1365,7 +1367,8 @@ def polecenie_flota_rejestr(args) -> int:
 
 
 def polecenie_zlec(args) -> int:
-    """Zadanie dla agenta — ZAWSZE na sprawie."""
+    """Zadanie dla agenta — ZAWSZE na sprawie. `--json` (0.22) oddaje `task_id` założonego zadania."""
+    jako_json = getattr(args, "json", False)
     konf = konfiguracja.wczytaj()
     klient, org = _koordynator(konf, args)
 
@@ -1377,11 +1380,9 @@ def polecenie_zlec(args) -> int:
         koordynator.sprawdz_sprawe_dla_wykonawcy(
             klient, ticket_id=str(sprawa["id"]), agent=agent)
     except koordynator.Odmowa as odmowa:
-        print(str(odmowa), file=sys.stderr)
-        return 2
+        return nawyki.blad(args, str(odmowa), 2)
     except (ValueError, BladAPI) as blad:
-        print(f"Nie udało się zlecić: {blad}", file=sys.stderr)
-        return 1
+        return nawyki.blad(args, f"Nie udało się zlecić: {blad}")
 
     try:
         zadanie = klient.zaloz_zadanie(
@@ -1390,30 +1391,120 @@ def polecenie_zlec(args) -> int:
             projekt=args.projekt, kategoria=args.kategoria,
         )
     except BladAPI as blad:
-        print(f"Nie udało się zlecić: {blad}", file=sys.stderr)
-        return 1
+        return nawyki.blad(args, f"Nie udało się zlecić: {blad}")
 
-    print(f"Zlecone: {zadanie.get('external_id')} → {agent.slug}")
-    print(f"  sprawa: {asystent.numer_sprawy(sprawa)}")
+    # Od tej chwili zadanie ISTNIEJE: kłopot z tagiem albo doręczeniem to uwaga, nie błąd — inaczej
+    # skrypt ponowiłby `zlec` i założył drugie zadanie.
+    uwagi_: list[str] = []
+    doreczone = False
+
+    def _linia(tekst: str) -> None:
+        if not jako_json:
+            print(tekst)
+
+    def _uwaga(tekst: str) -> None:
+        uwagi_.append(tekst)
+        print(f"  UWAGA: {tekst}", file=sys.stderr)
+
+    _linia(f"Zlecone: {zadanie.get('external_id')} → {agent.slug}")
+    _linia(f"  id zadania: {zadanie.get('id')}")
+    _linia(f"  sprawa: {asystent.numer_sprawy(sprawa)}")
     if getattr(args, "rodzaj", None):
         try:
             for linia in koordynacja.nadaj_rodzaj(klient, str(sprawa["id"]), args.rodzaj):
-                print(f"  ✓ {linia}")
+                _linia(f"  ✓ {linia}")
         except (ValueError, BladAPI) as blad:
-            print(f"  UWAGA: rodzaju pracy NIE nadałem: {blad}", file=sys.stderr)
+            _uwaga(f"rodzaju pracy NIE nadałem: {blad}")
     if getattr(args, "dostarcz", False):
         # SF-486 luka 6: doręczenie przez skrzynkę SF (session_target = slug agenta), nie tmux kickoff.sh.
         try:
             pelna = klient.sprawa(str(sprawa["id"])) if not sprawa.get("ticket_number") else sprawa
             klient.wiadomosc_do(agent.slug, koordynacja.tresc_dostarczenia(
                 zadanie, {**pelna, "id": sprawa["id"]}, baza=konf.adres, org_slug=org.slug))
-            print(f"  ✓ doręczone do sesji {agent.slug} (skrzynka SF)")
+            doreczone = True
+            _linia(f"  ✓ doręczone do sesji {agent.slug} (skrzynka SF)")
         except BladAPI as blad:
-            print(f"  UWAGA: zadanie JEST, ale doręczenie do {agent.slug} nie poszło: {blad}", file=sys.stderr)
+            _uwaga(f"zadanie JEST, ale doręczenie do {agent.slug} nie poszło: {blad}")
+    if jako_json:
+        print(nawyki.wynik_json({
+            "task_id": zadanie.get("id"), "external_id": zadanie.get("external_id"),
+            "tytul": zadanie.get("title") or args.tytul, "status": zadanie.get("status"), "agent": agent.slug,
+            "sprawa": {"id": str(sprawa["id"]), "numer": asystent.numer_sprawy(sprawa)}, "org": org.slug,
+            "doreczone": doreczone, "uwagi": uwagi_}))
+        return 0
     print(f"  {asystent.adres_sprawy(str(sprawa['id']), baza=konf.adres)}")
     print(f"\nWynik pojawi się na tej sprawie. Sprawdź: "
           f"{_jak_wolac()} odbierz {zadanie.get('external_id')}")
     return 0
+
+
+#: Pola zadania w `zadania --json` — bez treści (`--pelne` oddaje rekord z SF w całości). Nazwy są kontraktem.
+_POLA_ZADANIA = (("id", "id"), ("external_id", "external_id"), ("tytul", "title"), ("status", "status"),
+                 ("agent", "assigned_agent_slug"), ("przypisany", "assignee_name"), ("priorytet", "priority"),
+                 ("termin", "deadline"), ("utworzono", "created_at"), ("zmieniono", "updated_at"),
+                 ("podjeto", "board_started_at"), ("zakonczono", "board_completed_at"), ("wersja", "version"))
+
+
+def _lista_z_przecinkow(wartosci) -> set[str]:
+    return {s.strip() for w in wartosci or [] for s in str(w).split(",") if s.strip()}
+
+
+def polecenie_zadania(args) -> int:
+    """`sf-kit zadania <sprawa>` — WSZYSTKIE zadania sprawy ze statusem (0.22, ADVERTPR-1420).
+
+    Podajnik toru czytał stan zadań z wpisów sprawy i widział 6 zamkniętych z 32. Tu źródłem są
+    same zadania. Filtrujemy po stronie Kita, na jednym komplecie: `liczby` mówią wtedy o całej
+    sprawie, a literówka w statusie nie udaje „zero zadań” (SF oddaje na nią pustą listę bez błędu).
+    Kod 3 = lista może być niepełna (zadania zmieniały się w trakcie czytania) — ponów.
+    """
+    statusy = _lista_z_przecinkow(args.status)
+    nieznane = statusy - set(STATUSY_ZADAN_SF)
+    if nieznane:
+        return nawyki.blad(args, f"nieznany status: {', '.join(sorted(nieznane))} — "
+                                 f"dozwolone: {', '.join(STATUSY_ZADAN_SF)}", 2)
+    if flow.sprawa_z_linku(args.sprawa) and not getattr(args, "org", None):
+        args.org = flow.organizacja_z_linku(args.sprawa) or None
+    klient = _klient(konfiguracja.wczytaj(), args)
+    try:
+        sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+        ticket_id = str(sprawa["id"])
+        wynik = klient.zadania_sprawy_stronami(ticket_id)
+    except (ValueError, BladAPI) as blad:
+        return nawyki.blad(args, f"Nie udało się pobrać zadań sprawy: {blad}")
+
+    wszystkie = wynik["zadania"]
+    numer = asystent.numer_sprawy(sprawa) or next((z["ticket_ref"] for z in wszystkie if z.get("ticket_ref")), None)
+    liczby: dict[str, int] = {}
+    for z in wszystkie:
+        st = str(z.get("status"))
+        liczby[st] = liczby.get(st, 0) + 1
+    agenci = _lista_z_przecinkow(getattr(args, "agent_slug", None))
+    lista = [z for z in wszystkie if (not statusy or z.get("status") in statusy)
+             and (not agenci or z.get("assigned_agent_slug") in agenci)]
+    kod = 0 if wynik["kompletne"] else 3
+    if not wynik["kompletne"]:
+        print(f"UWAGA: lista może być niepełna — mam {len(wszystkie)} z {wynik['razem']} zadań (zmieniały się "
+              f"w trakcie czytania). Ponów.", file=sys.stderr)
+    if args.json:
+        print(json.dumps({
+            "ok": wynik["kompletne"], "sprawa": {"id": ticket_id, "numer": numer}, "razem": wynik["razem"],
+            "kompletne": wynik["kompletne"], "liczby": liczby, "pokazano": len(lista),
+            "zadania": lista if args.pelne else [{nasze: z.get(ich) for nasze, ich in _POLA_ZADANIA} for z in lista],
+        }, ensure_ascii=False, indent=2, default=str))
+        return kod
+
+    rozbicie = " · ".join(f"{s} {liczby[s]}" for s in (*STATUSY_ZADAN_SF, *sorted(set(liczby) - set(STATUSY_ZADAN_SF)))
+                          if liczby.get(s))
+    print(f"Zadania sprawy {numer or ticket_id}: {wynik['razem']}{f' ({rozbicie})' if rozbicie else ''}")
+    if statusy or agenci:
+        print(f"po zawężeniu: {len(lista)}")
+    for z in lista:
+        print(f"\n  [{z.get('status')}] {z.get('title')}")
+        print(f"    {z.get('assigned_agent_slug') or z.get('assignee_name') or '(nikt)'} · "
+              f"zmiana {str(z.get('updated_at') or '?')[:16].replace('T', ' ')} UTC · id: {z.get('id')}")
+        if args.pelne:
+            _drukuj_tresc_zadania(z, wciecie="    ")
+    return kod
 
 
 def polecenie_kolejka(args) -> int:
@@ -3754,6 +3845,30 @@ def _dodatnia(tekst: str) -> int:
     return n
 
 
+def _wpis_albo_blok(klient, sprawa_id: str, wskazanie: str) -> tuple[str, dict]:
+    """Wpis po id dziennika, a gdy takiego nie ma — po id BLOKU z osi (0.22).
+
+    `os` pokazuje id bloku, dziennik ma własne; ludzie i agenci cytują jedno i drugie
+    („wpis 5d122e78” to był blok). Oba mają otworzyć ten sam wpis.
+    """
+    from . import wpisy
+
+    try:
+        wpis_id = wpisy.rozwin_wpis(klient, sprawa_id, wskazanie)
+        return wpis_id, klient.wpis_sprawy(sprawa_id, wpis_id)
+    except (wpisy.BrakWpisu, BladAPI) as blad:
+        if isinstance(blad, BladAPI) and getattr(blad, "kod", None) != 404:
+            raise
+        w = wskazanie.strip().lower()
+        pozycje = _os_stronami(klient, sprawa_id, pelna=True, rozwin="", limit=None).get("entries") or []
+        trafienia = {str(p["native_entry_id"]) for p in pozycje
+                     if p.get("native_entry_id") and str(p.get("id") or "").lower().startswith(w)}
+        if len(trafienia) != 1:
+            raise
+        wpis_id = trafienia.pop()
+        return wpis_id, klient.wpis_sprawy(sprawa_id, wpis_id)
+
+
 def _sprawa_jeden_wpis(klient, args) -> int:
     """`sf-kit sprawa <sprawa> --wpis <id|skrót>` — JEDEN wpis w całości (0.21.2, ADVERTPR-1440).
 
@@ -3766,8 +3881,7 @@ def _sprawa_jeden_wpis(klient, args) -> int:
 
     try:
         sprawa, _ = _sprawa_dla_zapisu(klient, args.sprawa)
-        wpis_id = wpisy.rozwin_wpis(klient, str(sprawa["id"]), args.wpis)
-        wpis = klient.wpis_sprawy(str(sprawa["id"]), wpis_id)
+        wpis_id, wpis = _wpis_albo_blok(klient, str(sprawa["id"]), args.wpis)
     except ValueError as blad:
         print(str(blad), file=sys.stderr)
         return 1
@@ -4473,6 +4587,16 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     tk.add_argument("--status", choices=list(STATUSY_MOICH_ZADAN), default=None,
                     help="tylko ten status (domyślnie: w kolejce, w toku i wstrzymane)")
     tk.set_defaults(funkcja=polecenie_tasks)
+    zs = pod.add_parser("zadania", help="[wykonawca] WSZYSTKIE zadania sprawy ze statusem (moje zadania: `tasks`)")
+    zs.add_argument("sprawa", help="numer (ADVERTPR-927), identyfikator albo link do sprawy z ?org=…")
+    zs.add_argument("--status", action="append", default=None, metavar="STATUS[,STATUS]",
+                    help=f"tylko te statusy: {', '.join(STATUSY_ZADAN_SF)} (można powtórzyć)")
+    zs.add_argument("--agent-slug", action="append", default=None, dest="agent_slug", metavar="SLUG[,SLUG]",
+                    help="tylko zadania tych agentów")
+    zs.add_argument("--pelne", action="store_true", help="z treścią zadań (z --json: rekordy SF w całości)")
+    zs.add_argument("--json", action="store_true",
+                    help="{ok, sprawa, razem, kompletne, liczby, pokazano, zadania[]}; kod 3 = lista może być niepełna")
+    zs.set_defaults(funkcja=polecenie_zadania)
     zd = pod.add_parser("zadanie", help="[wykonawca] pełna treść jednego zadania: status, termin, sprawa, opis")
     zd.add_argument("zadanie", metavar="ID|EXTERNAL_ID")
     zd.add_argument("--status", choices=["in_progress", "completed", "on_hold"], default=None,
@@ -4911,6 +5035,7 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     zl.add_argument("--rodzaj", default=None, help="rodzaj pracy sprawy (tag „Rodzaj pracy”: Rdzeń, Rozwojowe…)")
     zl.add_argument("--dostarcz", action="store_true",
                     help="doręcz zlecenie do sesji agenta przez skrzynkę SF (zamiast kickoff.sh/tmux)")
+    zl.add_argument("--json", action="store_true", help="wynik jako JSON: task_id, external_id, sprawa, doreczone, uwagi")
     zl.set_defaults(funkcja=polecenie_zlec)
 
     ko = pod.add_parser("kolejka", help="[koordynator] co flota ma w toku")

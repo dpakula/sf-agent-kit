@@ -856,7 +856,8 @@ Kit odmawia na wejściu i mówi, gdzie to uprawnienie masz.
 sf-kit flota                      # kto może dostać zadanie
 sf-kit flota wersje [--ponizej]   # wersje Kita we flocie: agent, wersja, kiedy widziany, poniżej wymaganej (0.20.2)
 sf-kit flota rejestr agents.json [--pokaz]   # migawka rejestru floty do SF (v0.10)
-sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md
+sf-kit zlec --tytul "…" --agent-slug kodeks --sprawa AUT-12 --opis zadanie.md [--json]   # --json: task_id (0.22)
+sf-kit zadania AUT-12 [--status in_progress,completed] [--agent-slug kodeks] [--json]    # wszystkie zadania sprawy (0.22)
 sf-kit kolejka [--agent-slug kodeks] [--status in_progress]
 sf-kit odbierz zadanie-abc-20260915
 sf-kit status --kolejka           # kim jestem + kolejka floty (do 0.17: samo `status`)
@@ -869,6 +870,13 @@ i 1–3 podpowiedzi „co zrobić”. Kit niczego tu nie liczy: dane, rozbicia i
 `scripts/lib/wskazniki.py --json` z repo AProAgents (jeden manifest wskaźników). Kit szuka go w górę od katalogu
 domowego (`$HOME`), **nie od bieżącego** — znaleziony plik jest uruchamiany, a cudze repo nie może go podsunąć; inaczej `--wskazniki <ścieżka>` albo env `SF_KIT_WSKAZNIKI`. `--krotko` = same paski,
 `--kolor nigdy` = bez kodów ANSI (tak woła go /mood). Bez `wskazniki.py` Kit mówi, czego brakuje; panel w SF — SF-289.
+
+**Stan zadań sprawy (od 0.22).** `sf-kit zadania <sprawa> --json` oddaje `{ok, sprawa{id,numer}, razem, kompletne, liczby,
+pokazano, zadania[]}`; zadanie: `id, external_id, tytul, status, agent, przypisany, priorytet, termin, utworzono,
+zmieniono, podjeto, zakonczono, wersja` (z `--pelne` rekord SF z treścią). Kit czyta wszystkie strony (200 na stronę).
+`liczby` dotyczą całej sprawy, filtry tylko listy `zadania`. Kod 3 i `kompletne: false` = zadania zmieniały się w trakcie
+czytania, ponów. `zlec --json` oddaje `{ok, task_id, external_id, …, doreczone, uwagi[]}`: `uwagi` niepuste przy kodzie 0
+znaczą, że zadanie JEST, a nie wyszedł dodatek (tag, doręczenie) — nie ponawiaj `zlec`.
 
 **`zlec` zawsze wymaga sprawy.** To twarda strona zasady „twardo przy zakładaniu, miękko przy
 wykonaniu": zadanie bez sprawy da się wykonać, ale jego wynik nie ma gdzie wylądować. Jeśli
@@ -1498,7 +1506,7 @@ Wykonawca doczytuje w trakcie pracy **bez klucza w prompcie**:
 sf-kit sprawa ADVERTPR-927 [--wszystkie]     # karta sprawy tym samym formatem + id załączników
                                              # + „Do Ciebie”: otwarte bloki konsoli do Ciebie (SF-182, 0.15.7)
 sf-kit sprawa ADVERTPR-927 --ostatnie 40     # 40 najnowszych wpisów (z --json też przycina; 0.21.2)
-sf-kit sprawa ADVERTPR-927 --wpis 02a63ba8   # JEDEN wpis w całości — id albo skrót z nawiasu [02a63ba8] (0.21.2)
+sf-kit sprawa ADVERTPR-927 --wpis 02a63ba8   # JEDEN wpis w całości — id albo skrót z nawiasu [02a63ba8] (0.21.2), także id bloku z `os` (0.22)
 sf-kit zalacznik <id> --do inbox/plik.pdf     # jeden załącznik
 ```
 

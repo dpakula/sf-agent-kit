@@ -49,6 +49,7 @@ GRUPY_PROFILU = {
 
 #: Pokrewne polecenia w JEDNEJ linii przeglądu (limit 80 linii). Test sprawdza, że każda nazwa istnieje w parserze.
 LACZONE = (
+    (("tasks", "zadania"), "moje zadania (`tasks`) / wszystkie zadania sprawy ze statusem (`zadania <sprawa> --json`)"),
     (("plugin", "codex", "kimi", "gemini"), "pakiet Kita dla Claude Code / Codex / Kimi / Gemini: stan, --zainstaluj, --odswiez"),
     (("relacje", "przypnij", "odepnij"), "sprawa w sprawie: co sprawa zawiera i czego jest częścią; przypnij / odepnij relację"),
     (("krok", "tura"), "kroki rozgrywki (nowy, zamknij) i zamknięcie tury jednym poleceniem: stan, kickoffy, pomiar, "

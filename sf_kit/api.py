@@ -870,12 +870,46 @@ class Klient:
         wynik = self._wywolaj("PATCH", f"tickets/{ticket_id}/kind", cialo={"kind": rodzaj})
         return wynik if isinstance(wynik, dict) else {}
 
-    def zadania_sprawy(self, ticket_id: str, *, limit: int = 200) -> list[dict]:
-        """Wszystkie zadania sprawy (`GET /tasks?ticket_id=`), bez zawężenia do agentów."""
-        wynik = self._wywolaj("GET", "tasks?" + urllib.parse.urlencode({"ticket_id": ticket_id, "limit": limit}))
-        if isinstance(wynik, dict):
-            wynik = wynik.get("items") or []
-        return [z for z in wynik if isinstance(z, dict)]
+    #: `GET /tasks` przyjmuje `limit` ≤ 200 (większy = 422); dalej `offset`. Sufit: 10 000 zadań sprawy.
+    ZADAN_NA_STRONE = 200
+    ZADAN_MAX_STRON = 50
+
+    def zadania_sprawy(self, ticket_id: str) -> list[dict]:
+        """WSZYSTKIE zadania sprawy, bez zawężenia do agentów (od 0.22 stronami — dotąd tylko pierwsze 200)."""
+        return self.zadania_sprawy_stronami(ticket_id)["zadania"]
+
+    def zadania_sprawy_stronami(self, ticket_id: str) -> dict:
+        """`{zadania, razem, kompletne}` — wszystkie strony `GET /tasks?ticket_id=` (ADVERTPR-1420).
+
+        Stronicowanie offsetem nie jest migawką: zadanie założone albo przestawione między stronami
+        może się zdublować lub wypaść. Dublety zdejmujemy po id, a gdy liczba nie zgadza się
+        z `total`, czytamy RAZ jeszcze od zera. Dalej nie zgadza się → `kompletne: False`;
+        wołający decyduje, co z tym zrobić, ale nie bierze kawałka za całość.
+        """
+        for _ in range(2):
+            po_id: dict[str, dict] = {}
+            razem: int | None = None
+            for nr in range(self.ZADAN_MAX_STRON):
+                offset = nr * self.ZADAN_NA_STRONE
+                odp = self._wywolaj("GET", "tasks?" + urllib.parse.urlencode(
+                    {"ticket_id": ticket_id, "limit": self.ZADAN_NA_STRONE, "offset": offset}))
+                if isinstance(odp, dict):
+                    pozycje = odp.get("items") or []
+                    razem = int(odp["total"]) if odp.get("total") is not None else razem
+                else:
+                    pozycje = odp or []
+                for z in pozycje:
+                    if isinstance(z, dict):
+                        po_id[str(z.get("id"))] = z
+                dalej = offset + len(pozycje)
+                if not pozycje or (dalej >= razem if razem is not None else len(pozycje) < self.ZADAN_NA_STRONE):
+                    break
+            else:
+                break                                  # sufit stron — drugi przebieg nic nie zmieni
+            if razem is None or len(po_id) == razem:
+                return {"zadania": list(po_id.values()), "razem": len(po_id), "kompletne": True}
+        return {"zadania": list(po_id.values()), "razem": razem if razem is not None else len(po_id),
+                "kompletne": False}
 
     def feed_osoby(self, osoby: list[str], *, od: str, limit: int = 100) -> list[dict]:
         """`GET /timeline/feed?osoba=…&since=…` — wpisy osoby (autor albo przypisany) w TEJ Organizacji (0.20)."""
