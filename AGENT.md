@@ -106,6 +106,7 @@ Treść: `--tresc "tekst"` albo `--opis plik.md` (`-` = stdin). Kody wyjścia: `
 | zadanie dla agenta | `zlec` | `sf-kit --org sf zlec --tytul "…" --agent-slug arek-sf --sprawa SF-486 --tresc "…" --dostarcz` | „Zlecone: SF-T-… → arek-sf” + sprawa |
 | odebrać wynik agenta | `odbierz` | `sf-kit --org sf odbierz SF-T-123` | kontrola wyniku na sprawie, potem zamknięcie zadania |
 | nowy krok rozgrywki | `krok nowy` | `sf-kit --org advertpro-co krok nowy --tytul "KROK V · Rozgrywka 03.11.2026" --tresc "Sedno: …" --obserwujacy d.pakula@advertpro.co --zalacz plan.md` | numer + tytuł + link; tag „Krok” domyślnie (`--tag ""` = bez) |
+| zamknąć turę (stan, kickoffy, pomiar, decyzje, closed) | `tura zamknij` | `sf-kit --org sf tura zamknij --opis stan.md` | jedna linia „zapisane: … \| następny krok: …”; kod 3 = zapisane z brakami |
 | tag / obserwujący | `tag nadaj`, `obserwujacy --dodaj` | `sf-kit tag nadaj "<link>" Rozwojowe --typ "Rodzaj pracy" --zamien` | lista nadanych tagów |
 | widoczność wpisu | `wpis --widocznosc` | `sf-kit wpis "<link u klienta>" --widocznosc konsola --tresc "…"` | `konsola` = notatka floty u klienta (klient nie widzi) |
 | status sprawy | `sprawa --status` | `sf-kit sprawa "<link>" --status resolved` | odmowa, gdy w sprawie jest otwarte zadanie (`--mimo-to` świadomie) |
@@ -138,6 +139,37 @@ Treść: `--tresc "tekst"` albo `--opis plik.md` (`-` = stdin). Kody wyjścia: `
 - **Rodzaj pracy:** `nowa-sprawa|zglos|zlec … --rodzaj Rdzeń|Rozwojowe|Poboczne|Prywatne` (tag typu „Rodzaj pracy”).
 - **Doręczenie zlecenia:** `zlec … --dostarcz` — wiadomość do sesji agenta przez skrzynkę SF (link sprawy + polecenie odczytu kontekstu).
 - **Kroki rozgrywki:** `krok nowy --opis sedno.md` (numer nadaje SF, `POST /kroki/dzis`), `krok zamknij <sprawa> --opis zamkniecie.md`.
+- **Zamknięcie tury (0.21, SF-574) — `tura zamknij`:** jedno polecenie zamiast lokalnej komendy koordynatora (dawne `/next-turn`).
+  `sf-kit --org <org konsoli> tura zamknij --opis stan.md` (albo `--tresc "…"` / `--tresc -`). Stan to markdown: co robione,
+  status, zrobione, delegowane, plus dwie sekcje, które Kit czyta:
+  ```
+  ## Następny krok
+  Jedno zdanie: od czego zaczyna następna tura (punkt wznowienia).
+  ## Decyzje
+  - Damian: wydanie 0.21 przez bramkę → #2458
+  - Damian: kolejność paczek → SF-574 (wpis 7fd59229)
+  ```
+  (albo `--nastepny "…"` i `--decyzja "… → #N"` wiele razy; tura bez decyzji: `--bez-decyzji`). Kit po kolei:
+  1. **krok:** `--krok <sprawa>` → plik rozgrywki (`sf-kit ustawienia rozgrywka <plik>`, domyślnie `~/tracking/rozgrywka.json`)
+     → najnowszy krok Organizacji z SF. Krok **zamknięty**, a po zamknięciu powstały kickoffy, bloki albo decyzje → Kit zakłada
+     **nowy krok** i to on dostaje stan (praca nie zostaje bez osi). Zamknięty bez pracy po nim → dopisek, bez zmiany statusu;
+  2. **kickoffy tury:** zadania założone przez Twoje konto od otwarcia kroku (`--od` zmienia początek), we wszystkich Organizacjach;
+  3. **pomiar:** to samo liczenie co `sf-kit status` (`--kto`, `--wskazniki`); bez `wskazniki.py` presja Organizacji z SF;
+  4. **ślad decyzji:** każdy punkt musi wskazać `#blok`, `SPRAWA-N`, link sprawy albo `wpis <id>`; bloki i sprawy Kit
+     sprawdza w SF (we wszystkich Organizacjach). Punkt bez śladu albo brak sekcji „Decyzje” = **brak** (kod 3), nie cisza;
+  5. **wpis zamykający** (wewnętrzny) na kroku: stan, następny krok, kickoffy, decyzje ze stanem śladu, pomiar → status `closed`;
+  6. **lokalnie, gdy ustawione:** `tura_plik_stanu` (punkt wznowienia dla drugiego okna; `--plik-stanu` jednorazowo),
+     `tura_dziennik` (akapit; `{data}` = RRRR-MM-DD), `tura_repo` + `tura_commit pliki|wszystko` (commit; nigdy push).
+     Wyłącz jednorazowo: `--bez-dziennika`, `--bez-commita`;
+  7. **wynik:** jedna linia `zapisane: wpis SF-600, closed, plik stanu, dziennik, commit 1a2b3c4 | następny krok: …`
+     (z brakami: `| braki: … |`). Kody: `0` wszystko · `1` SF nie przyjął wpisu/statusu (plik stanu i tak powstaje) ·
+     `2` złe wejście, nic nie wysłane · `3` zapisane, ale z brakami. `--sucho` = pokaż wpis i plan, nic nie zapisuj
+     (kod jak w prawdziwym przebiegu). `--json` = cały wynik jako obiekt.
+  - **Asystent** (sesja z człowiekiem, bez kroków): `tura zamknij --sprawa <sprawa> --tresc …` — stan jako wpis na sprawie,
+    bez zmiany statusu; reszta (pomiar, decyzje, pliki lokalne) tak samo. **Worker** tury nie ma: jego stan to komentarze zadania.
+  - Lokalna komenda koordynatora zostaje **cienką nakładką**: zbiera stan od modelu do pliku i woła
+    `sf-kit --org <org> tura zamknij --opis <plik>`; o wyniku mówi linia i kod wyjścia. Ścieżki domu są w ustawieniach Kita,
+    nie w komendzie.
 - **Sprzątanie kolejki:** `kolejka --stare 14d`, potem `odbierz --hurt <id…> --status cancelled --notka "…"` (tylko cancelled/on_hold; `completed` = jeden odbiór z kontrolą wyniku).
 - **Dziennik audytu:** `SF_KIT_AUDIT_LOG=<plik>` albo `sf-kit ustawienia dziennik_audytu <plik>` — każdy zapis dostaje wiersz w formacie `sf_audit.log` floty (`hook=kit … sesja=jawny|zaplecze`; sesja z `SF_KIT_SESJA` albo `AGATA_ROLA=zaplecze`).
 

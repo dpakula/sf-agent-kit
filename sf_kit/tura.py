@@ -94,6 +94,20 @@ def rozbierz_stan(tekst: str) -> tuple[str | None, list[str] | None]:
     return nastepny, decyzje
 
 
+def bez_sekcji_tury(tekst: str) -> str:
+    """Stan bez sekcji „Następny krok” i „Decyzje” — wpis zamykający pokazuje je osobno, raz."""
+    wynik: list[str] = []
+    for naglowek, linie in _sekcje(tekst):
+        if naglowek and (_NASTEPNY_NAGLOWEK.match(naglowek) or _DECYZJE_NAGLOWEK.match(naglowek)):
+            continue
+        if naglowek:
+            wynik.append(f"## {naglowek}")
+        wynik += linie
+    tekst = "\n".join(wynik)
+    tekst = "\n".join(l for l in tekst.splitlines() if not _NASTEPNY_LINIA.match(l))
+    return re.sub(r"\n{3,}", "\n\n", tekst).strip()
+
+
 @dataclass
 class Decyzja:
     tekst: str
@@ -229,9 +243,10 @@ def kickoffy(klienci: list[tuple[str, object]], od: datetime, email: str | None)
 
 
 def wiersz_kickoffu(z: dict) -> str:
-    kto = z.get("assigned_agent_slug") or z.get("assignee_label")
+    kto = z.get("assigned_agent_slug") or z.get("assignee_name")
     tytul = " ".join(str(z.get("title") or "").split())[:90]
-    return f"{z.get('external_id') or str(z.get('id'))[:8]} → {kto or '?'} · {z.get('_org')} · {tytul}"
+    sprawa = f"{z['ticket_ref']} · " if z.get("ticket_ref") else ""
+    return f"{sprawa}{z.get('external_id') or str(z.get('id'))[:8]} → {kto or '?'} · {z.get('_org')} · {tytul}"
 
 
 # ── pomiar ───────────────────────────────────────────────────────────────────
@@ -273,7 +288,7 @@ def wpis_zamykajacy(*, stan: str, nastepny: str, kickoffy_lista: list[dict], pro
     linie = [f"**Zamknięcie tury** · {kiedy.astimezone():%d.%m.%Y %H:%M} · `sf-kit tura zamknij`", ""]
     if dopiecie:
         linie += [f"_{dopiecie}_", ""]
-    linie += [stan.strip(), "", f"**Następny krok:** {nastepny}", "",
+    linie += [bez_sekcji_tury(stan), "", f"**Następny krok:** {nastepny}", "",
               f"**Kickoffy tury ({len(kickoffy_lista)}):**"]
     linie += [f"- {wiersz_kickoffu(z)}" for z in kickoffy_lista] or ["- brak"]
     linie += [f"- UWAGA: {p}" for p in problemy_kickoffow]

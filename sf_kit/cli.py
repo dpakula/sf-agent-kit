@@ -1898,11 +1898,12 @@ def polecenie_tura_zamknij(args) -> int:
                  f"dziennik: {'—' if args.bez_dziennika else konf.tura_dziennik or '—'}",
                  f"commit: {'—' if args.bez_commita else konf.tura_repo or '—'} ({konf.tura_commit or 'pliki'})"]
         wynik.zapisane = ["nic (--sucho)"]
+        wynik.kod = 3 if wynik.braki else 0               # kod, jaki dałby prawdziwy przebieg (bez porażek zapisu)
         if args.json:
             print(wynik.json())
         else:
             print(tresc_wpisu + "\n--- plan ---\n" + "\n".join(plan) + "\n\n" + wynik.linia())
-        return 0
+        return wynik.kod
 
     # ── 5. SF: (nowy krok), wpis zamykający, status closed ───────────────────
     kod_sf = 0

@@ -75,6 +75,16 @@ class TestStan(unittest.TestCase):
             with self.subTest(tekst):
                 self.assertEqual(tura.rozbierz_stan(tekst)[1], [])
 
+    def test_wpis_bez_dubli_sekcji(self):
+        tresc = tura.wpis_zamykajacy(stan=STAN + "\n## Delegowane\n- borys: SF-1\n", nastepny="N",
+                                     kickoffy_lista=[{"ticket_ref": "SF-574", "external_id": "kickoff:x.md",
+                                                      "assigned_agent_slug": "arek-sf", "_org": "sf", "title": "T"}],
+                                     problemy_kickoffow=[], decyzje=[], pomiar_linia="p", kiedy=TERAZ)
+        self.assertEqual(tresc.count("Następny krok"), 1)
+        self.assertEqual(tresc.count("Decyzje"), 1)
+        self.assertIn("## Delegowane\n- borys: SF-1", tresc)
+        self.assertIn("- SF-574 · kickoff:x.md → arek-sf · sf · T", tresc)
+
     def test_slady(self):
         self.assertEqual(tura.slady("A → #2458, SF-574, wpis 7FD59229"), ["#2458", "SF-574", "wpis 7fd59229"])
         self.assertEqual(tura.slady("link https://sales-forge.pl/tickets/numer/SF-574?org=sf."),
