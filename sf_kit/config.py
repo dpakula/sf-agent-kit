@@ -98,6 +98,18 @@ class Konfiguracja:
     #: SF-486: domyślny adresat bloków konsoli (`sf-kit konsola blok`) — e-mail członka Organizacji konsoli.
     konsola_adresat: str = ""
 
+    #: SF-574: plik rozgrywki z bieżącym krokiem (`ostatni_ticket_id`). Pusty = env `SF_KIT_ROZGRYWKA`,
+    #: potem `~/tracking/rozgrywka.json` (układ floty). Każdy koordynator ustawia swój — Kit nie zna niczyjego domu.
+    rozgrywka: str = ""
+    #: SF-574 `tura zamknij`: plik stanu dla drugiego okna koordynatora (punkt wznowienia). Pusty = nie piszemy.
+    tura_plik_stanu: str = ""
+    #: SF-574: dziennik dnia, do którego tura dopisuje akapit; `{data}` = RRRR-MM-DD. Pusty = nie piszemy.
+    tura_dziennik: str = ""
+    #: SF-574: repozytorium koordynatora, w którym tura zatwierdza zmiany. Pusty = bez zatwierdzania.
+    tura_repo: str = ""
+    #: SF-574: co zatwierdzać — `pliki` (tylko to, co Kit zapisał: stan i dziennik) albo `wszystko` (`git add -A`).
+    tura_commit: str = "pliki"
+
     def braki(self) -> list[str]:
         """Czego brakuje, żeby worker mógł ruszyć. Pusta lista = wszystko jest.
 

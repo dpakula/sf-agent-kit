@@ -51,6 +51,8 @@ GRUPY_PROFILU = {
 LACZONE = (
     (("plugin", "codex", "kimi", "gemini"), "pakiet Kita dla Claude Code / Codex / Kimi / Gemini: stan, --zainstaluj, --odswiez"),
     (("relacje", "przypnij", "odepnij"), "sprawa w sprawie: co sprawa zawiera i czego jest częścią; przypnij / odepnij relację"),
+    (("krok", "tura"), "kroki rozgrywki (nowy, zamknij) i zamknięcie tury jednym poleceniem: stan, kickoffy, pomiar, "
+                       "ślad decyzji, closed, dziennik, commit"),
 )
 
 ZASADY = (
@@ -79,6 +81,7 @@ PRZYKLADY_KOORDYNATORA = (
     ("rodzaj pracy / tag", "tag nadaj SF-486 Rdzeń --typ \"Rodzaj pracy\" --zamien"),
     ("wersje Kita we flocie", "flota wersje"),
     ("krok rozgrywki", "krok nowy --tytul \"KROK V · Rozgrywka …\" --tresc - --obserwujacy a@b.pl"),
+    ("zamknij turę (stan z „## Następny krok” i „## Decyzje”)", "--org sf tura zamknij --opis stan.md"),
 )
 
 _REF = re.compile(r"\s*\((?:[^()]*?(?:SF|ADVERTPR|FM|v?\d+\.\d+)[-\s]?\d*[^()]*)\)")

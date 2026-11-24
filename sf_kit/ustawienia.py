@@ -41,8 +41,14 @@ LOKALNE = {
     "pracuje_dla": "e-mail człowieka, dla którego pracuje asystent (SF-170; sprawdzany w SF)",
     "dziennik_audytu": "plik dziennika zapisów (format sf_audit.log floty; SF-486); pusty = wyłączony",
     "konsola_adresat": "e-mail adresata bloków `sf-kit konsola blok` (SF-486)",
+    "rozgrywka": "plik rozgrywka.json z bieżącym krokiem; pusty = ~/tracking/rozgrywka.json (SF-574)",
+    "tura_plik_stanu": "plik stanu po `tura zamknij` (punkt wznowienia dla drugiego okna); pusty = brak (SF-574)",
+    "tura_dziennik": "dziennik dnia dla `tura zamknij`, {data} = RRRR-MM-DD; pusty = brak (SF-574)",
+    "tura_repo": "repozytorium, w którym `tura zamknij` zatwierdza zmiany; pusty = bez commita (SF-574)",
+    "tura_commit": "pliki | wszystko — co zatwierdza `tura zamknij` (SF-574)",
 }
 AUTO_UPDATE = ("off", "patch")
+TURA_COMMIT = ("pliki", "wszystko")
 
 ZRODLA = {
     "preferencja": "ustawione",
@@ -100,6 +106,8 @@ def zmien_lokalne(konf, klucz: str, wartosc: str) -> str:
         raise ValueError(f"nieznane ustawienie lokalne: {klucz} (znane: {', '.join(LOKALNE)})")
     if klucz == "auto_update" and wartosc not in AUTO_UPDATE:
         raise ValueError(f"auto_update: {' albo '.join(AUTO_UPDATE)}")
+    if klucz == "tura_commit" and wartosc not in TURA_COMMIT:
+        raise ValueError(f"tura_commit: {' albo '.join(TURA_COMMIT)}")
     stara = getattr(konf, klucz, None)
     setattr(konf, klucz, wartosc or None)
     return f"{klucz}: {stara or '(nie ustawione)'} → {wartosc or '(nie ustawione)'}"

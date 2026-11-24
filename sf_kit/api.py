@@ -888,6 +888,23 @@ class Klient:
         wynik = self._wywolaj("POST", "kroki/dzis", cialo={"sedno": sedno} if sedno else {})
         return wynik if isinstance(wynik, dict) else {}
 
+    def kroki_konsoli(self, *, dni: int = 2) -> list[dict]:
+        """`GET /konsola/kroki?dni=` — kroki okna, najnowszy pierwszy: [{data, krok{id,numer,tytul}, bloki}] (SF-574)."""
+        odp = self._wywolaj("GET", "konsola/kroki?" + urllib.parse.urlencode({"dni": dni, "filtr": "wszystko"}))
+        return [d for d in ((odp or {}).get("dni") or []) if isinstance(d, dict)] if isinstance(odp, dict) else []
+
+    def zadania_od(self, od: str, *, limit: int = 200) -> list[dict]:
+        """`GET /tasks?date_field=created_at&date_from=` — zadania TEJ Organizacji założone od chwili `od` (SF-574)."""
+        q = urllib.parse.urlencode({"date_field": "created_at", "date_from": od, "limit": limit})
+        odp = self._wywolaj("GET", f"tasks?{q}")
+        wynik = (odp or {}).get("items") or [] if isinstance(odp, dict) else odp or []
+        return [z for z in wynik if isinstance(z, dict)]
+
+    def presja_zadan(self) -> dict:
+        """`GET /tasks/presja` — presja Organizacji na zadaniach (SF-363): razem, decyzje ważone, praca."""
+        odp = self._wywolaj("GET", "tasks/presja")
+        return odp if isinstance(odp, dict) else {}
+
     # ── sonda ────────────────────────────────────────────────────────────────
 
     def wersja_kita(self) -> dict:

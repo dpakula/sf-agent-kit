@@ -1764,6 +1764,208 @@ def polecenie_krok_zamknij(args) -> int:
     return 0
 
 
+def _w_orgach(klient: Klient, toz, pierwsza: str, funkcja):
+    """`funkcja(klient_org)` po Organizacjach klucza (najpierw `pierwsza`) aż do trafienia → True / False / None.
+
+    ValueError = „nie ma tutaj”, BladAPI = „nie wiem”. Wszędzie „nie ma” → False; choć raz „nie wiem” → None."""
+    orgi = sorted(toz.z_nadaniami or toz.organizacje, key=lambda o: o.uuid != pierwsza)
+    niepewne = False
+    for o in orgi:
+        try:
+            funkcja(klient.w_organizacji(o.uuid))
+            return True
+        except ValueError:
+            continue
+        except BladAPI:
+            niepewne = True
+    return None if niepewne else False
+
+
+def polecenie_tura_zamknij(args) -> int:
+    """SF-574: zamknięcie tury koordynatora jednym poleceniem (opis kroków i kody wyjścia: `tura.py`)."""
+    from datetime import datetime, timezone
+    from . import tura
+
+    konf = konfiguracja.wczytaj()
+    try:
+        stan = nawyki.tresc(opis=args.opis, tresc_arg=args.tresc, rola="ze stanem pracy", wymagana=True)
+    except nawyki.ZleWejscie as blad:
+        return nawyki.blad(args, str(blad), 2)
+    if not stan:
+        return nawyki.blad(args, "tura zamyka się stanem pracy: --tresc \"…\", --opis plik.md albo --tresc - "
+                                 "(sekcje „## Następny krok” i „## Decyzje” Kit czyta z treści)", 2)
+    nastepny_ze_stanu, decyzje_ze_stanu = tura.rozbierz_stan(stan)
+    nastepny = (args.nastepny or nastepny_ze_stanu or "").strip()
+    if not nastepny:
+        return nawyki.blad(args, "brak następnego kroku (punkt wznowienia): sekcja „## Następny krok” w stanie "
+                                 "albo --nastepny \"…\" — nic nie wysłałem", 2)
+    punkty = list(decyzje_ze_stanu or []) + list(args.decyzja or [])
+    if args.bez_decyzji and punkty:
+        return nawyki.blad(args, "--bez-decyzji, a stan wymienia decyzje — wybierz jedno; nic nie wysłałem", 2)
+    decyzje_podane = decyzje_ze_stanu is not None or bool(args.decyzja) or args.bez_decyzji
+    if not args.sprawa and not args.krok and konf.profil != "koordynator":
+        return nawyki.blad(args, f"profil „{konf.profil}” nie prowadzi kroków rozgrywki: zamknij sesję na sprawie "
+                                 "(--sprawa SF-123) albo wskaż krok (--krok …)", 2)
+    od_jawne = None
+    if args.od:
+        try:
+            od_jawne = datetime.fromisoformat(args.od.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return nawyki.blad(args, f"--od „{args.od}” to nie jest czas ISO (np. 2026-11-24T08:00)", 2)
+        if not od_jawne.tzinfo:
+            od_jawne = od_jawne.astimezone()                     # bez strefy = czas lokalny człowieka, nie UTC
+
+    wskazanie = args.sprawa or args.krok or ""
+    klient, org = _klient_dla_zapisu(konf, args, flow.organizacja_z_linku(wskazanie) or "")
+    toz = _tozsamosc(klient)
+    teraz = datetime.now(timezone.utc)
+    wynik = tura.Wynik(nastepny=nastepny)
+    log = (lambda s: None) if args.json else (lambda s: print(s, file=sys.stderr))
+
+    # ── 1. gdzie idzie stan: krok (zamykany) albo sprawa sesji ───────────────
+    cel, zamknac, dopiecie, od, nowy_krok_sedno = None, False, None, od_jawne, None
+    klienci = [(o.slug, klient.w_organizacji(o.uuid)) for o in (toz.z_nadaniami or toz.organizacje)]
+    lista_kick, problemy_kick = [], []
+    try:
+        if args.sprawa:
+            wsk, _ = _sprawa_dla_zapisu(klient, args.sprawa)
+            cel = klient.sprawa(str(wsk["id"]))
+            if od:
+                lista_kick, problemy_kick = tura.kickoffy(klienci, od, toz.konto_email)
+        else:
+            krok_id = None
+            if args.krok:
+                wsk, _ = _sprawa_dla_zapisu(klient, args.krok)
+                krok_id, zrodlo = str(wsk["id"]), "--krok"
+            else:
+                krok_id, zrodlo = nawyki.krok_z_rozgrywki(konf.rozgrywka or None), "rozgrywka"
+                if not krok_id:
+                    krok_id, zrodlo = tura.najnowszy_krok(klient), f"najnowszy krok w {org.slug}"
+            if not krok_id:
+                return nawyki.blad(args, f"nie znalazłem kroku (rozgrywka pusta, w {org.slug} brak kroków z 2 dni): "
+                                         "--krok <sprawa>, `sf-kit krok nowy` albo --sprawa", 2)
+            krok = klient.sprawa(krok_id)
+            log(f"krok: {asystent.numer_sprawy(krok) or krok_id} ({zrodlo}), status {krok.get('status')}")
+            if not tura.zamkniety(krok):
+                cel, zamknac = krok, True
+                od = od or tura.czas(krok.get("created_at"))
+                if od:
+                    lista_kick, problemy_kick = tura.kickoffy(klienci, od, toz.konto_email)
+            else:
+                po = tura.zamkniety_o(krok) or teraz
+                od = od or po
+                lista_kick, problemy_kick = tura.kickoffy(klienci, od, toz.konto_email)
+                kick_po = [z for z in lista_kick if (tura.czas(z.get("created_at")) or teraz) > po]
+                bloki_po = tura.bloki_kroku_po(klient, str(krok["id"]), po)
+                numer = asystent.numer_sprawy(krok) or krok_id
+                if kick_po or bloki_po or punkty:
+                    nowy_krok_sedno = (f"Praca po zamknięciu {numer} (wykryta przez `sf-kit tura zamknij`): "
+                                       f"{len(kick_po)} kickoffów, {len(bloki_po)} bloków, {len(punkty)} decyzji.")
+                    dopiecie = (f"Krok {numer} był już zamknięty ({po.astimezone():%d.%m %H:%M}), a praca szła dalej — "
+                                f"dopięta do tego kroku.")
+                else:
+                    cel = krok
+                    dopiecie = f"Dopisek po zamknięciu {numer}: pracy po {po.astimezone():%d.%m %H:%M} nie wykryłem."
+    except (ValueError, BladAPI) as blad:
+        return nawyki.blad(args, f"krok / sprawa: {blad}", 1)
+
+    # ── 2–4. pomiar, decyzje (kickoffy policzone wyżej, raz) ─────────────────
+    pomiar_linia, _ = tura.pomiar(kto=args.kto, wskazniki=args.wskazniki, klient=klient)
+    decyzje = tura.sprawdz_decyzje(
+        punkty,
+        jest_blok=lambda s: _w_orgach(klient, toz, org.uuid, lambda k: konsola.znajdz_blok(k, s)),
+        jest_sprawa=lambda s: _w_orgach(klient, toz, org.uuid, lambda k: asystent.znajdz_sprawe(k, s)),
+    ) if punkty else []
+    wynik.kickoffy = [tura.wiersz_kickoffu(z) for z in lista_kick]
+    wynik.decyzje = [{"tekst": d.tekst, "slady": d.slady, "stan": d.stan, "uwaga": d.uwaga} for d in decyzje]
+    wynik.pomiar = pomiar_linia
+    if problemy_kick:
+        wynik.braki.append("kickoffy niepełne (" + "; ".join(problemy_kick) + ")")
+    if not decyzje_podane:
+        wynik.braki.append("decyzje człowieka nie podane (sekcja „## Decyzje” albo --bez-decyzji)")
+    bez_sladu = [d for d in decyzje if not d.ma_slad]
+    if bez_sladu:
+        wynik.braki.append(f"{len(bez_sladu)} decyzji bez śladu: " + "; ".join(d.tekst[:60] for d in bez_sladu))
+
+    tresc_wpisu = tura.wpis_zamykajacy(
+        stan=stan, nastepny=nastepny, kickoffy_lista=lista_kick, problemy_kickoffow=problemy_kick,
+        decyzje=decyzje if decyzje_podane else None, pomiar_linia=pomiar_linia, kiedy=teraz, dopiecie=dopiecie)
+
+    if args.sucho:
+        plan = [f"krok/sprawa: {asystent.numer_sprawy(cel) if cel else 'NOWY krok (praca po zamknięciu)'}"
+                f"{' → closed' if zamknac or nowy_krok_sedno else ''}"]
+        plan += [f"plik stanu: {args.plik_stanu or konf.tura_plik_stanu or '—'}",
+                 f"dziennik: {'—' if args.bez_dziennika else konf.tura_dziennik or '—'}",
+                 f"commit: {'—' if args.bez_commita else konf.tura_repo or '—'} ({konf.tura_commit or 'pliki'})"]
+        wynik.zapisane = ["nic (--sucho)"]
+        if args.json:
+            print(wynik.json())
+        else:
+            print(tresc_wpisu + "\n--- plan ---\n" + "\n".join(plan) + "\n\n" + wynik.linia())
+        return 0
+
+    # ── 5. SF: (nowy krok), wpis zamykający, status closed ───────────────────
+    kod_sf = 0
+    try:
+        if nowy_krok_sedno:
+            nowy = klient.krok_dzis(nowy_krok_sedno)
+            cel, zamknac = klient.sprawa(str(nowy.get("ticket_id") or nowy.get("id"))), True
+            wynik.zapisane.append(f"nowy krok {asystent.numer_sprawy(cel)}")
+        nazwa = asystent.numer_sprawy(cel) or str(cel.get("id"))[:8]
+        wynik.krok = {"id": cel.get("id"), "numer": nazwa, "url": asystent.adres_sprawy(str(cel["id"]), baza=konf.adres)}
+        klient.wpis(str(cel["id"]), tresc_wpisu, widocznosc=args.widocznosc)
+        wynik.zapisane.append(f"wpis {nazwa}")
+        if zamknac:
+            koordynacja.zmien_status(klient, cel, "closed", mimo_to=True)
+            wynik.zapisane.append("closed")
+    except (ValueError, BladAPI) as blad:
+        kod_sf = 1
+        wynik.braki.insert(0, f"SF: {blad}")
+    krok_opis = f"{wynik.krok.get('numer', '?')} {wynik.krok.get('url', '')}".strip()
+
+    # ── 6. lokalnie: plik stanu, dziennik, commit ────────────────────────────
+    zapisane_pliki = []
+    sciezka_stanu = args.plik_stanu or konf.tura_plik_stanu
+    if sciezka_stanu:
+        try:
+            p = Path(sciezka_stanu).expanduser()
+            tura.zapisz_atomowo(p, tura.plik_stanu(krok_opis=krok_opis, nastepny=nastepny, wpis=tresc_wpisu, kiedy=teraz))
+            zapisane_pliki.append(p)
+            wynik.zapisane.append("plik stanu")
+        except OSError as blad:
+            wynik.braki.append(f"plik stanu: {blad}")
+    if konf.tura_dziennik and not args.bez_dziennika:
+        try:
+            p = tura.sciezka_dziennika(konf.tura_dziennik, teraz)
+            podsum = (f"kickoffy: {len(lista_kick)}; decyzje: {sum(d.ma_slad for d in decyzje)}/{len(decyzje)} "
+                      f"ze śladem; {pomiar_linia}")
+            tura.dopisz(p, tura.akapit_dziennika(krok_opis=krok_opis, nastepny=nastepny, podsumowanie=podsum,
+                                                 kiedy=teraz))
+            zapisane_pliki.append(p)
+            wynik.zapisane.append("dziennik")
+        except OSError as blad:
+            wynik.braki.append(f"dziennik: {blad}")
+    if konf.tura_repo and not args.bez_commita:
+        try:
+            sha = tura.zatwierdz(konf.tura_repo, pliki=zapisane_pliki, tryb=konf.tura_commit or "pliki",
+                                 wiadomosc=f"tura: {wynik.krok.get('numer', '?')} zamknięta — "
+                                           f"następny krok: {nastepny[:tura.NASTEPNY_W_LINII]}")
+            wynik.zapisane.append(f"commit {sha}")
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as blad:
+            wynik.braki.append(f"commit: {blad}")
+
+    # ── 7. wynik ─────────────────────────────────────────────────────────────
+    wynik.kod = kod_sf or (3 if wynik.braki else 0)
+    if args.json:
+        print(wynik.json())
+    else:
+        if wynik.krok.get("url"):
+            log(wynik.krok["url"])
+        log(f"pomiar: {pomiar_linia}")
+        print(wynik.linia())
+    return wynik.kod
+
+
 def polecenie_konsola_blok(args) -> int:
     """`sf-kit konsola blok` — blok Konsoli A dla człowieka, z dedupem kotwicy (lib 1.12.0)."""
     konf = konfiguracja.wczytaj()
@@ -1773,7 +1975,7 @@ def polecenie_konsola_blok(args) -> int:
     if not tresc:
         return nawyki.blad(args, "blok bez treści — podaj --tresc \"…\" albo --opis plik.md", 2)
     # 0.19 (SF-496 pkt 1): krok z tracking/rozgrywka.json, jak sf_box_sprawa — kotwica lustra bez pamiętania numeru.
-    krok = args.krok or (None if args.bez_kroku else nawyki.krok_z_rozgrywki())
+    krok = args.krok or (None if args.bez_kroku else nawyki.krok_z_rozgrywki(getattr(konf, "rozgrywka", "") or None))
     try:
         opcje = konsola.opcje_z_argumentow(args.opcja, args.rekomendowana) or None
         adresat = _adresat_bloku(klient, konf, args.do)
@@ -4540,6 +4742,40 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     krz.add_argument("--status", default="closed", choices=["closed", "resolved"])
     krz.add_argument("--widocznosc", default="internal", choices=["internal", "external", "team"])
     krz.set_defaults(funkcja=polecenie_krok_zamknij)
+
+    # SF-574: zamknięcie tury jednym poleceniem (dawne lokalne /next-turn koordynatorki).
+    tu = pod.add_parser("tura", help="[koordynator] zamknięcie tury: stan, kickoffy, pomiar, decyzje, krok closed, "
+                                     "dziennik, commit (SF-574)")
+    tu_pod = tu.add_subparsers(dest="tura_polecenie", required=True)
+    tuz = tu_pod.add_parser(
+        "zamknij", help="stan pracy jako wpis zamykający kroku + kickoffy tury + pomiar + kontrola śladu decyzji "
+                        "+ status closed; lokalnie plik stanu, dziennik, commit (z ustawień); jedna linia wyniku")
+    tuz.add_argument("--tresc", "--stan", dest="tresc", default=None, metavar="TEKST|PLIK|-",
+                     help="stan pracy (co robione, status, zrobione, delegowane); sekcje „## Następny krok” "
+                          "i „## Decyzje” Kit czyta z treści")
+    tuz.add_argument("--opis", default=None, metavar="PLIK", help="stan pracy z pliku (`-` = stdin)")
+    tuz.add_argument("--nastepny", default=None, metavar="TEKST",
+                     help="następny krok (punkt wznowienia); zastępuje sekcję „## Następny krok”")
+    tuz.add_argument("--decyzja", action="append", default=[], metavar="TEKST",
+                     help="decyzja człowieka z tury ze śladem: „… → #2458 | SF-574 | wpis 7fd59229” (wiele razy)")
+    tuz.add_argument("--bez-decyzji", action="store_true",
+                     help="w tej turze człowiek nic nie zdecydował (inaczej brak sekcji „Decyzje” = brak w wyniku)")
+    tuz.add_argument("--krok", default=None, metavar="SPRAWA",
+                     help="krok do zamknięcia (numer, uuid, link); domyślnie z rozgrywki, potem najnowszy w SF")
+    tuz.add_argument("--sprawa", default=None, metavar="SPRAWA",
+                     help="zamiast kroku: stan jako wpis na tej sprawie, bez zmiany statusu (sesja asystenta)")
+    tuz.add_argument("--od", default=None, metavar="CZAS",
+                     help="początek tury dla kickoffów (ISO, np. 2026-11-24T08:00); domyślnie otwarcie kroku")
+    tuz.add_argument("--kto", default=None, help="czyj pomiar (jak w `status`; domyślnie ten sam widok co `status`)")
+    tuz.add_argument("--wskazniki", default=None, metavar="ŚCIEŻKA", help="wskazniki.py (jak w `status`)")
+    tuz.add_argument("--plik-stanu", default=None, metavar="PLIK",
+                     help="plik stanu dla drugiego okna (domyślnie ustawienie `tura_plik_stanu`)")
+    tuz.add_argument("--bez-dziennika", action="store_true", help="nie dopisuj do dziennika (`tura_dziennik`)")
+    tuz.add_argument("--bez-commita", action="store_true", help="nie zatwierdzaj w repozytorium (`tura_repo`)")
+    tuz.add_argument("--widocznosc", default="internal", choices=["internal", "external", "team"])
+    tuz.add_argument("--sucho", action="store_true", help="pokaż wpis i plan, niczego nie zapisuj")
+    tuz.add_argument("--json", action="store_true")
+    tuz.set_defaults(funkcja=polecenie_tura_zamknij)
 
     # ── profil KOORDYNATOR: warstwa administracyjna (ADVERTPR-879) ────────────
     #
