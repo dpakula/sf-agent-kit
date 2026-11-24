@@ -2,7 +2,7 @@
 name: "sf-przypnij"
 description: "Przypnij sprawę jako część innej (<sprawa> zawiera <część>) — to samo co $sf-pin"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.2; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit przypnij …` (argumenty z prośby człowieka; składnia: `<sprawa> <czesc>`)
 

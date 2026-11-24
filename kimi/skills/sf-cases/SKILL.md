@@ -3,7 +3,7 @@ name: "sf-cases"
 description: "Sprawy w Organizacji (u asystenta: co czeka na mnie i mojego człowieka)"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.2; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit sprawy $ARGUMENTS`
 

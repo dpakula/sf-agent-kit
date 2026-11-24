@@ -2,7 +2,7 @@
 name: "sf-relacje"
 description: "Relacje sprawy: co zawiera i czego jest częścią (sprawa w sprawie) — to samo co $sf-relations"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.2; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit relacje …` (argumenty z prośby człowieka; składnia: `<sprawa> [--historia]`)
 

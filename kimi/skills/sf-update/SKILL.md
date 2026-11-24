@@ -3,7 +3,7 @@ name: "sf-update"
 description: "Zaktualizuj Kita do wydania wskazanego przez SF"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.20.2; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.21.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit update $ARGUMENTS`
 
