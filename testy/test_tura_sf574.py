@@ -90,6 +90,23 @@ class TestStan(unittest.TestCase):
         self.assertIn("#9999", d[3].uwaga)
 
 
+class TestCzas(unittest.TestCase):
+    def test_czas_bez_strefy_to_utc_i_porownywalny(self):
+        self.assertEqual(tura.czas("2026-11-24T01:00:00").tzinfo, timezone.utc)
+        k = mock.MagicMock()
+        k.kroki_konsoli.return_value = [{"krok": {"id": KROK}, "bloki": [
+            {"rodzaj": "action", "kiedy": "2026-11-24T02:00:00"},
+            {"rodzaj": "rozstrzygniecie", "kiedy": "2026-11-24T02:00:00Z"},
+            {"rodzaj": "info", "kiedy": "2026-11-24T00:30:00Z"}]}]
+        po = tura.bloki_kroku_po(k, KROK, datetime(2026, 11, 24, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual([b["rodzaj"] for b in po], ["action"])
+
+    def test_zamkniety_o_resolved_przed_updated(self):
+        s = {"resolved_at": "2026-11-24T01:00:00Z", "updated_at": "2026-11-24T03:00:00Z"}
+        self.assertEqual(tura.zamkniety_o(s).hour, 1)
+        self.assertEqual(tura.zamkniety_o({"updated_at": "2026-11-24T03:00:00Z"}).hour, 3)
+
+
 class TestKickoffy(unittest.TestCase):
     def test_tylko_moje_ze_wszystkich_org(self):
         a, b = mock.MagicMock(), mock.MagicMock()
@@ -365,6 +382,23 @@ class TestPolecenie(unittest.TestCase):
         pliki = subprocess.run(git + ["show", "--name-only", "--format=%s", "HEAD"], capture_output=True,
                                text=True, check=True).stdout
         self.assertIn("obcy.txt", pliki)
+
+    def test_plik_spoza_repo_pomijany_przy_commicie(self):
+        repo = self.dir / "dom"
+        repo.mkdir()
+        git = ["git", "-C", str(repo)]
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["config", "user.email", "t@t"], check=True)
+        subprocess.run(git + ["config", "user.name", "t"], check=True)
+        konf = konfiguracja.Konfiguracja(
+            profil="koordynator", slug="agata", rozgrywka=str(self.rozgrywka),
+            tura_plik_stanu=str(self.dir / "poza" / "resume.md"), tura_dziennik=str(repo / "{data}.md"),
+            tura_repo=str(repo))
+        kod, out, _ = self.uruchom(Atrapa(), "--tresc", "X", "--nastepny", "Y", "--bez-decyzji", konf=konf)
+        self.assertEqual(kod, 0, out)
+        pliki = subprocess.run(git + ["show", "--name-only", "--format=", "HEAD"], capture_output=True,
+                               text=True, check=True).stdout.split()
+        self.assertEqual(pliki, [f"{datetime.now().astimezone():%Y-%m-%d}.md"])
 
     def test_zly_repo_to_brak_kod_3(self):
         konf = konfiguracja.Konfiguracja(profil="koordynator", slug="agata", rozgrywka=str(self.rozgrywka),
