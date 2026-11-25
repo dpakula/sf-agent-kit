@@ -3,7 +3,7 @@ name: "sf-pomoc"
 description: "Przegląd Kita (role, polecenia, 5 zasad) albo szczegóły polecenia / tematu — to samo co /skill:sf-help"
 disable-model-invocation: true
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.22.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.23.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit pomoc $ARGUMENTS`
 

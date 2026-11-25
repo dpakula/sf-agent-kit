@@ -38,7 +38,7 @@ from . import nawyki
 from . import rotacja as mod_rotacja
 from . import tozsamosc
 from . import uwagi
-from .api import BladAPI, Klient
+from .api import BladAPI, Klient, NieznanaOrganizacja, _trasa_nieznana
 
 
 def _klient_bez_organizacji(konf: konfiguracja.Konfiguracja) -> Klient:
@@ -748,6 +748,14 @@ def _blok_jeden(args, wskazanie: str) -> int:
         print("`sf-kit blok odpowiedz` jeszcze nie działa — zapis odpowiedzi-dziecka wchodzi\n"
               "etapem E3 (sprawa SF-7). Odczyt bloku działa: `sf-kit blok <id>`.",
               file=sys.stderr)
+        return 2
+    if wskazanie in {"przyznaj", "odbierz", "przyznane", "lista"}:
+        # SF-517: przyznania bloków STRON to osobne polecenia — `blok` czyta bloki osi i w pakiecie
+        # jest narzędziem tylko do odczytu (uzasadnienie przy `polecenie_blok_przyznane`).
+        nazwa = "przyznane" if wskazanie == "lista" else wskazanie
+        print(f"Przyznania bloków stron to osobne polecenie:\n"
+              f"  {_jak_wolac()} blok-{nazwa} {'<rodzina/nazwa> ' if nazwa != 'przyznane' else ''}"
+              f"--dla <slug|uuid Organizacji>", file=sys.stderr)
         return 2
     if wskazanie == "pokaz":
         print("`pokaz` zniknęło jako osobne słowo — blok pokazuje sam identyfikator:\n"
@@ -4466,6 +4474,172 @@ def polecenie_klucz_wystaw(args) -> int:
     return 0
 
 
+# ── przyznania bloków stron per Organizacja (SF-517 R5, kontrakt K4) ─────────
+#
+# OSOBNE POLECENIA, NIE `blok przyznaj`. `sf-kit blok` to odczyt bloku osi (SF-7) i w pakiecie
+# stoi jako narzędzie MCP `block` z `readOnlyHint` — wszystko, co dopiszemy pod `blok`, dostaje
+# tę adnotację za darmo. Zapis superadmina pod narzędziem „tylko odczyt” byłby kłamstwem wobec
+# klienta MCP, który na tej podstawie przepuszcza wywołania bez pytania. Dlatego
+# `blok-przyznane|przyznaj|odbierz`, obok `agent-dodaj` i `nadaj`, poza manifestem pakietu.
+#
+# `--dla`, NIE `--org`. Globalne `--org` wybiera Organizację roboczą wołającego (nagłówek,
+# z członkostwem i nadaniami). Przyznanie dotyczy Organizacji, w której superadmin zwykle NIE
+# jest członkiem (FixForum) — gdyby szła przez `--org`, Kit odmówiłby, zanim zapyta serwer.
+
+#: `rodzina/nazwa`, opcjonalnie z `@N` — wersję zdejmujemy, bo przyznanie obejmuje wszystkie.
+_WZOR_REFERENCJI_BLOKU = re.compile(r"^([a-z0-9][a-z0-9_-]*)/([a-z0-9][a-z0-9_-]*)(?:@(\d+))?$")
+
+
+def _referencja_bloku(surowa: str) -> tuple[str | None, str]:
+    """`lib/vehicle_list[@1]` → (`lib/vehicle_list`, uwaga). Zły kształt → (None, powód)."""
+    m = _WZOR_REFERENCJI_BLOKU.match((surowa or "").strip())
+    if not m:
+        return None, (f"„{surowa}” nie jest referencją bloku. Kształt: rodzina/nazwa małymi literami, "
+                      f"np. lib/vehicle_list (spis: {_jak_wolac()} blok-przyznane --dla <slug>).")
+    referencja = f"{m.group(1)}/{m.group(2)}"
+    uwaga = (f"Wersję @{m.group(3)} pomijam: przyznanie obejmuje wszystkie wersje {referencja}."
+             if m.group(3) else "")
+    return referencja, uwaga
+
+
+def _odmowa_przyznan(blad: BladAPI, co: str) -> int:
+    """Odmowa serwera przy przyznaniach → zdanie, które mówi, co dalej. Zawsze kod 1."""
+    kod = getattr(blad, "kod", None)
+    szczegoly = getattr(blad, "szczegoly", "") or ""
+    if kod == 404 and _trasa_nieznana(szczegoly):
+        # Stan PROD do wydania R5 (SF-517): trasy nie ma, a nie „nie ma Organizacji”.
+        print(f"Serwer nie zna tras przyznań bloków ({co}) — R5 sprawy SF-517 nie jest jeszcze na nim "
+              "wydane. To nie jest kwestia uprawnień ani Organizacji.", file=sys.stderr)
+        return 1
+    try:
+        detal = json.loads(szczegoly).get("detail")
+    except (ValueError, TypeError, AttributeError):
+        detal = None
+    if isinstance(detal, str) and kod in (403, 404, 422, 503):
+        print(f"SF odmówił ({co}, {kod}): {detal}", file=sys.stderr)
+        if kod == 403:
+            print("Przyznania bloków zmienia i odczytuje wyłącznie superadmin SF.", file=sys.stderr)
+        return 1
+    print(f"Nie udało się ({co}): {blad}", file=sys.stderr)
+    return 1
+
+
+def _organizacja_i_klient(args):
+    """Klient z Organizacją roboczą + Organizacja docelowa z `--dla`.
+
+    `org is None` = odmowa już wypisana; `klient is None` przy tym = błąd wywołania (kod 2), inaczej kod 1.
+    """
+    if not (getattr(args, "dla", None) or "").strip():
+        print("Wskaż Organizację, której dotyczy przyznanie: --dla <slug|uuid>.\n"
+              "(`--org` to Twoja Organizacja robocza — nie ta, której przyznajesz blok.)", file=sys.stderr)
+        return None, None
+    konf = konfiguracja.wczytaj()
+    klient = _klient(konf, args)
+    try:
+        return klient, klient.organizacja_docelowa(args.dla)
+    except BladAPI as blad:
+        print(f"Nie umiem wskazać Organizacji docelowej: {blad}", file=sys.stderr)
+        # Nieznany slug = błąd wywołania (2); brak odpowiedzi `GET /tenants` = awaria (1).
+        return (None if isinstance(blad, NieznanaOrganizacja) else klient), None
+
+
+def _nazwa_org(org: dict) -> str:
+    return f"„{org.get('slug')}”" if org.get("slug") else org.get("uuid", "?")
+
+
+def polecenie_blok_przyznane(args) -> int:
+    """Bloki stron `granted` i które z nich Organizacja ma. Odczyt; superadmin."""
+    klient, org = _organizacja_i_klient(args)
+    if org is None:
+        return 2 if klient is None else 1
+    try:
+        bloki = klient.bloki_przyznawane(org["uuid"])
+    except BladAPI as blad:
+        return _odmowa_przyznan(blad, "odczyt przyznań")
+
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "organizacja": org, "bloki": bloki}, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Bloki stron przyznawane — Organizacja {_nazwa_org(org)}:")
+    if not bloki:
+        print("  (biblioteka nie ma dziś żadnego bloku `granted` — każdy blok jest dla wszystkich)")
+        return 0
+    for b in bloki:
+        znak = "✓ ma" if b.get("przyznany") else "· nie ma"
+        print(f"  {znak:<9} {b.get('referencja')}  — {b.get('nazwa') or ''}")
+    return 0
+
+
+def _blok_ustaw(args, przyznany: bool) -> int:
+    co = "przyznanie" if przyznany else "odebranie"
+    referencja, uwaga = _referencja_bloku(args.referencja)
+    if referencja is None:
+        print(uwaga, file=sys.stderr)
+        return 2
+    klient, org = _organizacja_i_klient(args)
+    if org is None:
+        return 2 if klient is None else 1
+    if uwaga:
+        print(uwaga, file=sys.stderr)
+
+    # Odczyt PRZED zapisem: (1) blok spoza listy `granted` zatrzymujemy z listą tego, co jest,
+    # zamiast 422; (2) ten sam stan drugi raz nie wysyła niczego — serwer i tak nie zostawiłby śladu.
+    try:
+        przed = klient.bloki_przyznawane(org["uuid"])
+    except BladAPI as blad:
+        return _odmowa_przyznan(blad, f"{co} {referencja}")
+    stan_przed = next((b for b in przed if b.get("referencja") == referencja), None)
+    if stan_przed is None:
+        dostepne = ", ".join(str(b.get("referencja")) for b in przed) or "żadnych"
+        print(f"{referencja} nie jest blokiem przyznawanym (`granted`) biblioteki SF — "
+              f"albo go nie ma, albo ma go każda Organizacja (`universal`, np. core/*).\n"
+              f"Przyznawane dziś: {dostepne}.", file=sys.stderr)
+        return 2
+
+    wynik = {"ok": True, "organizacja": org, "referencja": referencja, "przyznany": przyznany,
+             "przed": bool(stan_przed.get("przyznany")), "zmiana": False}
+    if bool(stan_przed.get("przyznany")) == przyznany:
+        if getattr(args, "json", False):
+            print(json.dumps(wynik, ensure_ascii=False, indent=2))
+        else:
+            print(f"Bez zmian — Organizacja {_nazwa_org(org)} "
+                  f"{'już ma' if przyznany else 'nie ma'} {referencja}. Nic nie wysłałem.")
+        return 0
+
+    try:
+        po = klient.ustaw_przyznanie(org["uuid"], referencja, przyznany)
+    except BladAPI as blad:
+        return _odmowa_przyznan(blad, f"{co} {referencja}")
+    stan_po = next((b for b in po if b.get("referencja") == referencja), None)
+    if stan_po is None or bool(stan_po.get("przyznany")) != przyznany:
+        # Weryfikacja stanem, nie kodem 200 (ADVERTPR-879): odpowiedź mówi, jak jest po zapisie.
+        print(f"✗ SF odpowiedział bez błędu, ale stan {referencja} po zapisie to "
+              f"{'brak bloku na liście' if stan_po is None else stan_po.get('przyznany')} — "
+              f"{co} NIE weszło. Zgłoś na SF-517 z tym komunikatem.", file=sys.stderr)
+        return 1
+
+    wynik["zmiana"] = True
+    if getattr(args, "json", False):
+        print(json.dumps(wynik, ensure_ascii=False, indent=2))
+        return 0
+    print(f"{'Przyznany' if przyznany else 'Odebrany'}: {referencja} — Organizacja {_nazwa_org(org)}.")
+    print("  Ślad: ustawienia Organizacji (kto, przed/po) i wpis na jej osi.")
+    if not przyznany:
+        print("  Sekcje tego bloku już stojące na stronach ZOSTAJĄ; odebranie blokuje kolejny import\n"
+              "  manifestu z tym blokiem i dodawanie nowych sekcji w Kompozytorze.")
+    return 0
+
+
+def polecenie_blok_przyznaj(args) -> int:
+    """Przyznaj Organizacji blok stron `granted` (SF-517 R5). Superadmin."""
+    return _blok_ustaw(args, True)
+
+
+def polecenie_blok_odbierz(args) -> int:
+    """Odbierz Organizacji blok stron `granted`. Stojące sekcje zostają."""
+    return _blok_ustaw(args, False)
+
+
 def _utf8_na_windows() -> None:
     """ADVERTPR-987: wyjście w UTF-8 na Windows. Gdy wyjście czyta program (aplikacja Claude
     Code, potok), Python bierze kodowanie z ustawień regionalnych (cp1250/cp1252) i pierwszy
@@ -5162,6 +5336,23 @@ def zbuduj_parser() -> argparse.ArgumentParser:
                     help="pole ciała żądania, którego Kit nie modeluje; nieznane trasie "
                          "zostanie ODRZUCONE z adresem właściwej trasy")
     an.set_defaults(funkcja=polecenie_agent_napraw)
+
+    # SF-517 R5: przyznania bloków stron `granted` per Organizacja. Osobno od `blok` (odczyt osi,
+    # narzędzie MCP tylko do odczytu) i z `--dla` zamiast `--org` — powód przy `polecenie_blok_przyznane`.
+    for nazwa_bp, pomoc_bp, funkcja_bp in (
+            ("blok-przyznane", "[koordynator] superadmin: bloki stron przyznawane Organizacji i które ma (SF-517)",
+             polecenie_blok_przyznane),
+            ("blok-przyznaj", "[koordynator] superadmin: przyznaj Organizacji blok stron `granted` (SF-517)",
+             polecenie_blok_przyznaj),
+            ("blok-odbierz", "[koordynator] superadmin: odbierz Organizacji blok stron; stojące sekcje zostają (SF-517)",
+             polecenie_blok_odbierz)):
+        bp = pod.add_parser(nazwa_bp, help=pomoc_bp)
+        if nazwa_bp != "blok-przyznane":
+            bp.add_argument("referencja", metavar="RODZINA/NAZWA", help="blok biblioteki, np. lib/vehicle_list")
+        bp.add_argument("--dla", default=None, metavar="SLUG|UUID",
+                        help="Organizacja, której dotyczy przyznanie (NIE Twoja robocza `--org`)")
+        bp.add_argument("--json", action="store_true")
+        bp.set_defaults(funkcja=funkcja_bp)
 
     kw = pod.add_parser("klucz-wystaw",
                         help="[koordynator] wystaw klucz API i sprawdź, że działa")

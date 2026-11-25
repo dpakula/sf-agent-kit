@@ -2,7 +2,7 @@
 name: "sf-feedback"
 description: "Uwaga do Kita: co nie działa albo czego brakuje → sprawa w SalesForge z wersją, systemem i ostatnim błędem"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.22.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.23.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit uwaga …` (argumenty z prośby człowieka; składnia: `"co nie działa" [--plik ZRZUT…] [--kontekst "co robiłem"] [--bez-bledu] [--sucho]`)
 

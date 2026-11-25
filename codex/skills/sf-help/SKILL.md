@@ -2,7 +2,7 @@
 name: "sf-help"
 description: "Przegląd Kita (role, polecenia, 5 zasad) albo szczegóły polecenia / tematu"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.22.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.23.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit pomoc …` (argumenty z prośby człowieka; składnia: `[polecenie|temat] [--tematy]`)
 

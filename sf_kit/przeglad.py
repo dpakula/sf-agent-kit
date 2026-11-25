@@ -52,6 +52,9 @@ LACZONE = (
     (("tasks", "zadania"), "moje zadania (`tasks`) / wszystkie zadania sprawy ze statusem (`zadania <sprawa> --json`)"),
     (("plugin", "codex", "kimi", "gemini"), "pakiet Kita dla Claude Code / Codex / Kimi / Gemini: stan, --zainstaluj, --odswiez"),
     (("relacje", "przypnij", "odepnij"), "sprawa w sprawie: co sprawa zawiera i czego jest częścią; przypnij / odepnij relację"),
+    (("kontrakt", "blok-przyznane", "blok-przyznaj", "blok-odbierz"),
+     "co operacja administracyjna przyjmuje (`kontrakt <nazwa>`); superadmin: bloki stron Organizacji "
+     "(`blok-przyznane|przyznaj|odbierz <rodzina/nazwa> --dla <slug>`, SF-517)"),
     (("krok", "tura"), "kroki rozgrywki (nowy, zamknij) i zamknięcie tury jednym poleceniem: stan, kickoffy, pomiar, "
                        "ślad decyzji, closed, dziennik, commit"),
 )

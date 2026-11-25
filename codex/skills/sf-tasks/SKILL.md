@@ -2,7 +2,7 @@
 name: "sf-tasks"
 description: "Moje zadania"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.22.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.23.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit tasks …` (argumenty z prośby człowieka; składnia: `[--pelne]`)
 

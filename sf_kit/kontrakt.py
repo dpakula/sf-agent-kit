@@ -1,5 +1,6 @@
 """Co dana operacja potrafi i jakich pól wymaga — wiedza, którą Kit niesie ze sobą.
 
+v0.7 (25.11.2026) - APro Agents / arek-sf (SF-517: blok-przyznane, blok-przyznaj)
 v0.6 (18.09.2026) - APro Agents / borys-sf
 
 PO CO TEN PLIK ISTNIEJE
@@ -207,6 +208,48 @@ KATALOG: tuple[Operacja, ...] = (
             "ciche rozstrzygnięcie na korzyść jednego z nich",
         ),
         weryfikacja="odczyt stanu członkostwa z odpowiedzi trasy",
+    ),
+    # SF-517 R5 (25.11.2026, arek-sf): sprawdzone z kodem `strony/router_przyznania.py` gałęzi paczki B3
+    # (`arek/sf517-r3a-r4`), NIE z PROD — do wydania R5 serwer odpowiada na te trasy 404 „Not Found”.
+    Operacja(
+        nazwa="blok-przyznane",
+        tytul="bloki stron przyznawane Organizacji i które z nich ma",
+        metoda="GET",
+        trasa="/api/v1/super-admin/tenants/{tenant_uuid}/bloki",
+        kto_moze="wyłącznie superadmin SF",
+        pulapki=(
+            "w ścieżce jest UUID Organizacji DOCELOWEJ, nie numer porządkowy — Kit tłumaczy "
+            "`--dla <slug>` sam; `--org` zostaje Twoją Organizacją roboczą",
+            "lista ma tylko bloki z zakresem `granted`; blok `universal` (np. `core/*`) "
+            "ma każda Organizacja i nie ma go tu z definicji",
+        ),
+        weryfikacja="sama odpowiedź jest stanem — pole `przyznany` przy każdym bloku",
+    ),
+    Operacja(
+        nazwa="blok-przyznaj",
+        tytul="przyznaj albo odbierz Organizacji blok stron `granted`",
+        metoda="PUT",
+        trasa="/api/v1/super-admin/tenants/{tenant_uuid}/bloki/{rodzina}/{nazwa}",
+        kto_moze="wyłącznie superadmin SF",
+        wymagane=("przyznany",),
+        odrzucane={
+            "wersja": "przyznanie obejmuje wszystkie wersje bloku (`@1`, `@2`…) — "
+                      "referencja w ścieżce jest bez `@`",
+            "powod": "trasa nie przyjmuje powodu; ślad (kto, kiedy, przed/po) zapisuje SF sam "
+                     "w `tenant_settings_log` i na osi Organizacji",
+            "organizacje": "listy Organizacji tędy się nie ustawia — jedno żądanie, jedna "
+                           "Organizacja w ścieżce",
+        },
+        pulapki=(
+            "`przyznany: false` to ODEBRANIE; sekcje już stojące na stronach zostają — "
+            "odebranie blokuje kolejny import i dodawanie nowych sekcji tego typu",
+            "ten sam stan drugi raz = 200 bez śladu; Kit odczytuje stan przed zapisem i wtedy "
+            "nie wysyła nic",
+            "blok `universal` albo spoza biblioteki = 422 z powodem po polsku",
+            "K4 (kto zapisuje przyznanie) czeka na potwierdzenie Damiana — przy wariancie "
+            "„lista Organizacji w manifeście bloku” ta trasa przestaje być źródłem prawdy",
+        ),
+        weryfikacja="stan z odpowiedzi PUT porównany z zamiarem (pole `przyznany` tego bloku)",
     ),
 )
 

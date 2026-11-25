@@ -1053,6 +1053,35 @@ odmowę dało się przeczytać. Powód: `agent-dodaj` wymaga superadmina SF, `na
 odsiewane są polecenia zlecania. Bramka po cudzym uprawnieniu odebrałaby polecenie komuś,
 kto ma prawo je wykonać.
 
+#### Przyznania bloków stron Organizacji (0.23, SF-517)
+
+Biblioteka bloków stron SF ma bloki **dla każdego** (`universal`, np. `core/hero`) i bloki
+**przyznawane** (`granted`, np. `lib/vehicle_list`). Blok przyznawany Organizacja dostaje
+dopiero wtedy, gdy superadmin go przyzna. Bez tego import manifestu z tym blokiem odpada,
+a Kompozytor nie proponuje go do dodania.
+
+```bash
+sf-kit blok-przyznane --dla fixforum                    # co jest przyznawane i co ta Organizacja ma
+sf-kit blok-przyznaj lib/vehicle_list --dla fixforum    # przyznaj
+sf-kit blok-odbierz  lib/vehicle_list --dla fixforum    # odbierz (sekcje już na stronach zostają)
+```
+
+- **`--dla`, nie `--org`.** `--org` to Twoja Organizacja robocza (musisz w niej być członkiem).
+  `--dla` to Organizacja, której przyznajesz blok, a superadmin zwykle nie jest w niej członkiem.
+  Przyjmuje slug albo uuid. Kit tłumaczy slug przez `GET /tenants`, bo superadmin widzi tam
+  wszystkie Organizacje.
+- **Kody wyjścia:** `0` gotowe (także „bez zmian”), `1` odmowa albo awaria serwera,
+  `2` błąd wywołania: brak `--dla`, nieznany slug, zła referencja albo blok, który nie jest
+  przyznawany. Przy kodzie 2 Kit nic nie zapisał.
+- **Ten sam stan drugi raz** nie wysyła zapisu. Kit najpierw odczytuje stan.
+- **Sukces to stan po zapisie**, nie kod 200. Jeśli odpowiedź nie pokazuje zmiany, Kit kończy kodem 1.
+- **Wersja w referencji** (`lib/vehicle_list@1`) jest zdejmowana z uwagą, bo przyznanie obejmuje
+  wszystkie wersje.
+- **Ślad** zapisuje SF: ustawienia Organizacji (kto, przed i po) oraz wpis na osi Organizacji.
+- **Nie ma tego pod `sf-kit blok`.** `blok` czyta bloki osi i w pakiecie jest narzędziem MCP
+  tylko do odczytu. Polecenia przyznań nie trafiają do pakietu MCP ani do komend wtyczki.
+- Do wydania R5 (SF-517) na danym serwerze Kit mówi wprost: „serwer nie zna tras przyznań”.
+
 ---
 
 ### 9a. Scenariusze profilu ASYSTENT

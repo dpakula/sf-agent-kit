@@ -1,5 +1,7 @@
 """Rozmowa z SalesForge. Wyłącznie biblioteka standardowa — zero `pip install`.
 
+v0.3 (25.11.2026) - APro Agents / arek-sf
+  0.3 — SF-517: `organizacja_docelowa()`, `bloki_przyznawane()`, `ustaw_przyznanie()` (przyznania bloków stron).
 v0.2 (28.09.2026) - APro Agents / borys-sf
   0.2 — SF-86: `potwierdz_odbior(instancja, generacja)`, `dzierzawa()`; SF-87: `puls()`.
 v0.1 (14.09.2026) - APro Agents / borys-sf
@@ -147,12 +149,19 @@ class Konflikt(BladAPI):
     """409 — ktoś zmienił obiekt przed nami. Pobierz od nowa i spróbuj raz jeszcze."""
 
 
+class NieznanaOrganizacja(BladAPI):
+    """Wskazanie Organizacji, którego Kit nie rozwiązał — błąd wywołania, nie odmowa serwera."""
+
+
 import re as _re
 
 #: Trzy kształty odmowy uprawnienia w SF (0.14.1): `API key lacks permission: X`,
 #: `Missing permission: X or Y`, `Brak uprawnienia: X` — treść `detail` z odpowiedzi 403.
 _WZOR_BRAKU = _re.compile(r"(?:lacks permission|Missing permission|Brak uprawnienia):\s*"
                           r"([a-z_]+:[a-z_:\-]+(?:\s+or\s+[a-z_]+:[a-z_:\-]+)*)")
+
+#: Uuid Organizacji docelowej podany wprost (przyznania bloków, SF-517) — puszczany do serwera bez listy.
+_WZORZEC_UUID = _re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 def _brakujace_uprawnienie(tresc: str) -> str:
@@ -1326,6 +1335,47 @@ class Klient:
             cialo["board_root"] = katalog
         cialo.update(dodatkowe or {})
         return self._wywolaj("PATCH", f"tenants/{numer}/agents/{konto}", cialo=cialo)
+
+    # ── przyznania bloków stron per Organizacja (SF-517 R5, K4) ─────────────
+    #
+    # Tu ścieżka niesie UUID Organizacji, nie numer — inaczej niż trasy wyżej. Organizacja
+    # w ścieżce jest DOCELOWA (operacja superadmina na cudzej), a nagłówek zostaje przy
+    # Organizacji wołającego, tak jak w przełączniku modułów SF.
+
+    def organizacja_docelowa(self, wskazanie: str) -> dict:
+        """Slug albo uuid → `{uuid, slug, name}` Organizacji, NA której wykonujemy operację.
+
+        `GET /tenants` oddaje superadminowi wszystkie Organizacje, więc slug FixForum
+        rozwiązuje się bez członkostwa w niej. Uuid spoza listy puszczamy dalej (rozstrzyga
+        serwer: 403 albo 404), slugu spoza listy NIE — slug nie ma czym się obronić przed literówką.
+        """
+        szukane = (wskazanie or "").strip().lower()
+        if not szukane:
+            raise NieznanaOrganizacja("brak Organizacji docelowej. Dodaj `--dla <slug|uuid>`.")
+        lista = self.organizacje_z_numerem()
+        for org in lista:
+            if szukane in {str(org.get("slug", "")).lower(), str(org.get("uuid", "")).lower()}:
+                return {"uuid": str(org.get("uuid")), "slug": org.get("slug") or "",
+                        "name": org.get("name") or ""}
+        if _WZORZEC_UUID.match(szukane):
+            return {"uuid": szukane, "slug": "", "name": ""}
+        raise NieznanaOrganizacja(
+            f"nie widzę Organizacji „{szukane}” (znam {len(lista)}: "
+            f"{', '.join(sorted(str(o.get('slug', '?')) for o in lista)[:20]) or 'żadnej'}).")
+
+    def bloki_przyznawane(self, tenant_uuid: str) -> list[dict]:
+        """`GET /super-admin/tenants/{uuid}/bloki` — bloki `granted` biblioteki + `przyznany`."""
+        odp = self._wywolaj("GET", f"super-admin/tenants/{tenant_uuid}/bloki")
+        bloki = odp.get("bloki") if isinstance(odp, dict) else None
+        return [b for b in bloki if isinstance(b, dict)] if isinstance(bloki, list) else []
+
+    def ustaw_przyznanie(self, tenant_uuid: str, referencja: str, przyznany: bool) -> list[dict]:
+        """`PUT …/bloki/{rodzina}/{nazwa}` `{przyznany}` — oddaje stan PO zapisie (całą listę)."""
+        rodzina, _, nazwa = referencja.partition("/")
+        odp = self._wywolaj("PUT", f"super-admin/tenants/{tenant_uuid}/bloki/{rodzina}/{nazwa}",
+                            cialo={"przyznany": bool(przyznany)})
+        bloki = odp.get("bloki") if isinstance(odp, dict) else None
+        return [b for b in bloki if isinstance(b, dict)] if isinstance(bloki, list) else []
 
     def probne_wywolanie(self, klucz: str) -> dict:
         """`GET /me` CUDZYM kluczem — czy świeżo wystawiony sekret naprawdę działa.

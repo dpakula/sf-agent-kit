@@ -2,7 +2,7 @@
 name: "sf-leads"
 description: "Zakładka Leady: lista albo karta leada ze stanem przekazania do CRM"
 ---
-<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.22.0; nie edytuj ręcznie -->
+<!-- wygenerowano z pakiet/komendy.json przez sf-kit 0.23.0; nie edytuj ręcznie -->
 
 Uruchom w terminalu: `sf-kit leady …` (argumenty z prośby człowieka; składnia: `[numer|link] [--szukaj TEKST]`)
 
